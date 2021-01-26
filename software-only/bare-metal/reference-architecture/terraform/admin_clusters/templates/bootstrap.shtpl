@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+
+# Copyright 2023 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+if ! test -f $${HOME}/bin/bmctl-${bare_metal_version}; then
+    echo "bmctl-${bare_metal_version} does not exist, downloading..."
+    mkdir $${HOME}/bin
+    gsutil -q cp gs://anthos-baremetal-release/bmctl/${bare_metal_version}/linux-amd64/bmctl $${HOME}/bin/bmctl-${bare_metal_version} && \
+    chmod +x $${HOME}/bin/bmctl-${bare_metal_version}
+    if ! test -f $${HOME}/bin/bmctl-${bare_metal_version}; then
+        echo "Failed to download bmctl-${bare_metal_version}, exiting!"
+        exit 1
+    fi
+fi
+
+if ! test -f $${HOME}/.ssh/gdcv_ssh_id_rsa ; then
+    echo "$${HOME}/.ssh/gdcv_ssh_id_rsa does not exist, exiting!"
+    exit 2
+fi
+
+if ! test -f $${HOME}/keys/gdcv_baremetal_cloud_ops.json ; then
+    echo "$${HOME}/keys/gdcv_baremetal_cloud_ops.json does not exist, exiting!"
+    exit 3
+fi
+
+if ! test -f $${HOME}/keys/gdcv_baremetal_connect_agent.json ; then
+    echo "$${HOME}/keys/gdcv_baremetal_connect_agent.json does not exist, exiting!"
+    exit 4
+fi
+
+if ! test -f $${HOME}/keys/gdcv_baremetal_fleet_admin.json ; then
+    echo "$${HOME}/keys/gdcv_baremetal_fleet_admin.json does not exist, exiting!"
+    exit 5
+fi
+
+if ! test -f $${HOME}/keys/gdcv_baremetal_registry.json ; then
+    echo "$${HOME}/keys/gdcv_baremetal_registry.json does not exist, exiting!"
+    exit 6
+fi
+
+echo "Starting ${bare_metal_version} bootstrap cluster"
+nohup $${HOME}/bin/bmctl-${bare_metal_version} register bootstrap \
+--cloud-operation-service-account-key $${HOME}/keys/gdcv_baremetal_cloud_ops.json \
+--gcr-service-account-key $${HOME}/keys/gdcv_baremetal_registry.json \
+--gke-agent-service-account-key $${HOME}/keys/gdcv_baremetal_connect_agent.json \
+--gke-register-service-account-key $${HOME}/keys/gdcv_baremetal_fleet_admin.json \
+--ssh-key $${HOME}/.ssh/gdcv_ssh_id_rsa \
+--name bootstrap-${cluster_name} \
+--project-id ${fleet_project_id} &
+
+sleep 10
+cat nohup.out
+
+exit 0

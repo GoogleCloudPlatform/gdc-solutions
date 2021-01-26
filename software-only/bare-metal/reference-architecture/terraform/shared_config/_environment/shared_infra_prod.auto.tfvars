@@ -1,0 +1,1 @@
+../projects/shared_infra_prod.auto.tfvars

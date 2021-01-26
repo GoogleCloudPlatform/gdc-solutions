@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/streetsidesoftware/cspell/main/cspell.schema.json",
+  "version": "0.2",
+  "dictionaryDefinitions": [
+    {
+      "name": "gdc-solutions",
+      "path": ".github/dictionary/gdc-solutions.txt"
+    },
+  ],
+  "dictionaries": [
+    "gdc-solutions",
+  ],
+  "ignorePaths": [],
+}

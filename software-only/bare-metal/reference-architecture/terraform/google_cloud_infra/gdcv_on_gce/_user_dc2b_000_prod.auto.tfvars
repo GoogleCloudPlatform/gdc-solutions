@@ -1,0 +1,1 @@
+../../shared_config/clusters/user/user_dc2b_000_prod.auto.tfvars

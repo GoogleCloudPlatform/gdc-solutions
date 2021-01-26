@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+
+# Copyright 2023 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+set -x
+
+# Install packages
+apt-get update
+apt-get install -y jq
+
+# Disable Uncomplicated Firewall (ufw)
+ufw disable
+
+# Add group and user
+addgroup \
+--gid 2000 \
+${login_user}
+
+adduser \
+--disabled-password \
+--gecos "${login_user} user" \
+--gid 2000 \
+--uid 2000 \
+${login_user}
+
+# Configure user for passwordless sudo
+echo -e "${login_user}\tALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/${login_user}
+
+# Create the GDC-V user's .ssh directory
+mkdir --mode=700 -p ~${login_user}/.ssh
+chown ${login_user}:${login_user} ~${login_user}/.ssh
+gcloud secrets versions access ${ssh_public_key_secret_version} --project ${secret_project_id} --secret ${ssh_public_key_secret_id} > ~${login_user}/.ssh/authorized_keys
+chmod go-rwx ~${login_user}/.ssh/authorized_keys
+chown ${login_user}:${login_user} ~${login_user}/.ssh/authorized_keys
+
+exit 0

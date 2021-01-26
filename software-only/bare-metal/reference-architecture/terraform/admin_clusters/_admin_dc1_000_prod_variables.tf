@@ -1,0 +1,1 @@
+../shared_config/_variables/admin_dc1_000_prod_variables.tf

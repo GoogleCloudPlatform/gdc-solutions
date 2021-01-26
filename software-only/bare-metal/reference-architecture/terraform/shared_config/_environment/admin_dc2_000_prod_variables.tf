@@ -1,0 +1,1 @@
+../_variables/admin_dc2_000_prod_variables.tf

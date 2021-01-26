@@ -1,0 +1,1 @@
+../../shared_config/_variables/build_prod_variables.tf

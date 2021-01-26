@@ -1,0 +1,61 @@
+# Copyright 2020 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+apiVersion: baremetal.cluster.gke.io/v1
+kind: Cluster
+metadata:
+  name: ${CLUSTER_NAME}
+  namespace: cluster-${CLUSTER_NAME}
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+      - ${K8S_POD_CIDR}
+    services:
+      cidrBlocks:
+      - ${K8S_SERVICE_CIDR}
+  clusterOperations:
+    enableApplication: true
+    location: ${ABMRA_CLOUD_OPS_REGION}
+    projectID: ${ABMRA_PLATFORM_PROJECT_ID}
+  controlPlane:
+    nodePoolSpec:
+      nodes:
+${CONTROL_PLANE_NODE_POOL}
+  gkeConnect:
+    connectServiceAccountSecret:
+    projectID: ${ABMRA_PLATFORM_PROJECT_ID}
+  loadBalancer:
+    addressPools:
+    - addresses:
+      - ${LB_ADDRESS_POOL}
+      name: pool1
+    mode: bundled
+    vips:
+      controlPlaneVIP: ${CP_LB_VIP}
+      ingressVIP: ${INGRESS_LB_VIP}
+  nodeAccess:
+    loginUser: ${ABMRA_DEPLOYMENT_USER}
+  nodeConfig:
+    containerRuntime: containerd
+  type: hybrid
+---
+apiVersion: baremetal.cluster.gke.io/v1
+kind: NodePool
+metadata:
+  name: node-pool-1
+  namespace: cluster-${CLUSTER_NAME}
+spec:
+  clusterName: ${CLUSTER_NAME}
+  nodes:
+${WORKER_NODE_POOL}
