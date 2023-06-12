@@ -1,4 +1,4 @@
-# Deploy to GCE instances with VXLAN
+# Deploy to GCE instances with manual load balancers(Proxy load balancers)
 
 ## Google Cloud Platform(GCP) account requirements
 
@@ -8,10 +8,10 @@ See the [Logging into gcloud](https://cloud.google.com/anthos/clusters/docs/bare
 
 The following quota limits are required in the ABMRA_PLATFORM_PROJECT_ID project to provision all of the instances with the default configuration:
 
-| Service            | Limit name      | Dimensions (e.g location) | Limit |
-|--------------------|-----------------|---------------------------|-------|
-| Compute Engine API | N2 CPUs         | region: us-central1       | 100   |
-| Compute Engine API | N2 CPUs         | region: us-west1          | 96    |
+| Service            | Limit name | Dimensions (e.g location) | Limit |
+| ------------------ | ---------- | ------------------------- | ----- |
+| Compute Engine API | N2 CPUs    | region: us-central1       | 100   |
+| Compute Engine API | N2 CPUs    | region: us-west1          | 96    |
 
 ## Prepare Cloud Shell
 
@@ -44,10 +44,11 @@ The following quota limits are required in the ABMRA_PLATFORM_PROJECT_ID project
    export ABMRA_PLATFORM_PROJECT_ID=project-1-platform-prod
    export ABMRA_APP_PROJECT_ID=project-2-bofa-prod
    ```
-1. **[Cloud Shell]** Enable additional configuration for GCE with VXLAN:
+1. **[Cloud Shell]** Enable additional configuration for GCE with manual load balancers
    ```
+   export ABMRA_BASE_CONF=hybrid-manual-lb
    export ABMRA_ADDITIONAL_CONF=gce
-   ```   
+   ```
 1. **[Cloud Shell]** Change directory into `anthos-bare-metal-ref-arch`
    ```
    cd anthos-bare-metal-ref-arch
@@ -109,10 +110,11 @@ To create the Shared VPC in the ABMRA_NETWORK_PROJECT_ID project, the `Compute S
    export ABMRA_PLATFORM_PROJECT_ID=project-1-platform-prod
    export ABMRA_APP_PROJECT_ID=project-2-bofa-prod
    ```
-1. **[Admin Host]** Enable additional configuration for GCE with VXLAN
+1. **[Admin Host]** Enable additional configuration for GCE with manual load balancers
    ```
+   export ABMRA_BASE_CONF=hybrid-manual-lb
    export ABMRA_ADDITIONAL_CONF=gce
-   ```   
+   ```
 1. **[Admin Host]** Change directory into `anthos-bare-metal-ref-arch`
    ```
    cd anthos-bare-metal-ref-arch
@@ -158,18 +160,26 @@ To create the Shared VPC in the ABMRA_NETWORK_PROJECT_ID project, the `Compute S
    ```
    ${ABMRA_WORK_DIR}/scripts/gcp/004_validate_deployment_user.sh
    ```
-1. **[Admin Host]** Create the VXLAN network
+
+## Create the control plane load balancers
+
+1. Connect to the administrative host
+1. **[Admin Host]** Create the control plane load balancer
    ```
-   ${ABMRA_WORK_DIR}/scripts/gcp/005_create_vxlan_network.sh
+   ${ABMRA_WORK_DIR}/scripts/gcp/lb-proxy/001_create_cp_lb.sh
    ```
-1. **[Admin Host]** Validate the VXLAN network
+1. **[Admin Host]** Create the ingress load balancer address
    ```
-   ${ABMRA_WORK_DIR}/scripts/gcp/006_validate_vxlan_network.sh
+   ${ABMRA_WORK_DIR}/scripts/gcp/lb-proxy/002_create_ingress_lb_address.sh
    ```
 
 ## Prepare the cluster configuration files
 
 1. Connect to the administrative host
+1. **[Admin Host]** Generate the configuration files
+   ```
+   ${ABMRA_WORK_DIR}/scripts/gcp/lb-proxy/003_generate_conf_files.sh
+   ```
 1. **[Admin Host]** Prepare the cluster configuration files
    ```
    ${ABMRA_WORK_DIR}/scripts/004_prepare_configuration_files.sh
@@ -192,6 +202,13 @@ To create the Shared VPC in the ABMRA_NETWORK_PROJECT_ID project, the `Compute S
    ```
 1. Open the URL provided by the script
 1. Verify that all clusters show healthy
+
+## Create the ingress load balancers
+
+1. **[Admin Host]** Create the ingress load balancer
+   ```
+   ${ABMRA_WORK_DIR}/scripts/gcp/lb-proxy/004_create_ingress_lb.sh
+   ```
 
 ## Configure Anthos Config Management(ACM)
 
@@ -216,16 +233,23 @@ To create the Shared VPC in the ABMRA_NETWORK_PROJECT_ID project, the `Compute S
    ${ABMRA_WORK_DIR}/scripts/009_setup_asm.sh
    ```
 1. **[Admin Host]** Verify ASM
+
    ```
    ${ABMRA_WORK_DIR}/scripts/010_verify_asm.sh
    ```
+
    **Verify the following**:
+
    - Deployments and Pods are READY.
-   - Service is created and the `EXTERNAL-IP` is populated.
+
+1. **[Admin Host]** Create the ASM load balancer
+   ```
+   ${ABMRA_WORK_DIR}/scripts/gcp/lb-proxy/005_create_asm_lb.sh
+   ```
 
 ## Deploy the example application
 
-See the [Deploy the application](deploy-the-application-boa.md) guide.
+See the [Deploy the application](/docs/scripts/deploy-the-application-boa.md) guide.
 
 ## Tear down
 
@@ -258,9 +282,9 @@ To delete all of the resources, the instances and projects can just be deleted. 
    ```
    ${ABMRA_WORK_DIR}/scripts/gcp/995_delete_cluster_instances.sh
    ```
-1. **[Admin Host]** Delete the VXLAN network configurations
+1. **[Admin Host]** Delete the load balancers
    ```
-   ${ABMRA_WORK_DIR}/scripts/gcp/996_delete_vxlan_network.sh
+   ${ABMRA_WORK_DIR}/scripts/gcp/lb-proxy/999_delete_lbs.sh
    ```
 1. **[Admin Host]** Delete the cluster configurations
    ```

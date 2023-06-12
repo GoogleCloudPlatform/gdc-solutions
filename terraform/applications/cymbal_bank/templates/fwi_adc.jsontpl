@@ -1,0 +1,11 @@
+{
+  "audience": "identitynamespace:${fwi_workload_identity_pool}:${fwi_identity_provider}",
+  "credential_source": {
+    "file": "/var/run/secrets/tokens/gcp-ksa/token"
+  },
+  "project_id": "${google_project_id}",
+  "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${google_service_account_email}:generateAccessToken",
+  "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+  "token_url": "https://sts.googleapis.com/v1/token",
+  "type": "external_account"
+}

@@ -1,5 +1,5 @@
 This repository has been validated against the following versions:
-- Anthos on bare metal/`bmctl` 1.12.2
-- Anthos Config Management 1.12.1
-- Anthos Service Mesh 1.14.3-asm.1
-- Google Cloud SDK 402.0.0
+
+- GDCV for Bare Metal 1.29.100-gke.251
+- Google Cloud SDK 483.0.0
+- Terraform 1.5.7
