@@ -19,7 +19,7 @@ source ${ABMRA_WORK_DIR}/scripts/helpers/include.sh
 echo_title "Download bmctl-${ABMRA_BMCTL_VERSION} binary"
 
 mkdir -p ${ABMRA_WORK_DIR}/bin
-print_and_execute "gsutil cp gs://anthos-baremetal-release/bmctl/${ABMRA_BMCTL_VERSION}/linux-amd64/bmctl ${ABMRA_WORK_DIR}/bin/bmctl"
+print_and_execute "gcloud storage cp gs://anthos-baremetal-release/bmctl/${ABMRA_BMCTL_VERSION}/linux-amd64/bmctl ${ABMRA_WORK_DIR}/bin/bmctl"
 print_and_execute "chmod a+x ${ABMRA_WORK_DIR}/bin/bmctl"
 print_and_execute "sudo cp -p ${ABMRA_WORK_DIR}/bin/bmctl /usr/local/bin/"
 
