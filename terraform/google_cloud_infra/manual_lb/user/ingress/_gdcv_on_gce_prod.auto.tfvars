@@ -1,0 +1,1 @@
+../../../../shared_config/projects/gdcv_on_gce_prod.auto.tfvars

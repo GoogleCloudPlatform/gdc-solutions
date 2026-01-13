@@ -1,0 +1,1 @@
+../../../shared_config//_variables/user_dc2a_000_prod_variables.tf

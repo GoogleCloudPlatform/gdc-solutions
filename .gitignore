@@ -1,5 +1,20 @@
-.local/
+# Terraform files
+*.lock.hcl
+*.tfstate
+*.tfstate.backup
+*.tfstate.lock.info
 
+# Directories
+.local/
+.manifests/
+.terraform/
+
+# Files
+default.tfstate
+default.tfstate.backup
+tfplan
+
+# Absolute directories
 /.manifests/
 /.theia/
 /.vscode/
@@ -9,9 +24,15 @@
 /bmctl-workspace/
 /conf/
 /keys/
+/kubeconfig/
 /logs/
+/ssh/
+/terraform/admin_clusters/scripts/
 /tmp/
 
+# Absolute files
 /scripts/host.sh
 /scripts/vars*.sh
 
+# Development (Uncomment when developing)
+#versions.tf*
