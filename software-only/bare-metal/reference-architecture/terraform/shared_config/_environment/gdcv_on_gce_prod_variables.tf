@@ -1,0 +1,1 @@
+../_variables/gdcv_on_gce_prod_variables.tf

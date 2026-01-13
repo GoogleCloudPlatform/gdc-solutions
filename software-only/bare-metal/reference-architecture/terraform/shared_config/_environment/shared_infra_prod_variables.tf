@@ -1,0 +1,1 @@
+../_variables/shared_infra_prod_variables.tf
