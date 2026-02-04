@@ -1,0 +1,44 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+images:
+  - ${LOCATION}-docker.pkg.dev/${PROJECT_ID}/cicd/runner:latest
+
+options:
+  automapSubstitutions: true
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - args:
+      - "${_WAIT_FOR_TRIGGER}"
+    entrypoint: "test/cicd/scripts/cloudbuild/wait_for_trigger.sh"
+    env:
+      - "LOCATION=${LOCATION}"
+      - "PROJECT_ID=${PROJECT_ID}"
+    id: "Check triggers"
+    name: "${LOCATION}-docker.pkg.dev/${PROJECT_ID}/cicd/runner:latest"
+    waitFor: ["-"]
+
+  - args:
+      - build
+      - --build-arg=AR_LOCATION=${LOCATION}
+      - --build-arg=AR_PROJECT_ID=${PROJECT_ID}
+      - --build-context=my_context=test/cicd/container_images/cicd_runner/context
+      - --tag=${LOCATION}-docker.pkg.dev/${PROJECT_ID}/cicd/runner:latest
+      - --file=test/cicd/container_images/cicd_runner/Dockerfile
+      - .
+    id: "Build CI/CD runner image"
+    name: "${LOCATION}-docker.pkg.dev/${PROJECT_ID}/cicd/docker-builder:latest"
+    waitFor:
+      - "Check triggers"
