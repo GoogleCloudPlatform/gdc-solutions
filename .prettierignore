@@ -1,0 +1,4 @@
+# Ignore files handled by other tools
+*.tf
+*.sh
+.devcontainer/Dockerfile

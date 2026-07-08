@@ -8,6 +8,12 @@
 
 - [Google Distributed Cloud (software only) for bare metal reference architecture](/docs/software-only_bare-metal_reference-architecture/README.md)
 
+## Development Setup
+
+The easiest way to get started is by using the pre-configured [Dev Container](file:///Users/rueth/Development/gdc-solutions/.devcontainer) included in this repository.
+
+If Dev Containers are not available, you can set up your local environment manually. See the [Local Development Setup Guide](file:///Users/rueth/Development/gdc-solutions/docs/development.md) for tool requirements and installation steps.
+
 ## Contributing
 
 Contributions to this repository are always welcome and highly encouraged.
