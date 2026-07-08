@@ -1,0 +1,56 @@
+# lefthook.yml
+#
+# Refer to https://github.com/evilmartians/lefthook for documentation
+
+pre-commit:
+  commands:
+    # Format Python files
+    black:
+      glob: "*.py"
+      run: black {staged_files}
+      stage_fixed: true
+
+    # Check CSpell Dictionary
+    check-cspell-dictionary:
+      glob: ".github/dictionary/*.txt"
+      run: bash .github/workflows/bin/check_cspell_dictionaries.sh
+
+    # Run spell check on staged files
+    cspell:
+      glob: "*"
+      run: npx --no-install --prefix .devcontainer/dependencies cspell --config cspell.json {staged_files}
+
+    # Trailing whitespace & EOF fixer
+    fix-whitespace-eof:
+      run: python3 .github/workflows/bin/fix_whitespace_eof.py {staged_files}
+      stage_fixed: true
+
+    # Sort Python imports
+    isort:
+      glob: "*.py"
+      run: isort --profile black {staged_files}
+      stage_fixed: true
+
+    # Format JSON, YAML, and Markdown files
+    prettier:
+      glob: "*.{json,yaml,yml,md}"
+      run: npx  --no-install --prefix .devcontainer/dependencies prettier --write {staged_files}
+      stage_fixed: true
+
+    # ShellCheck
+    shellcheck:
+      glob: "*.sh"
+      run: shellcheck {staged_files}
+
+    # Format shell scripts
+    shfmt:
+      glob: "*.sh"
+      run: shfmt -w {staged_files}
+      stage_fixed: true
+
+    # Format Terraform
+    terraform-fmt:
+      glob: "*.tf"
+      run: terraform fmt {staged_files}
+      stage_fixed: true
+  parallel: true

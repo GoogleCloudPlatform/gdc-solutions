@@ -1,0 +1,21 @@
+{
+  "endOfLine": "lf",
+  "multilineArraysWrapThreshold": 0,
+  "overrides": [
+    {
+      "files": [
+        "**/*.md"
+      ],
+      "options": {
+        "proseWrap": "always"
+      }
+    }
+  ],
+  "plugins": [
+    "prettier-plugin-multiline-arrays"
+  ],
+  "semi": true,
+  "tabWidth": 2,
+  "trailingComma": "all",
+  "useTabs": false
+}

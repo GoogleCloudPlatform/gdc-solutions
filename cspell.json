@@ -5,10 +5,10 @@
     {
       "name": "gdc-solutions",
       "path": ".github/dictionary/gdc-solutions.txt"
-    },
+    }
   ],
   "dictionaries": [
-    "gdc-solutions",
+    "gdc-solutions"
   ],
-  "ignorePaths": [],
+  "ignorePaths": []
 }

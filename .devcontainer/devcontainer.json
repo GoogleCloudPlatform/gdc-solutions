@@ -1,0 +1,35 @@
+{
+  "build": {
+    "context": "..",
+    "dockerfile": "Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "esbenp.prettier-vscode",
+        "foxundermoon.shell-format@7.2.5",
+        "hashicorp.terraform",
+        "ms-python.black-formatter",
+        "ms-python.python",
+        "streetsidesoftware.code-spell-checker",
+        "timonwong.shellcheck"
+      ],
+      "settings": {
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.formatOnSave": true
+        },
+        "[shellscript]": {
+          "editor.defaultFormatter": "foxundermoon.shell-format"
+        },
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "shellformat.path": "${containerEnv:HOME}/.local/bin/shfmt",
+        "terraform.languageServer.enable": true
+      }
+    }
+  },
+  "features": {},
+  "name": "GDC Solutions Dev Container",
+  "postCreateCommand": "ln -sfn /tmp/dependencies/node_modules .devcontainer/dependencies/node_modules && ln -sfn .devcontainer/dependencies/node_modules node_modules && lefthook install"
+}

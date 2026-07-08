@@ -25,7 +25,8 @@ From the repository root directory
 ./scripts/auto/deploy-to-gce-instances-gpu/run.sh
 ```
 
-> **Note**: Complete the Admin Host `gcloud login` before leaving the script unattended
+> **Note**: Complete the Admin Host `gcloud login` before leaving the script
+> unattended
 
 ### Run the cleanup automation script
 
@@ -60,7 +61,8 @@ From the repository root directory
 ./scripts/auto/deploy-to-gce-instances-lb-proxy/run.sh
 ```
 
-> **Note**: Complete the Admin Host `gcloud login` before leaving the script unattended
+> **Note**: Complete the Admin Host `gcloud login` before leaving the script
+> unattended
 
 ### Run the cleanup automation script
 
@@ -95,7 +97,8 @@ From the repository root directory
 ./scripts/auto/deploy-to-gce-instances-vxlan/run.sh
 ```
 
-> **Note**: Complete the Admin Host `gcloud login` before leaving the script unattended
+> **Note**: Complete the Admin Host `gcloud login` before leaving the script
+> unattended
 
 ### Run the cleanup automation script
 

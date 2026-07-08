@@ -8,15 +8,24 @@
 
 - [Google Distributed Cloud (software only) for bare metal reference architecture](/docs/software-only_bare-metal_reference-architecture/README.md)
 
+## Development Setup
+
+The easiest way to get started is by using the pre-configured
+[Dev Container](/.devcontainer) included in this repository.
+
+If Dev Containers are not available, you can set up your local environment
+manually. See the [Local Development Setup Guide](/docs/development.md) for tool
+requirements and installation steps.
+
 ## Contributing
 
 Contributions to this repository are always welcome and highly encouraged.
 
 See [CONTRIBUTING](CONTRIBUTING.md) for more information how to get started.
 
-Please note that this project is released with a Contributor Code of Conduct. By participating in
-this project you agree to abide by its terms. See [Code of Conduct](CODE_OF_CONDUCT.md) for more
-information.
+Please note that this project is released with a Contributor Code of Conduct. By
+participating in this project you agree to abide by its terms. See
+[Code of Conduct](CODE_OF_CONDUCT.md) for more information.
 
 ## License
 

@@ -1,6 +1,7 @@
 # Deploy the application
 
-The Bank of Anthos source code can be found at https://github.com/GoogleCloudPlatform/bank-of-anthos.
+The Bank of Anthos source code can be found at
+https://github.com/GoogleCloudPlatform/bank-of-anthos.
 
 ## Clone the Bank of Anthos repository
 
@@ -19,7 +20,8 @@ The Bank of Anthos source code can be found at https://github.com/GoogleCloudPla
    ${ABMRA_WORK_DIR}/scripts/012_deploy_application.sh
    ```
 
-   > **NOTE**: If you get an error message such as: `namespaces "bofa" not found` ACM was not configured properly.
+   > **NOTE**: If you get an error message such as:
+   > `namespaces "bofa" not found` ACM was not configured properly.
 
 1. **[Admin Host]** Verify the application
    ```

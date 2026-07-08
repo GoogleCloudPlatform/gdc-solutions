@@ -2,11 +2,16 @@
 
 ## Google Cloud Platform(GCP) account requirements
 
-See the [Logging into gcloud](https://cloud.google.com/anthos/clusters/docs/bare-metal/installing/install-prereq#logging_into_gcloud) section of the [Installation prerequisites overview](https://cloud.google.com/anthos/clusters/docs/bare-metal/installing/install-prereq) documentation for the IAM role requirements.
+See the
+[Logging into gcloud](https://cloud.google.com/anthos/clusters/docs/bare-metal/installing/install-prereq#logging_into_gcloud)
+section of the
+[Installation prerequisites overview](https://cloud.google.com/anthos/clusters/docs/bare-metal/installing/install-prereq)
+documentation for the IAM role requirements.
 
 ### Quota
 
-The following quota limits are required in the ABMRA_PLATFORM_PROJECT_ID project to provision all of the instances with the default configuration:
+The following quota limits are required in the ABMRA_PLATFORM_PROJECT_ID project
+to provision all of the instances with the default configuration:
 
 | Service            | Limit name | Dimensions (e.g location) | Limit |
 | ------------------ | ---------- | ------------------------- | ----- |
@@ -24,7 +29,8 @@ The following quota limits are required in the ABMRA_PLATFORM_PROJECT_ID project
    ```
    git clone https://github.com/GoogleCloudPlatform/gdc-solutions.git
    ```
-1. **[Cloud Shell]** Set the Organization ID or Folder ID where the projects will be created.
+1. **[Cloud Shell]** Set the Organization ID or Folder ID where the projects
+   will be created.
    > This step can be skipped if using existing projects.
    ```
    export ABMRA_ORGANIZATION_ID=
@@ -33,12 +39,14 @@ The following quota limits are required in the ABMRA_PLATFORM_PROJECT_ID project
    ```
    export ABMRA_FOLDER_ID=
    ```
-1. **[Cloud Shell]** Set the Billing Account ID of the Billing Account for the new projects.
+1. **[Cloud Shell]** Set the Billing Account ID of the Billing Account for the
+   new projects.
    > This step can be skipped if using existing projects.
    ```
    export ABMRA_BILLING_ACCOUNT_ID=
    ```
-1. **[Cloud Shell]** Set the Project IDs for the new or existing projects, if not set the following defaults will be used:
+1. **[Cloud Shell]** Set the Project IDs for the new or existing projects, if
+   not set the following defaults will be used:
    ```
    export ABMRA_NETWORK_PROJECT_ID=project-0-net-prod
    export ABMRA_PLATFORM_PROJECT_ID=project-1-platform-prod
@@ -56,7 +64,8 @@ The following quota limits are required in the ABMRA_PLATFORM_PROJECT_ID project
    ```
    ./scripts/helpers/set_variables.sh
    ```
-1. **[Cloud Shell]** Logout, the new shell configurations will take effect on next login
+1. **[Cloud Shell]** Logout, the new shell configurations will take effect on
+   next login
    ```
    logout
    ```
@@ -71,7 +80,8 @@ The following quota limits are required in the ABMRA_PLATFORM_PROJECT_ID project
 
 ## Create the Shared VPC
 
-To create the Shared VPC in the ABMRA_NETWORK_PROJECT_ID project, the `Compute Shared VPC Admin` role is required for the organization or folder.
+To create the Shared VPC in the ABMRA_NETWORK_PROJECT_ID project, the
+`Compute Shared VPC Admin` role is required for the organization or folder.
 
 1. Open Cloud Shell
 1. **[Cloud Shell]** Create the Shared VPC
@@ -103,7 +113,8 @@ To create the Shared VPC in the ABMRA_NETWORK_PROJECT_ID project, the `Compute S
    ```
    git clone https://github.com/GoogleCloudPlatform/gdc-solutions.git
    ```
-1. **[Admin Host]** Set the Project IDs for the projects, these should match the value entered above.
+1. **[Admin Host]** Set the Project IDs for the projects, these should match the
+   value entered above.
    ```
    export ABMRA_NETWORK_PROJECT_ID=project-0-net-prod
    export ABMRA_PLATFORM_PROJECT_ID=project-1-platform-prod
@@ -133,7 +144,8 @@ To create the Shared VPC in the ABMRA_NETWORK_PROJECT_ID project, the `Compute S
    ```
    ${ABMRA_WORK_DIR}/scripts/001_prepare_admin_host.sh
    ```
-1. **[Admin Host]** Logout, the new shell configurations will take effect on next login.
+1. **[Admin Host]** Logout, the new shell configurations will take effect on
+   next login.
    ```
    logout
    ```
@@ -145,7 +157,9 @@ To create the Shared VPC in the ABMRA_NETWORK_PROJECT_ID project, the `Compute S
    ```
    gcloud auth login --activate --no-launch-browser --quiet --update-adc
    ```
-   > **NOTE**: If you get an error message such as: ` gcloud: command not found` or `-bash: /snap/bin/gcloud: No such file or directory`, logout to activate the shell configuration changes.
+   > **NOTE**: If you get an error message such as: ` gcloud: command not found`
+   > or `-bash: /snap/bin/gcloud: No such file or directory`, logout to activate
+   > the shell configuration changes.
 1. **[Admin Host]** Create the GCE cluster instances
    ```
    ${ABMRA_WORK_DIR}/scripts/gcp/002_create_cluster_instances.sh
@@ -206,7 +220,8 @@ To create the Shared VPC in the ABMRA_NETWORK_PROJECT_ID project, the `Compute S
    ```
    **Verify the following**:
    - `Status` for each cluster shows `SYNCED` before proceeding.
-     > **NOTE**: Errors may be displayed while the synchronization is in progress.
+     > **NOTE**: Errors may be displayed while the synchronization is in
+     > progress.
 
 ## Configure Anthos Service Mesh(ASM)
 
@@ -225,11 +240,15 @@ To create the Shared VPC in the ABMRA_NETWORK_PROJECT_ID project, the `Compute S
 
 ## Deploy the example application
 
-See the [Deploy the application](/docs/software-only_bare-metal_reference-architecture/scripts/deploy-the-application-boa.md) guide.
+See the
+[Deploy the application](/docs/software-only_bare-metal_reference-architecture/scripts/deploy-the-application-boa.md)
+guide.
 
 ## Tear down
 
-To delete all of the resources, the instances and projects can just be deleted. To rollback the environment, the Manual rollback steps can be applied until preferred state is reached.
+To delete all of the resources, the instances and projects can just be deleted.
+To rollback the environment, the Manual rollback steps can be applied until
+preferred state is reached.
 
 ### Delete projects
 
