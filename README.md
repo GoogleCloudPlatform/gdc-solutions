@@ -1,10 +1,11 @@
 # Google Distributed Cloud (GDC) Solutions
 
-## Air-gapped
+## Jupyter Notebooks
 
-## Connected
+- [Jupyter Notebooks on GDC Reference Architecture](/docs/solutions/jupyter-notebooks/reference-architecture.md)
+  - [Jupyter Notebooks with JupyterHub on GDC-ag Reference Implementation](/docs/solutions/jupyter-notebooks/air-gapped/jupyterhub/reference-implementation.md)
 
-## Software only
+## ARCHIVED Solutions
 
 - [Google Distributed Cloud (software only) for bare metal reference architecture](/docs/software-only_bare-metal_reference-architecture/README.md)
 
