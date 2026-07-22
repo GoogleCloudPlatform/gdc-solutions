@@ -1,0 +1,116 @@
+# This file can update the JupyterHub Helm chart's default configuration values.
+#
+# For reference see the configuration reference and default values, but make
+# sure to refer to the Helm chart version of interest to you!
+#
+# Chart config reference:   https://zero-to-jupyterhub.readthedocs.io/en/stable/resources/reference.html
+# Chart default values:     https://github.com/jupyterhub/zero-to-jupyterhub-k8s/blob/HEAD/jupyterhub/values.yaml
+# Available chart versions: https://hub.jupyter.org/helm-chart/
+#
+
+# Enable culler to shutdown old user pods.
+cull:
+  enabled: true
+  timeout: 3600
+  every: 300
+
+# Remove when deployment is stable.
+debug:
+  enabled: true
+
+hub:
+  command:
+    - /bin/sh
+    - -c
+    - |
+      python3 -c "import base64; f1=open('/tmp/jupyterhub_config.py', 'wb'); f1.write(base64.b64decode(open('/usr/local/etc/jupyterhub/config/jupyterhub_config_base64', 'rb').read())); f1.close(); f2=open('/tmp/z2jh.py', 'wb'); f2.write(base64.b64decode(open('/usr/local/etc/jupyterhub/config/z2jh_base64', 'rb').read())); f2.close()" && exec jupyterhub --config /tmp/jupyterhub_config.py --upgrade-db
+  #config:
+  #  # For more Authentication and authorization options see:
+  #  # https://z2jh.jupyter.org/en/stable/administrator/authentication.html
+  #  GenericOAuthenticator:
+  #    # KeyCloak configuration (https://z2jh.jupyter.org/en/stable/administrator/authentication.html#keycloak)
+  #    admin_users:
+  #      - admin
+  #    allow_all: true
+  #    authorize_url: https://<host>/realms/<realm>/protocol/openid-connect/auth
+  #    client_id: <your-client-id>
+  #    client_secret: <your-client-secret>
+  #    login_service: keycloak
+  #    logout_redirect_url: https://<host>/realms/<realm>/protocol/openid-connect/logout?client_id=<your-client-id>&post_logout_redirect_uri=https://<your-jupyterhub-domain>/hub/login
+  #    oauth_callback_url: https://<your-jupyterhub-domain>/hub/oauth_callback
+  #    scope:
+  #      - email
+  #      - openid
+  #      - profile
+  #    token_url: https://<host>/realms/<realm>/protocol/openid-connect/token
+  #    userdata_url: https://<host>/realms/<realm>/protocol/openid-connect/userinfo
+  #    username_claim: preferred_username
+  #    userdata_params:
+  #      state: state
+  #  JupyterHub:
+  #    authenticator_class: generic-oauth
+  db:
+    #type: postgres
+    #url: postgresql+psycopg2://\$(PGUSER):\$(PGPASSWORD)@\${PGHOST}:\${PGPORT}/\${PGDATABASE}
+    type: sqlite-pvc
+  #extraEnvFrom:
+  #  - secretRef:
+  #    name: postgres-db-config
+  extraConfig:
+    ssl-verification: |
+      c.KubeSpawner.k8s_api_ssl_ca_cert = '/etc/jupyterhub/gdc-ca-chain/ca-chain.crt'
+      c.KubeSpawner.k8s_api_verify_ssl = True
+  extraVolumes:
+    - name: gdc-ca-chain
+      configMap:
+        name: gdc-ca-chain
+  extraVolumeMounts:
+    - name: gdc-ca-chain
+      mountPath: /etc/jupyterhub/gdc-ca-chain
+  image:
+    name: ${ARTIFACT_REGISTRY_URI}/jupyterhub/k8s-hub
+
+imagePullSecrets:
+  - ${ARTIFACT_REGISTRY_IMAGE_PULL_SECRET_NAME}
+
+prePuller:
+  hook:
+    image:
+      name: ${ARTIFACT_REGISTRY_URI}/jupyterhub/k8s-image-awaiter
+  pause:
+    image:
+      name: ${ARTIFACT_REGISTRY_URI}/pause
+
+proxy:
+  chp:
+    image:
+      name: ${ARTIFACT_REGISTRY_URI}/jupyterhub/configurable-http-proxy
+
+scheduling:
+  # Enable pod priority
+  podPriority:
+    enabled: true
+  # Add user placeholders, to scale up nodes ahead of real users’ arrivals.
+  userPlaceholder:
+    enabled: true
+    image:
+      name: ${ARTIFACT_REGISTRY_URI}/pause
+    # Specify the number of user pod placeholders.
+    replicas: 2
+  # Set up an autoscaling node pool and dedicate it to user pods by tainting the node and requiring user pods,
+  # which tolerate the nodes’ taint, to schedule on these nodes. This way, only user pods can then block scale down.
+  #userPods:
+  #  nodeAffinity:
+  #    matchNodePurpose: require
+  # Enable the user scheduler, to pack users tight on some nodes and let other nodes become empty and scaled down.
+  userScheduler:
+    enabled: true
+    image:
+      name: ${ARTIFACT_REGISTRY_URI}/kube-scheduler
+
+singleuser:
+  image:
+    name: ${ARTIFACT_REGISTRY_URI}/jupyterhub/k8s-singleuser-sample
+  networkTools:
+    image:
+      name: ${ARTIFACT_REGISTRY_URI}/jupyterhub/k8s-network-tools
