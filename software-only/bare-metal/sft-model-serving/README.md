@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-<!-- cspell:words vllm gradio kustomize jinja safetensors fleetpackage gkehub cloudsdktool metamathqa podmonitoring rootsync rootsyncs configsync resourcegroup cuda configdelivery kustomization serviceaccount mdformat rollouts -->
+<!-- cspell:words vllm gradio kustomize jinja safetensors fleetpackage gkehub cloudsdktool metamathqa podmonitoring rootsync rootsyncs configsync resourcegroup cuda configdelivery kustomization serviceaccount mdformat rollouts anthosconfigmanagement cloudbuild secretmanager artifactregistry googleapis -->
 
 # SFT model serving with Fleet Packages on Distributed Cloud software only
 
@@ -96,8 +96,13 @@ when they are available.
 - 💡 **TIP:** The vLLM image comes from Docker Hub, which rate-limits anonymous
   pulls, and is several GB. For production fleets, mirror the pinned images to
   your own Artifact Registry and change the `image` fields.
-- Google Cloud APIs: Config Delivery, Cloud Build, Secret Manager, GKE Hub
-  (fleet) and Cloud Storage.
+- Google Cloud APIs enabled in the fleet host project: Config Delivery
+  (`configdelivery.googleapis.com`), Config Sync
+  (`anthosconfigmanagement.googleapis.com`), Cloud Build
+  (`cloudbuild.googleapis.com`), Secret Manager
+  (`secretmanager.googleapis.com`), Artifact Registry
+  (`artifactregistry.googleapis.com`), GKE Hub (`gkehub.googleapis.com`) and
+  Cloud Storage (`storage.googleapis.com`).
 - A fine-tuned merged checkpoint (`config.json`, tokenizer files,
   `model.safetensors.index.json` and the safetensors shards) in your bucket
   under one prefix per version.
@@ -110,9 +115,14 @@ when they are available.
   `roles/iam.workloadIdentityUser` on the service account granted to
   `serviceAccount:YOUR_PROJECT_ID.svc.id.goog[sft-model-serving/vllm-llama-sft-sa]`.
 - **Publisher service account** (`YOUR_PUBLISHER_SA_NAME`, one per solution):
-  `roles/configdelivery.resourceBundlePublisher` and `roles/logging.logWriter`.
+  `roles/configdelivery.resourceBundlePublisher`,
+  `roles/artifactregistry.writer` and `roles/logging.logWriter`.
 - **Cloud Build GitHub connection:** authorized by a dedicated machine-user
-  account with read access to your fork. Don't use a personal access token.
+  account with read access to your fork (don't use a personal access token).
+  Creating a 2nd gen Cloud Build GitHub connection requires
+  `roles/secretmanager.admin` on the Cloud Build service agent
+  (`service-YOUR_PROJECT_NUMBER@gcp-sa-cloudbuild.iam.gserviceaccount.com`) so
+  Cloud Build can store the OAuth token secret in Secret Manager.
 - **Config Delivery service agent and Config Sync reconciler:** see
   [Security notes](#security-notes).
 
@@ -199,7 +209,9 @@ Other values to review:
 4.  Commit the DRY and rendered files in one pull request to your fork. After
     the merge, create the release tag (`cloudBuildRepository.path` isolates the
     solution subfolder, while Config Delivery requires bare `vX.Y.Z` tags in
-    your fork):
+    your fork; because Git tags are repository-global in a multi-solution fork
+    and can collide across solutions or upstream syncs, use a dedicated fork per
+    solution or disjoint SemVer ranges):
 
     ```bash
     git tag v1.0.0
@@ -277,13 +289,15 @@ so keep its prefix in Cloud Storage.
   `RootSync.spec.override.roleRefs`. To scope the reconciler to the kinds in
   this bundle (`Namespace`, `ServiceAccount`, `ConfigMap`,
   `PersistentVolumeClaim`, `Deployment`, `Service` and `PodMonitoring`, plus
-  `ResourceGroup` in `kpt.dev`), create a custom `ClusterRole`/`Role` and patch
+  `ResourceGroup` in `kpt.dev`), create a custom `ClusterRole`/`Role` and apply
   `spec.override.roleRefs` on `RootSync/sft-model-serving` in
-  `config-management-system` with Server-Side Apply under a separate
-  `--field-manager`. Because Config Delivery's `rollouts-manager` field manager
-  owns only `spec.override.resources`, the `roleRefs` override survives in-place
-  release upgrades and rollbacks (re-apply it if the `RootSync` is deleted and
-  recreated).
+  `config-management-system` with Server-Side Apply under a separate field
+  manager (`kubectl apply --server-side --field-manager=platform-admin -f -`).
+  Because Config Delivery's `rollouts-manager` field manager owns only
+  `spec.override.resources`, the `roleRefs` override is expected per Server-Side
+  Apply field ownership to survive in-place `Apply` release upgrades and
+  rollbacks (📝 **TODO:** verify across a live upgrade rollout; re-apply it if
+  the `RootSync` is deleted and recreated).
 - Both Services are `ClusterIP`. vLLM has no API key; don't expose it outside the
   cluster without an authenticating gateway. Gradio has no authentication and is
   a validation tool only.
@@ -333,8 +347,9 @@ so keep its prefix in Cloud Storage.
         --location=us-central1 --force
     ```
 
-3.  Remove the Config Delivery RBAC binding (and delete `sft-model-serving` if
-    you deleted the FleetPackage before the membership label was removed):
+3.  Remove the Config Delivery RBAC binding (and run
+    `kubectl delete namespace sft-model-serving` if you deleted the FleetPackage
+    before the membership label was removed):
 
     ```bash
     kubectl delete -f software-only/bare-metal/sft-model-serving/fleet-package/configdelivery-rbac.yaml
@@ -345,21 +360,28 @@ so keep its prefix in Cloud Storage.
 
 ## Validated versions
 
-The bundle was validated end-to-end on a test cluster (`FleetPackage` and Config
-Sync delivery, plus `kubectl apply`): Kubernetes `v1.35.2-gke.300`, one NVIDIA
-RTX PRO 6000 Blackwell GPU, NVIDIA driver `580.126.20` (CUDA 13.0). These checks
-passed: subdirectory packaging from a bare SemVer tag, least-privilege Config
-Delivery RBAC (`Role/configdelivery-rootsync-manager`) across apply and delete
-rollouts, the model download via fleet Workload Identity (`gcloud auth login
---cred-file`), vLLM readiness, the three served model aliases in `/v1/models`,
-the GSM8K problem from [Deploy](#deploy) through `/v1/chat/completions` (answer
+The bundle was validated on a Distributed Cloud software only cluster running on
+Compute Engine VMs (`v1.35.2-gke.300`, one NVIDIA RTX PRO 6000 Blackwell GPU,
+NVIDIA driver `580.126.20`, CUDA 13.0) across three runs: direct `kubectl`
+bundle validation, an end-to-end `FleetPackage` and Config Sync rollout
+(adopting the pre-created `sft-model-serving` namespace and
+`sft-model-cache-pvc` volume from the `kubectl` run, followed by foreground
+label-removal pruning), and subdirectory `ResourceBundle` packaging from the
+`gdc-solutions` fork via a 2nd gen Cloud Build GitHub connection (authorized
+with a personal fork account during rehearsal; production fleets should use a
+dedicated machine-user account). These checks passed: subdirectory packaging
+from a bare SemVer tag, least-privilege Config Delivery RBAC
+(`Role/configdelivery-rootsync-manager`) across apply and delete rollouts, the
+model download via fleet Workload Identity (`gcloud auth login --cred-file`),
+vLLM readiness, the three served model aliases in `/v1/models`, the GSM8K
+problem from [Deploy](#deploy) through `/v1/chat/completions` (answer
 `The answer is: 72`, generation stopped on `<|eot_id|>`, token 128009), the
 Gradio UI calling the vLLM Service, the `PodMonitoring` resource, and foreground
 pruning when the membership label is removed.
 
-- `vllm/vllm-openai:v0.32.0` (latest vLLM GA release on 2026-10-18).
+- `vllm/vllm-openai:v0.32.0` (pinned upstream vLLM GA release).
 - `us-docker.pkg.dev/google-samples/containers/gke/gradio-app:v1.0.4`.
 - `gcr.io/google.com/cloudsdktool/cloud-sdk:589.0.0-slim`.
 
-📝 **TODO:** Validate the bundle on a physical bare-metal server and verify vLLM
-metrics arriving in Cloud Monitoring.
+📝 **TODO:** Validate a clean-namespace `FleetPackage` install on a physical
+bare-metal server and verify vLLM metrics arriving in Cloud Monitoring.

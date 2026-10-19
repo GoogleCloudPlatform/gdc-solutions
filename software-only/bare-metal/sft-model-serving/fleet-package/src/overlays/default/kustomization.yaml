@@ -16,7 +16,6 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 labels:
   - pairs:
-      app.kubernetes.io/managed-by: config-delivery
       app.kubernetes.io/part-of: sft-model-serving
 namespace: sft-model-serving
 resources:

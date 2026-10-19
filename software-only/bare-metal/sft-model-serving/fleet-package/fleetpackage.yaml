@@ -14,11 +14,16 @@
 
 # cspell:words fleetpackage
 #
-# FleetPackage specification for Config Delivery. Create or update it with:
+# FleetPackage specification for Config Delivery.
+# Create it with:
 #   gcloud container fleet packages create sft-model-serving \
+#     --source=fleet-package/fleetpackage.yaml --location=us-central1
+# Update it after changing the tag or specification with:
+#   gcloud container fleet packages update sft-model-serving \
 #     --source=fleet-package/fleetpackage.yaml --location=us-central1
 # The publisher service account packages the variant folder
 # fleet-package/environments/default/ of the tag below as plain KRM.
+deletionPropagationPolicy: FOREGROUND
 resourceBundleSelector:
   cloudBuildRepository:
     name: projects/YOUR_PROJECT_ID/locations/us-central1/connections/YOUR_CONNECTION/repositories/YOUR_REPOSITORY

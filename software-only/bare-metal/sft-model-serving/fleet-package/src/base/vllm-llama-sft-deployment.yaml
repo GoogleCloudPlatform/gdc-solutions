@@ -93,9 +93,10 @@ spec:
               mkdir -p "${TARGET_DIR}"
 
               echo "Checking the cache for model version '${MODEL_VERSION}'..."
-              if [ -f "${TARGET_DIR}/config.json" ] && [ -f "${TARGET_DIR}/tokenizer.json" ] && [ -f "${TARGET_DIR}/model.safetensors.index.json" ]; then
+              if [ -f "${TARGET_DIR}/.complete" ] && [ -f "${TARGET_DIR}/config.json" ] && [ -f "${TARGET_DIR}/tokenizer.json" ] && [ -f "${TARGET_DIR}/special_tokens_map.json" ] && [ -f "${TARGET_DIR}/model.safetensors.index.json" ]; then
                 echo "Model version '${MODEL_VERSION}' is already cached. Skipping the download."
               else
+                rm -f "${TARGET_DIR}/.complete"
                 # Activate the fleet Workload Identity credential explicitly, so
                 # gcloud never falls back to other credentials on the node.
                 gcloud auth login --cred-file="${GOOGLE_APPLICATION_CREDENTIALS}" --quiet
@@ -112,6 +113,7 @@ spec:
                 fi
               done
 
+              touch "${TARGET_DIR}/.complete"
               chmod -R 755 "${TARGET_DIR}"
 
               echo "Deleting other model versions from the cache..."
@@ -123,6 +125,11 @@ spec:
               done
 
               echo "Model version '${MODEL_VERSION}' sync and cache maintenance complete."
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           volumeMounts:
             - name: cache-volume
               mountPath: /model-cache
@@ -135,6 +142,8 @@ spec:
           # server (vllm serve).
           image: vllm/vllm-openai:v0.32.0
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
           env:
             - name: MODEL_VERSION
               value: v1

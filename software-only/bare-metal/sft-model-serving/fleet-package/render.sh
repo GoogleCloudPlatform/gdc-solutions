@@ -28,6 +28,8 @@ OUTPUT_DIR="${SCRIPT_DIR}/environments/${VARIANT}"
 OUTPUT_FILE="${OUTPUT_DIR}/manifests.yaml"
 
 mkdir -p "${OUTPUT_DIR}"
+TMP_FILE="$(mktemp "${OUTPUT_DIR}/.manifests.XXXXXX.yaml")"
+trap 'rm -f "${TMP_FILE}"' EXIT
 
 {
   cat << 'EOF'
@@ -49,16 +51,18 @@ mkdir -p "${OUTPUT_DIR}"
 # cspell:words vllm gradio dshm cloudsdktool safetensors bfloat jinja endfor endif gkehub identitynamespace iamcredentials seqs dtype errexit nounset pipefail cloudsdk
 EOF
   kubectl kustomize "${OVERLAY_DIR}"
-} > "${OUTPUT_FILE}"
-
-echo "Rendered ${OVERLAY_DIR} to ${OUTPUT_FILE}"
+} > "${TMP_FILE}"
 
 # The repository CI checks YAML formatting with prettier. Set PRETTIER to your
 # prettier command, for example:
 #   PRETTIER="npx --prefix .devcontainer/dependencies prettier" ./render.sh
 if [[ -n ${PRETTIER:-} ]]; then
   read -r -a PRETTIER_CMD <<< "${PRETTIER}"
-  "${PRETTIER_CMD[@]}" --write "${OUTPUT_FILE}"
+  "${PRETTIER_CMD[@]}" --write "${TMP_FILE}"
+  mv "${TMP_FILE}" "${OUTPUT_FILE}"
+  echo "Rendered ${OVERLAY_DIR} to ${OUTPUT_FILE}"
 else
+  mv "${TMP_FILE}" "${OUTPUT_FILE}"
+  echo "Rendered ${OVERLAY_DIR} to ${OUTPUT_FILE}"
   echo "Format ${OUTPUT_FILE} with prettier before you commit it."
 fi
