@@ -18,7 +18,6 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - vllm-llama-sft-serviceaccount.yaml
-  - gcs-credential-config.yaml
   - vllm-llama-sft-config.yaml
   - sft-model-cache-pvc.yaml
   - vllm-llama-sft-deployment.yaml

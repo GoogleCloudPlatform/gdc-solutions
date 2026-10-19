@@ -35,27 +35,6 @@ metadata:
 ---
 apiVersion: v1
 data:
-  credential-configuration.json: |
-    {
-      "type": "external_account",
-      "audience": "identitynamespace:YOUR_PROJECT_ID.svc.id.goog:https://gkehub.googleapis.com/projects/YOUR_PROJECT_ID/locations/global/memberships/YOUR_MEMBERSHIP",
-      "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
-      "token_url": "https://sts.googleapis.com/v1/token",
-      "credential_source": {
-        "file": "/var/run/secrets/tokens/gcp-ksa/token"
-      },
-      "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/YOUR_GSA_NAME@YOUR_PROJECT_ID.iam.gserviceaccount.com:generateAccessToken"
-    }
-kind: ConfigMap
-metadata:
-  labels:
-    app: vllm-llama-sft
-    app.kubernetes.io/part-of: sft-model-serving
-  name: gcs-credential-config
-  namespace: sft-model-serving
----
-apiVersion: v1
-data:
   generation_config.json: |
     {"bos_token_id": 128000, "eos_token_id": [128001, 128009], "temperature": 0.2, "top_p": 1.0}
   llama3_sft_chat_template.jinja: |
