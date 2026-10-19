@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# cspell:words fleetpackage
-#
 # FleetPackage specification for Config Delivery.
 # Create it with:
 #   gcloud container fleet packages create sft-model-serving \

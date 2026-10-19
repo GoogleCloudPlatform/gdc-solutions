@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# cspell:words vllm jinja endfor endif
-#
 # Chat template and generation config for the Llama 3.1 8B SFT checkpoint.
 # The checkpoint was tuned on single-turn messages wrapped in the Llama 3
 # header format, and its tokenizer_config.json has no chat template.
@@ -22,6 +20,8 @@
 # vLLM reads both files at startup: restart the vLLM pod after you change them.
 apiVersion: v1
 data:
+  generation_config.json: |
+    {"bos_token_id": 128000, "eos_token_id": [128001, 128009], "temperature": 0.2, "top_p": 1.0}
   llama3_sft_chat_template.jinja: |
     {{- bos_token }}
     {%- for message in messages %}
@@ -30,11 +30,9 @@ data:
     {%- if add_generation_prompt %}
         {{- '<|start_header_id|>assistant<|end_header_id|>\n\n' }}
     {%- endif %}
-  generation_config.json: |
-    {"bos_token_id": 128000, "eos_token_id": [128001, 128009], "temperature": 0.2, "top_p": 1.0}
 kind: ConfigMap
 metadata:
-  name: vllm-llama-sft-config
-  namespace: sft-model-serving
   labels:
     app: vllm-llama-sft
+  name: vllm-llama-sft-config
+  namespace: sft-model-serving

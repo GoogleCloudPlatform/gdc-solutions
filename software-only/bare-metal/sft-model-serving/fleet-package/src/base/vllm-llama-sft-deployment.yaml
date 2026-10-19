@@ -12,142 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# cspell:words vllm dshm cloudsdktool safetensors bfloat cloudsdk errexit nounset pipefail seqs dtype
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  labels:
+    ai.gke.io/inference-server: vllm
+    ai.gke.io/model: llama-3-1-8b-sft
+    ai.gke.io/model-version: v1
+    app: vllm-llama-sft
   name: vllm-llama-sft-deployment
   namespace: sft-model-serving
-  labels:
-    app: vllm-llama-sft
-    ai.gke.io/model: llama-3-1-8b-sft
-    ai.gke.io/inference-server: vllm
-    ai.gke.io/model-version: v1
 spec:
   replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-llama-sft
   # The pod owns the whole GPU, so the old pod must stop before the new one
   # starts.
   strategy:
     type: Recreate
-  selector:
-    matchLabels:
-      app: vllm-llama-sft
   template:
     metadata:
       labels:
-        app: vllm-llama-sft
-        ai.gke.io/model: llama-3-1-8b-sft
         ai.gke.io/inference-server: vllm
+        ai.gke.io/model: llama-3-1-8b-sft
         ai.gke.io/model-version: v1
+        app: vllm-llama-sft
     spec:
-      serviceAccountName: vllm-llama-sft-sa
       automountServiceAccountToken: false
-      runtimeClassName: nvidia
-      volumes:
-        - name: cache-volume
-          persistentVolumeClaim:
-            claimName: sft-model-cache-pvc
-        - name: dshm
-          emptyDir:
-            medium: Memory
-            sizeLimit: 16Gi
-        - name: vllm-config
-          configMap:
-            name: vllm-llama-sft-config
-        # Projected token and credential configuration for fleet Workload
-        # Identity Federation, used only by the initContainer.
-        - name: gcp-ksa
-          projected:
-            defaultMode: 420
-            sources:
-              - serviceAccountToken:
-                  audience: YOUR_PROJECT_ID.svc.id.goog
-                  expirationSeconds: 3600
-                  path: token
-              - configMap:
-                  name: gcs-credential-config
-                  optional: false
-                  items:
-                    - key: credential-configuration.json
-                      path: credential-configuration.json
-      initContainers:
-        - name: gcs-model-downloader
-          image: gcr.io/google.com/cloudsdktool/cloud-sdk:589.0.0-slim
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: MODEL_VERSION
-              value: v1
-            - name: MODEL_GCS_URI
-              value: gs://YOUR_BUCKET/sft-model-serving/checkpoints/v1
-            - name: GOOGLE_APPLICATION_CREDENTIALS
-              value: /var/run/secrets/tokens/gcp-ksa/credential-configuration.json
-          command:
-            - /bin/bash
-            - -c
-            - |
-              set -o errexit
-              set -o nounset
-              set -o pipefail
-              BASE_DIR="/model-cache/llama-3.1-8b-sft"
-              TARGET_DIR="${BASE_DIR}/${MODEL_VERSION}"
-              mkdir -p "${TARGET_DIR}"
-
-              echo "Checking the cache for model version '${MODEL_VERSION}'..."
-              if [ -f "${TARGET_DIR}/.complete" ] && [ -f "${TARGET_DIR}/config.json" ] && [ -f "${TARGET_DIR}/tokenizer.json" ] && [ -f "${TARGET_DIR}/special_tokens_map.json" ] && [ -f "${TARGET_DIR}/model.safetensors.index.json" ]; then
-                echo "Model version '${MODEL_VERSION}' is already cached. Skipping the download."
-              else
-                rm -f "${TARGET_DIR}/.complete"
-                # Activate the fleet Workload Identity credential explicitly, so
-                # gcloud never falls back to other credentials on the node.
-                gcloud auth login --cred-file="${GOOGLE_APPLICATION_CREDENTIALS}" --quiet
-                echo "Active account: $(gcloud auth list --filter=status:ACTIVE --format='value(account)')"
-                echo "Downloading ${MODEL_GCS_URI} with fleet Workload Identity credentials..."
-                gcloud storage cp -r "${MODEL_GCS_URI}/*" "${TARGET_DIR}/"
-              fi
-
-              echo "Checking the required files for model version '${MODEL_VERSION}'..."
-              for file in config.json tokenizer.json special_tokens_map.json model.safetensors.index.json; do
-                if [ ! -f "${TARGET_DIR}/${file}" ]; then
-                  echo "ERROR: required file '${file}' is missing from ${TARGET_DIR}." >&2
-                  exit 1
-                fi
-              done
-
-              touch "${TARGET_DIR}/.complete"
-              chmod -R 755 "${TARGET_DIR}"
-
-              echo "Deleting other model versions from the cache..."
-              for dir in "${BASE_DIR}"/*; do
-                if [ -d "${dir}" ] && [ "$(basename "${dir}")" != "${MODEL_VERSION}" ]; then
-                  echo "Removing ${dir}"
-                  rm -rf "${dir}"
-                fi
-              done
-
-              echo "Model version '${MODEL_VERSION}' sync and cache maintenance complete."
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-          volumeMounts:
-            - name: cache-volume
-              mountPath: /model-cache
-            - name: gcp-ksa
-              mountPath: /var/run/secrets/tokens/gcp-ksa
-              readOnly: true
       containers:
-        - name: vllm-container
-          # Upstream image; the default entrypoint is the OpenAI-compatible
-          # server (vllm serve).
-          image: vllm/vllm-openai:v0.32.0
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            allowPrivilegeEscalation: false
-          env:
-            - name: MODEL_VERSION
-              value: v1
-          args:
+        - args:
             - /model-cache/llama-3.1-8b-sft/$(MODEL_VERSION)
             - --served-model-name
             - llama-3.1-8b-sft
@@ -165,30 +59,143 @@ spec:
             - --enable-chunked-prefill
             - --chat-template=/etc/vllm/config/llama3_sft_chat_template.jinja
             - --generation-config=/etc/vllm/config
+          env:
+            - name: MODEL_VERSION
+              value: v1
+          # Upstream image; the default entrypoint is the OpenAI-compatible
+          # server (vllm serve).
+          image: vllm/vllm-openai:v0.32.0
+          imagePullPolicy: IfNotPresent
+          name: vllm-container
           ports:
-            - name: http
-              containerPort: 8000
+            - containerPort: 8000
+              name: http
               protocol: TCP
-          resources:
-            requests:
-              cpu: "4"
-              memory: 32Gi
-              nvidia.com/gpu: "1"
-            limits:
-              cpu: "4"
-              memory: 32Gi
-              nvidia.com/gpu: "1"
-          volumeMounts:
-            - name: cache-volume
-              mountPath: /model-cache
-            - name: dshm
-              mountPath: /dev/shm
-            - name: vllm-config
-              mountPath: /etc/vllm/config
-              readOnly: true
           readinessProbe:
             httpGet:
               path: /health
               port: 8000
             initialDelaySeconds: 120
             periodSeconds: 10
+          resources:
+            limits:
+              cpu: "4"
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: "4"
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - mountPath: /model-cache
+              name: cache-volume
+            - mountPath: /dev/shm
+              name: dshm
+            - mountPath: /etc/vllm/config
+              name: vllm-config
+              readOnly: true
+      initContainers:
+        - command:
+            - /bin/bash
+            - -c
+            - |
+              set -o errexit
+              set -o nounset
+              set -o pipefail
+              BASE_DIR="/model-cache/llama-3.1-8b-sft"
+              TARGET_DIR="${BASE_DIR}/${MODEL_VERSION}"
+              mkdir -p "${TARGET_DIR}"
+
+              echo "Checking the cache for model version '${MODEL_VERSION}'..."
+              if [ -f "${TARGET_DIR}/.complete" ] \
+                && [ -f "${TARGET_DIR}/config.json" ] \
+                && [ -f "${TARGET_DIR}/tokenizer.json" ] \
+                && [ -f "${TARGET_DIR}/special_tokens_map.json" ] \
+                && { [ -f "${TARGET_DIR}/model.safetensors.index.json" ] || [ -f "${TARGET_DIR}/model.safetensors" ]; }; then
+                echo "Model version '${MODEL_VERSION}' is already cached. Skipping the download."
+              else
+                rm -f "${TARGET_DIR}/.complete"
+                # Activate the fleet Workload Identity credential explicitly, so
+                # gcloud never falls back to other credentials on the node.
+                gcloud auth login --cred-file="${GOOGLE_APPLICATION_CREDENTIALS}" --quiet
+                echo "Active account: $(gcloud auth list --filter=status:ACTIVE --format='value(account)')"
+                echo "Downloading ${MODEL_GCS_URI} with fleet Workload Identity credentials..."
+                gcloud storage cp -r "${MODEL_GCS_URI}/*" "${TARGET_DIR}/"
+              fi
+
+              echo "Checking the required files for model version '${MODEL_VERSION}'..."
+              for file in config.json tokenizer.json special_tokens_map.json; do
+                if [ ! -f "${TARGET_DIR}/${file}" ]; then
+                  echo "ERROR: required file '${file}' is missing from ${TARGET_DIR}." >&2
+                  exit 1
+                fi
+              done
+              if [ ! -f "${TARGET_DIR}/model.safetensors.index.json" ] && [ ! -f "${TARGET_DIR}/model.safetensors" ]; then
+                echo "ERROR: neither 'model.safetensors.index.json' nor 'model.safetensors' was found in ${TARGET_DIR}." >&2
+                exit 1
+              fi
+
+              touch "${TARGET_DIR}/.complete"
+              chmod -R 755 "${TARGET_DIR}"
+
+              echo "Deleting other model versions from the cache..."
+              for dir in "${BASE_DIR}"/*; do
+                if [ -d "${dir}" ] && [ "$(basename "${dir}")" != "${MODEL_VERSION}" ]; then
+                  echo "Removing ${dir}"
+                  rm -rf "${dir}"
+                fi
+              done
+
+              echo "Model version '${MODEL_VERSION}' sync and cache maintenance complete."
+          env:
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /var/run/secrets/tokens/gcp-ksa/credential-configuration.json
+            - name: MODEL_GCS_URI
+              value: gs://YOUR_BUCKET/sft-model-serving/checkpoints/v1
+            - name: MODEL_VERSION
+              value: v1
+          image: gcr.io/google.com/cloudsdktool/cloud-sdk:589.0.0-slim
+          imagePullPolicy: IfNotPresent
+          name: gcs-model-downloader
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - mountPath: /model-cache
+              name: cache-volume
+            - mountPath: /var/run/secrets/tokens/gcp-ksa
+              name: gcp-ksa
+              readOnly: true
+      runtimeClassName: nvidia
+      serviceAccountName: vllm-llama-sft-sa
+      volumes:
+        - name: cache-volume
+          persistentVolumeClaim:
+            claimName: sft-model-cache-pvc
+        - emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi
+          name: dshm
+        # Projected token and credential configuration for fleet Workload
+        # Identity Federation, used only by the initContainer.
+        - name: gcp-ksa
+          projected:
+            defaultMode: 420
+            sources:
+              - configMap:
+                  items:
+                    - key: credential-configuration.json
+                      path: credential-configuration.json
+                  name: gcs-credential-config
+                  optional: false
+              - serviceAccountToken:
+                  audience: YOUR_PROJECT_ID.svc.id.goog
+                  expirationSeconds: 3600
+                  path: token
+        - configMap:
+            name: vllm-llama-sft-config
+          name: vllm-config

@@ -12,19 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# cspell:words vllm
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
+  labels:
+    ai.gke.io/model: llama-3-1-8b-sft
+    app: vllm-llama-sft
   name: sft-model-cache-pvc
   namespace: sft-model-serving
-  labels:
-    app: vllm-llama-sft
-    ai.gke.io/model: llama-3-1-8b-sft
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: local-shared
   resources:
     requests:
       storage: 100Gi
+  storageClassName: local-shared

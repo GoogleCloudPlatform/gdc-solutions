@@ -12,22 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# cspell:words vllm
 apiVersion: v1
 kind: Service
 metadata:
+  labels:
+    ai.gke.io/inference-server: vllm
+    ai.gke.io/model: llama-3-1-8b-sft
+    app: vllm-llama-sft
   name: vllm-llama-sft-service
   namespace: sft-model-serving
-  labels:
-    app: vllm-llama-sft
-    ai.gke.io/model: llama-3-1-8b-sft
-    ai.gke.io/inference-server: vllm
 spec:
-  type: ClusterIP
-  selector:
-    app: vllm-llama-sft
   ports:
     - name: http
       port: 8000
-      targetPort: 8000
       protocol: TCP
+      targetPort: 8000
+  selector:
+    app: vllm-llama-sft
+  type: ClusterIP

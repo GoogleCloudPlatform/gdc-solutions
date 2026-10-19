@@ -12,21 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# cspell:words vllm
 apiVersion: monitoring.googleapis.com/v1
 kind: PodMonitoring
 metadata:
+  labels:
+    ai.gke.io/model: llama-3-1-8b-sft
+    app: vllm-llama-sft
   name: vllm-llama-sft-pod-monitoring
   namespace: sft-model-serving
-  labels:
-    app: vllm-llama-sft
-    ai.gke.io/model: llama-3-1-8b-sft
 spec:
+  endpoints:
+    - interval: 15s
+      path: /metrics
+      port: http
   selector:
     matchLabels:
-      app: vllm-llama-sft
       ai.gke.io/inference-server: vllm
-  endpoints:
-    - port: http
-      path: /metrics
-      interval: 15s
+      app: vllm-llama-sft

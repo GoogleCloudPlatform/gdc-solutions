@@ -12,16 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# cspell:words vllm gradio podmonitoring
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - namespace.yaml
-  - vllm-llama-sft-serviceaccount.yaml
-  - vllm-llama-sft-config.yaml
-  - sft-model-cache-pvc.yaml
-  - vllm-llama-sft-deployment.yaml
-  - vllm-llama-sft-service.yaml
-  - vllm-llama-sft-podmonitoring.yaml
   - gradio-llama-sft-deployment.yaml
   - gradio-llama-sft-service.yaml
+  - namespace.yaml
+  - sft-model-cache-pvc.yaml
+  - vllm-llama-sft-config.yaml
+  - vllm-llama-sft-deployment.yaml
+  - vllm-llama-sft-podmonitoring.yaml
+  - vllm-llama-sft-service.yaml
+  - vllm-llama-sft-serviceaccount.yaml

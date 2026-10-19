@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# cspell:words gradio vllm
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gradio-llama-sft-deployment
-  namespace: sft-model-serving
   labels:
     app: gradio-llama-sft
+  name: gradio-llama-sft-deployment
+  namespace: sft-model-serving
 spec:
   replicas: 1
   selector:
@@ -32,32 +31,32 @@ spec:
     spec:
       automountServiceAccountToken: false
       containers:
-        - name: gradio
-          image: us-docker.pkg.dev/google-samples/containers/gke/gradio-app:v1.0.4
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-          env:
+        - env:
             - name: CONTEXT_PATH
               value: /v1/chat/completions
             - name: HOST
               value: http://vllm-llama-sft-service:8000
             - name: MODEL_ID
               value: llama-3.1-8b-sft-v1.0.0
-            - name: TITLE
-              value: Llama 3.1 8B SFT Chat (v1.0.0)
             - name: MODEL_NAME
               value: Llama-3.1-8B-SFT-v1.0.0
+            - name: TITLE
+              value: Llama 3.1 8B SFT Chat (v1.0.0)
+          image: us-docker.pkg.dev/google-samples/containers/gke/gradio-app:v1.0.4
+          imagePullPolicy: IfNotPresent
+          name: gradio
           ports:
             - containerPort: 7860
               protocol: TCP
           resources:
-            requests:
-              cpu: 250m
-              memory: 512Mi
             limits:
               cpu: 500m
               memory: 512Mi
+            requests:
+              cpu: 250m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL

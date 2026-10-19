@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# cspell:words configdelivery configsync rootsync rootsyncs
-#
 # Least-privilege RBAC for the Google Cloud Config Delivery service agent on
 # each target cluster. Config Delivery only manages RootSync objects in the
 # config-management-system namespace, so a namespace-scoped Role and
@@ -31,13 +29,13 @@ rules:
     resources:
       - rootsyncs
     verbs:
+      - create
+      - delete
       - get
       - list
-      - watch
-      - create
-      - update
       - patch
-      - delete
+      - update
+      - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
