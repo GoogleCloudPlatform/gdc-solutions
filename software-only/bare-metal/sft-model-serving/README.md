@@ -1,0 +1,415 @@
+<!--
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+# SFT model serving with Fleet Packages on Distributed Cloud software only
+
+This solution deploys a supervised fine-tuned (SFT) open model to Google
+Distributed Cloud software only for bare metal clusters through GitOps. Config
+Delivery (Fleet Packages) rolls out a versioned Kubernetes bundle from your fork
+of this repository to every fleet cluster that carries a label, and Config Sync
+applies it. Each cluster serves the model locally with vLLM on one NVIDIA GPU,
+with a Gradio chat UI for validation and Google Cloud Managed Service for
+Prometheus for metrics. It is for platform administrators and application
+operators who fine-tune open models in Google Cloud and serve them at the edge.
+
+The worked example is a Llama 3.1 8B base model fully fine-tuned on MetaMathQA
+math word problems with Vertex AI managed open model tuning. You bring your own
+fine-tuned checkpoint.
+
+## Disclaimer
+
+This is not an officially supported Google product. This project is provided for
+reference and educational purposes only, on a best-effort basis, with no
+official support and no service level agreement (SLA). It is not eligible for
+the
+[Google Open Source Software Vulnerability Rewards Program](https://bughunters.google.com/open-source-security).
+
+This solution does not include model weights. You must obtain the model you
+deploy yourself and comply with its license, for example the
+[Llama 3.1 Community License](https://www.llama.com/llama3_1/license/) and the
+[Llama 3.1 Acceptable Use Policy](https://www.llama.com/llama3_1/use-policy/). A
+model fine-tuned from Llama 3.1 is a derivative of Llama 3.1 and remains subject
+to that license.
+
+## Architecture
+
+```text
+Fork of gdc-solutions (tag vX.Y.Z)
+  -> Cloud Build repository connection
+  -> FleetPackage (Config Delivery) -> RootSync (Config Sync) on each cluster
+  -> Namespace sft-model-serving:
+       initContainer: Cloud Storage checkpoint -> PVC /model-cache/<model>/<MODEL_VERSION>
+       vLLM Deployment (1 GPU) <- ConfigMap vllm-llama-sft-config (chat template, generation config)
+       Gradio Deployment -> vLLM Service :8000
+       PodMonitoring -> Google Cloud Managed Service for Prometheus
+```
+
+- Git carries only manifests. The model weights stay in your Cloud Storage
+  bucket, one prefix per model version.
+- `MODEL_VERSION` and `MODEL_GCS_URI` in the vLLM `Deployment` select the
+  checkpoint, so one release tag pins the code, the configuration and the model
+  version.
+- The model-download initContainer reads Cloud Storage with fleet Workload
+  Identity Federation. No service account key and no node credentials are used.
+- vLLM runs the upstream `vllm/vllm-openai` image with its default
+  OpenAI-compatible server, which serves `/v1/chat/completions`, `/v1/models`,
+  `/health` and `/metrics`.
+- The chat template and the generation config come from a `ConfigMap`, so the
+  prompt format is reviewed in Git. The example checkpoint was tuned in the
+  Llama 3 header format (`<|start_header_id|>`, `<|end_header_id|>`,
+  `<|eot_id|>`), and its tokenizer has no chat template.
+
+## Prerequisites
+
+- A Distributed Cloud software only for bare metal cluster, version 1.35 or
+  later, registered to a fleet in your Google Cloud project.
+- One NVIDIA GPU dedicated to the model on the target cluster (reference: NVIDIA
+  RTX PRO 6000 Blackwell, 96 GB). The NVIDIA GPU Operator is installed and
+  provides the `nvidia` RuntimeClass and the `nvidia.com/gpu` resource.
+- An NVIDIA driver that supports CUDA 13.0 (driver branch 580 or later). The
+  `vllm/vllm-openai:v0.32.0` image declares `cuda>=13.0`.
+- Config Sync on the target clusters.
+- A StorageClass named `local-shared`, or change `storageClassName` in
+  `fleet-package/src/base/sft-model-cache-pvc.yaml`. The node needs about 250
+  GiB of local disk for the 100 GiB cache, the images and system reservations.
+- Outbound HTTPS (443) from the cluster to Google Cloud APIs, Cloud Storage,
+  `gcr.io`, `us-docker.pkg.dev` and Docker Hub, or mirrors of the images in your
+  own registry.
+- 💡 **TIP:** The vLLM image comes from Docker Hub, which rate-limits anonymous
+  pulls, and is several GB. For production fleets, mirror the pinned images to
+  your own Artifact Registry and change the `image` fields.
+- Google Cloud APIs enabled in the fleet host project: Config Delivery
+  (`configdelivery.googleapis.com`), Config Sync
+  (`anthosconfigmanagement.googleapis.com`), Cloud Build
+  (`cloudbuild.googleapis.com`), Secret Manager
+  (`secretmanager.googleapis.com`), Artifact Registry
+  (`artifactregistry.googleapis.com`), GKE Hub (`gkehub.googleapis.com`) and
+  Cloud Storage (`storage.googleapis.com`).
+- A fine-tuned merged checkpoint (`config.json`, tokenizer files, and either
+  `model.safetensors.index.json` with the safetensors shards or a single
+  `model.safetensors` file) in your bucket under one prefix per version.
+- Tools: `gcloud`, `kubectl` with Kustomize v5 or later, and `git`.
+
+### Identities and roles
+
+- **Workload Google service account** (`YOUR_GSA_NAME`):
+  `roles/storage.objectViewer` on the checkpoint bucket, and
+  `roles/iam.workloadIdentityUser` on the service account granted to
+  `serviceAccount:YOUR_PROJECT_ID.svc.id.goog[sft-model-serving/vllm-llama-sft-sa]`.
+- **Publisher service account** (`YOUR_PUBLISHER_SA_NAME`, one per solution):
+  `roles/configdelivery.resourceBundlePublisher`,
+  `roles/artifactregistry.writer` and `roles/logging.logWriter`.
+- **Cloud Build GitHub connection:** authorized by a dedicated machine-user
+  account with read access to your fork (don't use a personal access token).
+  Creating a 2nd gen Cloud Build GitHub connection requires
+  `roles/secretmanager.admin` on the Cloud Build service agent
+  (`service-YOUR_PROJECT_NUMBER@gcp-sa-cloudbuild.iam.gserviceaccount.com`) so
+  Cloud Build can store the OAuth token secret in Secret Manager.
+- **Config Delivery service agent and Config Sync reconciler:** see
+  [Security notes](#security-notes).
+
+## Repository layout
+
+```text
+sft-model-serving/
+├── README.md
+└── fleet-package/
+    ├── configdelivery-rbac.yaml           # Per-cluster least-privilege RBAC for the Config Delivery service agent
+    ├── environments/
+    │   └── default/
+    │       └── manifests.yaml             # Rendered (WET) 9-resource bundle, packaged by Config Delivery
+    ├── fleetpackage.yaml                  # FleetPackage specification
+    ├── gcs-credential-config.yaml         # Per-cluster fleet Workload Identity credential configuration
+    ├── render.sh                          # Renders src/ into environments/
+    └── src/
+        ├── base/                          # DRY Kustomize sources (cluster-agnostic)
+        │   ├── gradio-llama-sft-deployment.yaml
+        │   ├── gradio-llama-sft-service.yaml
+        │   ├── kustomization.yaml
+        │   ├── namespace.yaml
+        │   ├── sft-model-cache-pvc.yaml
+        │   ├── vllm-llama-sft-config.yaml
+        │   ├── vllm-llama-sft-deployment.yaml
+        │   ├── vllm-llama-sft-podmonitoring.yaml
+        │   ├── vllm-llama-sft-service.yaml
+        │   └── vllm-llama-sft-serviceaccount.yaml
+        └── overlays/
+            └── default/
+                └── kustomization.yaml
+```
+
+Config Delivery packages the variant folder as is, without running Kustomize, so
+`environments/default/` holds plain manifests and no `kustomization.yaml`.
+Because `fleet-package/gcs-credential-config.yaml` (which embeds each cluster's
+`YOUR_MEMBERSHIP` identity provider URL) is applied once per target cluster
+during onboarding alongside `fleet-package/configdelivery-rbac.yaml`, the
+packaged `environments/default/manifests.yaml` bundle contains 9
+cluster-agnostic resources and rolls out identically to every cluster labeled
+`app-tier=sft-model-serving`.
+
+## Configuration
+
+Config Sync and Fleet Packages apply manifests as they are and don't substitute
+variables. Replace the project-wide placeholders in your fork (`src/base/` and
+`fleetpackage.yaml`) before you render, and substitute the per-cluster
+placeholders when you apply `configdelivery-rbac.yaml` and
+`gcs-credential-config.yaml` on each target cluster:
+
+<!-- mdformat off -->
+
+| Placeholder              | Description                                                                                                       | Files                                                                                                                     |
+| :----------------------- | :---------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------ |
+| `YOUR_PROJECT_ID`        | Fleet host project ID; also the fleet Workload Identity pool `YOUR_PROJECT_ID.svc.id.goog`                        | `vllm-llama-sft-serviceaccount.yaml`, `vllm-llama-sft-deployment.yaml`, `fleetpackage.yaml`, `gcs-credential-config.yaml` |
+| `YOUR_PROJECT_NUMBER`    | Fleet host project number, used in `service-YOUR_PROJECT_NUMBER@gcp-sa-configdelivery.iam.gserviceaccount.com`    | `configdelivery-rbac.yaml` (per cluster)                                                                                  |
+| `YOUR_MEMBERSHIP`        | Fleet membership name of the target cluster (part of its identity provider URL; substituted per cluster at apply) | `gcs-credential-config.yaml` (per cluster)                                                                                |
+| `YOUR_GSA_NAME`          | Google service account that reads the checkpoint bucket                                                           | `vllm-llama-sft-serviceaccount.yaml`, `gcs-credential-config.yaml`                                                        |
+| `YOUR_BUCKET`            | Cloud Storage bucket with the checkpoints; adjust the `sft-model-serving/checkpoints/v1` prefix to your layout    | `vllm-llama-sft-deployment.yaml`                                                                                          |
+| `YOUR_CONNECTION`        | Cloud Build 2nd gen repository connection in `us-central1`                                                        | `fleetpackage.yaml`                                                                                                       |
+| `YOUR_REPOSITORY`        | Cloud Build repository that points to your fork                                                                   | `fleetpackage.yaml`                                                                                                       |
+| `YOUR_PUBLISHER_SA_NAME` | Publisher service account of the FleetPackage                                                                     | `fleetpackage.yaml`                                                                                                       |
+
+<!-- mdformat on -->
+
+Other values to review:
+
+- `MODEL_VERSION` (`v1`) and `MODEL_GCS_URI` in the initContainer, the
+  `MODEL_VERSION` of the vLLM container, and the `ai.gke.io/model-version`
+  labels.
+- The served model aliases (`llama-3.1-8b-sft`, `llama-3.1-8b-sft-v1.0.0`,
+  `llama-3.1-8b-sft-v1`) and the Gradio `MODEL_ID`, `TITLE` and `MODEL_NAME`.
+- The membership label `app-tier: sft-model-serving` in `fleetpackage.yaml`.
+- The chat template and `generation_config.json` in `vllm-llama-sft-config.yaml`
+  if your checkpoint uses another prompt format. vLLM reads them at startup, so
+  restart the vLLM pod after a change.
+
+## Deploy
+
+1.  Fork this repository and clone your fork.
+2.  Replace the project-wide placeholders (`YOUR_PROJECT_ID`, `YOUR_GSA_NAME`,
+    `YOUR_BUCKET`, `YOUR_CONNECTION`, `YOUR_REPOSITORY` and
+    `YOUR_PUBLISHER_SA_NAME`) in `fleet-package/src/base/` and
+    `fleet-package/fleetpackage.yaml`.
+3.  Render the bundle and review the diff:
+
+    ```bash
+    PRETTIER="npx --prefix .devcontainer/dependencies prettier" \
+        software-only/bare-metal/sft-model-serving/fleet-package/render.sh
+    git diff
+    ```
+
+4.  Commit the DRY and rendered files in one pull request to your fork. After
+    the merge, create the release tag (`cloudBuildRepository.path` isolates the
+    solution subfolder, while Config Delivery requires bare `vX.Y.Z` tags in
+    your fork; because Git tags are repository-global in a multi-solution fork
+    and can collide across solutions or upstream syncs, use a dedicated fork per
+    solution or disjoint SemVer ranges):
+
+    ```bash
+    git tag v1.0.0
+    git push origin v1.0.0
+    ```
+
+5.  Create the Cloud Build repository connection to your fork, the publisher
+    service account and the workload Google service account with the roles in
+    [Identities and roles](#identities-and-roles).
+6.  On each target cluster, apply the least-privilege RBAC for the Config
+    Delivery service agent, create `Namespace/sft-model-serving`, and apply the
+    per-cluster fleet Workload Identity credential configuration (with that
+    cluster's `YOUR_MEMBERSHIP` substituted):
+
+    ```bash
+    sed -e "s/YOUR_PROJECT_NUMBER/${PROJECT_NUMBER}/g" \
+        software-only/bare-metal/sft-model-serving/fleet-package/configdelivery-rbac.yaml \
+        | kubectl apply -f -
+    kubectl apply -f software-only/bare-metal/sft-model-serving/fleet-package/src/base/namespace.yaml
+    sed -e "s/YOUR_PROJECT_ID/${PROJECT_ID}/g" \
+        -e "s/YOUR_GSA_NAME/${GSA_NAME}/g" \
+        -e "s/YOUR_MEMBERSHIP/${MEMBERSHIP}/g" \
+        software-only/bare-metal/sft-model-serving/fleet-package/gcs-credential-config.yaml \
+        | kubectl apply -f -
+    ```
+
+7.  Label the target membership:
+
+    ```bash
+    gcloud container fleet memberships update YOUR_MEMBERSHIP \
+        --location=global --update-labels=app-tier=sft-model-serving
+    ```
+
+8.  Create the FleetPackage:
+
+    ```bash
+    gcloud container fleet packages create sft-model-serving \
+        --source=software-only/bare-metal/sft-model-serving/fleet-package/fleetpackage.yaml \
+        --location=us-central1
+    ```
+
+9.  Check the rollout and the workload:
+
+    ```bash
+    gcloud container fleet packages rollouts list \
+        --fleet-package=sft-model-serving --location=us-central1
+    kubectl -n sft-model-serving get pods
+    kubectl -n sft-model-serving logs deploy/vllm-llama-sft-deployment -c gcs-model-downloader
+    ```
+
+10. Send a math word problem, the domain of the example model:
+
+    ```bash
+    kubectl -n sft-model-serving port-forward svc/vllm-llama-sft-service 8000:8000
+    curl -s http://localhost:8000/v1/chat/completions \
+        -H "Content-Type: application/json" \
+        -d '{"model": "llama-3.1-8b-sft", "max_tokens": 512, "temperature": 0,
+             "messages": [{"role": "user", "content": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"}]}'
+    ```
+
+    The example model ends its answer with `The answer is: 72`.
+
+11. Open the Gradio UI with
+    `kubectl -n sft-model-serving port-forward svc/gradio-llama-sft-service 8080:8080`
+    and browse to `http://localhost:8080`.
+
+To release a new model version, upload the checkpoint to a new prefix, change
+`MODEL_VERSION`, `MODEL_GCS_URI`, the labels and the aliases, render, merge, tag
+`vX.Y.Z` (for example `v2.0.0`), and set the FleetPackage `tag` to it. To roll
+back, cut a forward release tag (for example `v2.0.1`) that restores the earlier
+`MODEL_VERSION` and `MODEL_GCS_URI`, or set the `tag` to the earlier release
+(`v1.0.0`); the initContainer downloads the earlier checkpoint again, so keep
+its prefix in Cloud Storage.
+
+## Security notes
+
+- 🛑 **CAUTION:** Don't bind the Config Delivery service agent or the Config
+  Sync reconciler to `cluster-admin`. `fleet-package/configdelivery-rbac.yaml`
+  grants the service agent
+  (`service-YOUR_PROJECT_NUMBER@gcp-sa-configdelivery.iam.gserviceaccount.com`)
+  a namespace-scoped `Role` (`configdelivery-rootsync-manager`) limited to
+  `RootSync` objects in `config-management-system`.
+- By default, Config Sync binds each `RootSync` reconciler to `cluster-admin`,
+  and Config Delivery's `FleetPackage` API does not expose
+  `RootSync.spec.override.roleRefs`. To scope the reconciler to the kinds in
+  this bundle (`Namespace`, `ServiceAccount`, `ConfigMap`,
+  `PersistentVolumeClaim`, `Deployment`, `Service` and `PodMonitoring`, plus
+  `ResourceGroup` in `kpt.dev`), create a custom `ClusterRole`/`Role` and apply
+  `spec.override.roleRefs` on `RootSync/sft-model-serving` in
+  `config-management-system` with Server-Side Apply under a separate field
+  manager (`kubectl apply --server-side --field-manager=platform-admin -f -`).
+  Because Config Delivery's `rollouts-manager` field manager owns only
+  `spec.override.resources`, the `roleRefs` override is expected per Server-Side
+  Apply field ownership to survive in-place `Apply` release upgrades and
+  rollbacks (not yet live-tested across an upgrade rollout; verify in your
+  environment and re-apply it if the `RootSync` is deleted and recreated).
+- Both Services are `ClusterIP`. vLLM has no API key; don't expose it outside
+  the cluster without an authenticating gateway. Gradio has no authentication
+  and is a validation tool only.
+- `--enable-log-requests` writes request details to container logs, which can
+  reach Cloud Logging. Remove it where prompts can contain personal data.
+- The pods don't mount a Kubernetes API token. The initContainer gets only a
+  projected token with the Workload Identity audience.
+- Scan the pinned images and consider mirroring them to your own Artifact
+  Registry.
+
+## Limitations
+
+- One replica on one GPU per cluster; tensor parallelism across GPUs isn't
+  covered. The `Recreate` strategy stops serving during each release.
+- The `local-shared` cache ties the vLLM pod to the node that holds the volume,
+  and the cache keeps only the current model version.
+- `fleet-package/gcs-credential-config.yaml` embeds each cluster's
+  `YOUR_MEMBERSHIP` identity provider URL and must be applied once per target
+  cluster before labeling that cluster `app-tier=sft-model-serving` (otherwise
+  the vLLM pod remains in `ContainerCreating` waiting for
+  `ConfigMap/gcs-credential-config`).
+- The example model is a math specialist. It answers math word problems well but
+  turns open prompts into math-style derivations.
+- Validation ran on a Distributed Cloud software only cluster on Compute Engine
+  VMs; physical bare-metal servers and end-to-end vLLM metric ingestion in Cloud
+  Monitoring have not yet been live-tested.
+
+## Clean up
+
+1.  Remove the label from the membership so Config Delivery prunes the managed
+    objects on the cluster:
+
+    ```bash
+    gcloud container fleet memberships update YOUR_MEMBERSHIP \
+        --location=global --remove-labels=app-tier
+    ```
+
+    Because `RootSync` deletion uses foreground propagation, removing the label
+    deletes all managed objects in `sft-model-serving`, including
+    `PersistentVolumeClaim/sft-model-cache-pvc` (wiping the cached weights
+    unless `configsync.gke.io/deletion-policy: abandon` is set on the
+    `Namespace` and `PersistentVolumeClaim`) and `Namespace/sft-model-serving`
+    (along with the per-cluster `ConfigMap/gcs-credential-config`; if you
+    re-onboard the cluster later, re-apply
+    `fleet-package/src/base/namespace.yaml` and
+    `fleet-package/gcs-credential-config.yaml` before re-labeling the
+    membership).
+
+2.  Delete the FleetPackage (`--force` is required when child `Rollout`
+    resources exist):
+
+    ```bash
+    gcloud container fleet packages delete sft-model-serving \
+        --location=us-central1 --force
+    ```
+
+3.  Remove the Config Delivery RBAC binding (and run
+    `kubectl delete namespace sft-model-serving` if you deleted the FleetPackage
+    before the membership label was removed):
+
+    ```bash
+    kubectl delete -f software-only/bare-metal/sft-model-serving/fleet-package/configdelivery-rbac.yaml --ignore-not-found
+    ```
+
+4.  Delete the Cloud Build repository connection, the service accounts and their
+    IAM bindings, and the checkpoint prefixes you no longer need.
+
+## Validated versions
+
+The bundle was validated on a Distributed Cloud software only cluster running on
+Compute Engine VMs (`v1.35.2-gke.300`, one NVIDIA RTX PRO 6000 Blackwell GPU,
+NVIDIA driver `580.126.20`, CUDA 13.0) across three live runs: direct `kubectl`
+bundle validation, an end-to-end `FleetPackage` and Config Sync lifecycle
+rollout (adopting the pre-created `sft-model-serving` namespace and
+`sft-model-cache-pvc` volume from the `kubectl` run, followed by foreground
+label-removal pruning), and subdirectory `ResourceBundle` packaging from the
+`gdc-solutions` fork via a 2nd gen Cloud Build GitHub connection. These checks
+passed: subdirectory packaging from a bare SemVer tag, least-privilege Config
+Delivery RBAC (`Role/configdelivery-rootsync-manager`) across apply and delete
+rollouts, the model download via fleet Workload Identity
+(`gcloud auth login --cred-file`), vLLM readiness, the three served model
+aliases in `/v1/models`, the GSM8K problem from [Deploy](#deploy) through
+`/v1/chat/completions` (answer `The answer is: 72`, generation stopped on
+`<|eot_id|>`, token 128009), the Gradio UI calling the vLLM Service, the
+`PodMonitoring` resource, and foreground pruning when the membership label is
+removed.
+
+The post-review updates (moving `gcs-credential-config.yaml` to per-cluster
+onboarding so `environments/default/manifests.yaml` is cluster-agnostic, adding
+the `.complete` initContainer completion marker, setting container
+`securityContext` `allowPrivilegeEscalation: false` and
+`capabilities.drop: ["ALL"]`, and setting `automountServiceAccountToken: false`
+on the Gradio `Deployment`) were verified via `kubectl kustomize` semantic
+equivalence and static lint gates, and have not yet been exercised in a live
+cluster rollout. Multi-cluster rollout across multiple memberships, physical
+bare-metal hardware, and vLLM metric arrival in Cloud Monitoring are also not
+yet live-tested.
+
+- `vllm/vllm-openai:v0.32.0` (pinned upstream vLLM GA release).
+- `us-docker.pkg.dev/google-samples/containers/gke/gradio-app:v1.0.4`.
+- `gcr.io/google.com/cloudsdktool/cloud-sdk:589.0.0-slim`.
