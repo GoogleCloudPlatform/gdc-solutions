@@ -49,7 +49,7 @@ subject to that license.
 ## Architecture
 
 ```text
-Fork of gdc-solutions (tag sft-model-serving/vX.Y.Z)
+Fork of gdc-solutions (tag vX.Y.Z)
   -> Cloud Build repository connection
   -> FleetPackage (Config Delivery) -> RootSync (Config Sync) on each cluster
   -> Namespace sft-model-serving:
@@ -194,11 +194,13 @@ Other values to review:
     ```
 
 4.  Commit the DRY and rendered files in one pull request to your fork. After
-    the merge, create the release tag:
+    the merge, create the release tag (`cloudBuildRepository.path` isolates the
+    solution subfolder, while Config Delivery requires bare `vX.Y.Z` tags in
+    your fork):
 
     ```bash
-    git tag sft-model-serving/v1.0.0
-    git push origin sft-model-serving/v1.0.0
+    git tag v1.0.0
+    git push origin v1.0.0
     ```
 
 5.  Create the Cloud Build repository connection to your fork, the publisher
@@ -246,9 +248,11 @@ Other values to review:
 
 To release a new model version, upload the checkpoint to a new prefix, change
 `MODEL_VERSION`, `MODEL_GCS_URI`, the labels and the aliases, render, merge,
-tag `sft-model-serving/vX.Y.Z`, and set the FleetPackage `tag` to it. To roll
-back, set the `tag` to the earlier release; the initContainer downloads the
-earlier checkpoint again, so keep its prefix in Cloud Storage.
+tag `vX.Y.Z` (for example `v2.0.0`), and set the FleetPackage `tag` to it. To
+roll back, cut a forward release tag (for example `v2.0.1`) that restores the
+earlier `MODEL_VERSION` and `MODEL_GCS_URI`, or set the `tag` to the earlier
+release (`v1.0.0`); the initContainer downloads the earlier checkpoint again,
+so keep its prefix in Cloud Storage.
 
 ## Security notes
 
@@ -282,9 +286,9 @@ earlier checkpoint again, so keep its prefix in Cloud Storage.
   example one variant per membership.
 - The example model is a math specialist. It answers math word problems well but
   turns open prompts into math-style derivations.
-- 📝 **TODO:** Verify the fleet Workload Identity credential configuration, the
-  Config Sync enablement and the slash-prefixed release tag on a Distributed
-  Cloud software only bare metal cluster.
+- 📝 **TODO:** Verify the fleet Workload Identity credential configuration and
+  the Config Sync enablement on a Distributed Cloud software only bare metal
+  cluster.
 
 ## Clean up
 
@@ -327,7 +331,7 @@ Gradio UI calling the vLLM Service, and the `PodMonitoring` resource.
 - `gcr.io/google.com/cloudsdktool/cloud-sdk:589.0.0-slim`.
 
 📝 **TODO:** Validate delivery through the FleetPackage and Config Sync
-(including the slash-prefixed release tag and the least-privilege RBAC), vLLM
+(including the least-privilege RBAC), vLLM
 metrics arriving in Cloud Monitoring, the explicit
 `gcloud auth login --cred-file` step of the initContainer in the full bundle,
 and the bundle on a physical bare-metal server.
