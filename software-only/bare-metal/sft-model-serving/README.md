@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-<!-- cspell:words vllm gradio kustomize jinja safetensors fleetpackage gkehub cloudsdktool metamathqa podmonitoring rootsync cuda configdelivery kustomization serviceaccount mdformat rollouts -->
+<!-- cspell:words vllm gradio kustomize jinja safetensors fleetpackage gkehub cloudsdktool metamathqa podmonitoring rootsync rootsyncs configsync resourcegroup cuda configdelivery kustomization serviceaccount mdformat rollouts -->
 
 # SFT model serving with Fleet Packages on Distributed Cloud software only
 
@@ -122,6 +122,7 @@ when they are available.
 sft-model-serving/
 ├── README.md
 └── fleet-package/
+    ├── configdelivery-rbac.yaml           # Least-privilege RBAC for the Config Delivery service agent
     ├── fleetpackage.yaml                  # FleetPackage specification
     ├── render.sh                          # Renders src/ into environments/
     ├── environments/
@@ -159,6 +160,7 @@ you render and deploy:
 | Placeholder              | Description                                                                                                    | Files                                                                                                                     |
 | :----------------------- | :------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------ |
 | `YOUR_PROJECT_ID`        | Fleet host project ID; also the fleet Workload Identity pool `YOUR_PROJECT_ID.svc.id.goog`                     | `vllm-llama-sft-serviceaccount.yaml`, `gcs-credential-config.yaml`, `vllm-llama-sft-deployment.yaml`, `fleetpackage.yaml` |
+| `YOUR_PROJECT_NUMBER`    | Fleet host project number, used in `service-YOUR_PROJECT_NUMBER@gcp-sa-configdelivery.iam.gserviceaccount.com` | `configdelivery-rbac.yaml`                                                                                                |
 | `YOUR_MEMBERSHIP`        | Fleet membership name of the target cluster (part of its identity provider)                                    | `gcs-credential-config.yaml`                                                                                              |
 | `YOUR_GSA_NAME`          | Google service account that reads the checkpoint bucket                                                        | `vllm-llama-sft-serviceaccount.yaml`, `gcs-credential-config.yaml`                                                        |
 | `YOUR_BUCKET`            | Cloud Storage bucket with the checkpoints; adjust the `sft-model-serving/checkpoints/v1` prefix to your layout | `vllm-llama-sft-deployment.yaml`                                                                                          |
@@ -183,8 +185,9 @@ Other values to review:
 ## Deploy
 
 1.  Fork this repository and clone your fork.
-2.  Replace the placeholders in `fleet-package/src/base/` and
-    `fleet-package/fleetpackage.yaml`.
+2.  Replace the placeholders in `fleet-package/src/base/`,
+    `fleet-package/fleetpackage.yaml` and
+    `fleet-package/configdelivery-rbac.yaml`.
 3.  Render the bundle and review the diff:
 
     ```bash
@@ -206,14 +209,21 @@ Other values to review:
 5.  Create the Cloud Build repository connection to your fork, the publisher
     service account and the workload Google service account with the roles in
     [Identities and roles](#identities-and-roles).
-6.  Label the target membership:
+6.  Apply the least-privilege RBAC for the Config Delivery service agent on each
+    target cluster:
+
+    ```bash
+    kubectl apply -f software-only/bare-metal/sft-model-serving/fleet-package/configdelivery-rbac.yaml
+    ```
+
+7.  Label the target membership:
 
     ```bash
     gcloud container fleet memberships update YOUR_MEMBERSHIP \
         --location=global --update-labels=app-tier=sft-model-serving
     ```
 
-7.  Create the FleetPackage:
+8.  Create the FleetPackage:
 
     ```bash
     gcloud container fleet packages create sft-model-serving \
@@ -221,7 +231,7 @@ Other values to review:
         --location=us-central1
     ```
 
-8.  Check the rollout and the workload:
+9.  Check the rollout and the workload:
 
     ```bash
     gcloud container fleet packages rollouts list \
@@ -230,7 +240,7 @@ Other values to review:
     kubectl -n sft-model-serving logs deploy/vllm-llama-sft-deployment -c gcs-model-downloader
     ```
 
-9.  Send a math word problem, the domain of the example model:
+10. Send a math word problem, the domain of the example model:
 
     ```bash
     kubectl -n sft-model-serving port-forward svc/vllm-llama-sft-service 8000:8000
@@ -242,7 +252,7 @@ Other values to review:
 
     The example model ends its answer with `The answer is: 72`.
 
-10. Open the Gradio UI with
+11. Open the Gradio UI with
     `kubectl -n sft-model-serving port-forward svc/gradio-llama-sft-service 8080:8080`
     and browse to `http://localhost:8080`.
 
@@ -257,14 +267,23 @@ so keep its prefix in Cloud Storage.
 ## Security notes
 
 - 🛑 **CAUTION:** Don't bind the Config Delivery service agent or the Config
-  Sync reconciler to `cluster-admin`. Grant the service agent a `ClusterRole`
-  limited to `RootSync` objects in `config-management-system`, and limit the
-  reconciler to the kinds in this bundle: `Namespace`, `ServiceAccount`,
-  `ConfigMap`, `PersistentVolumeClaim`, `Deployment`, `Service` and
-  `PodMonitoring`.
-- 📝 **TODO:** Add a validated least-privilege RBAC example for the Config
-  Delivery service agent and the Config Sync reconciler, and confirm whether
-  Config Delivery exposes `RootSync` role overrides.
+  Sync reconciler to `cluster-admin`. `fleet-package/configdelivery-rbac.yaml`
+  grants the service agent
+  (`service-YOUR_PROJECT_NUMBER@gcp-sa-configdelivery.iam.gserviceaccount.com`)
+  a namespace-scoped `Role` (`configdelivery-rootsync-manager`) limited to
+  `RootSync` objects in `config-management-system`.
+- By default, Config Sync binds each `RootSync` reconciler to `cluster-admin`,
+  and Config Delivery's `FleetPackage` API does not expose
+  `RootSync.spec.override.roleRefs`. To scope the reconciler to the kinds in
+  this bundle (`Namespace`, `ServiceAccount`, `ConfigMap`,
+  `PersistentVolumeClaim`, `Deployment`, `Service` and `PodMonitoring`, plus
+  `ResourceGroup` in `kpt.dev`), create a custom `ClusterRole`/`Role` and patch
+  `spec.override.roleRefs` on `RootSync/sft-model-serving` in
+  `config-management-system` with Server-Side Apply under a separate
+  `--field-manager`. Because Config Delivery's `rollouts-manager` field manager
+  owns only `spec.override.resources`, the `roleRefs` override survives in-place
+  release upgrades and rollbacks (re-apply it if the `RootSync` is deleted and
+  recreated).
 - Both Services are `ClusterIP`. vLLM has no API key; don't expose it outside the
   cluster without an authenticating gateway. Gradio has no authentication and is
   a validation tool only.
@@ -287,30 +306,38 @@ so keep its prefix in Cloud Storage.
 - The example model is a math specialist. It answers math word problems well but
   turns open prompts into math-style derivations.
 - 📝 **TODO:** Verify the fleet Workload Identity credential configuration and
-  the Config Sync enablement on a Distributed Cloud software only bare metal
-  cluster.
+  the Config Sync enablement on a physical Distributed Cloud software only
+  bare-metal server.
 
 ## Clean up
 
-1.  Delete the FleetPackage:
-
-    ```bash
-    gcloud container fleet packages delete sft-model-serving --location=us-central1
-    ```
-
-2.  Remove the label from the membership:
+1.  Remove the label from the membership so Config Delivery prunes the managed
+    objects on the cluster:
 
     ```bash
     gcloud container fleet memberships update YOUR_MEMBERSHIP \
         --location=global --remove-labels=app-tier
     ```
 
-3.  📝 **TODO:** Confirm whether deleting the FleetPackage prunes the objects.
-    If they remain, delete the namespace, which also deletes the cached
-    weights:
+    Because `RootSync` deletion uses foreground propagation, removing the label
+    deletes all managed objects in `sft-model-serving`, including
+    `PersistentVolumeClaim/sft-model-cache-pvc` (wiping the cached weights
+    unless `configsync.gke.io/deletion-policy: abandon` is set on the
+    `Namespace` and `PersistentVolumeClaim`) and `Namespace/sft-model-serving`.
+
+2.  Delete the FleetPackage (`--force` is required when child `Rollout`
+    resources exist):
 
     ```bash
-    kubectl delete namespace sft-model-serving
+    gcloud container fleet packages delete sft-model-serving \
+        --location=us-central1 --force
+    ```
+
+3.  Remove the Config Delivery RBAC binding (and delete `sft-model-serving` if
+    you deleted the FleetPackage before the membership label was removed):
+
+    ```bash
+    kubectl delete -f software-only/bare-metal/sft-model-serving/fleet-package/configdelivery-rbac.yaml
     ```
 
 4.  Delete the Cloud Build repository connection, the service accounts and
@@ -318,20 +345,21 @@ so keep its prefix in Cloud Storage.
 
 ## Validated versions
 
-The rendered bundle was applied with `kubectl` to a test cluster: Kubernetes
-`v1.35.2-gke.300`, one NVIDIA RTX PRO 6000 Blackwell GPU, NVIDIA driver
-`580.126.20` (CUDA 13.0). These checks passed: the model download, vLLM
-readiness, the three served model aliases in `/v1/models`, the GSM8K problem
-from [Deploy](#deploy) through `/v1/chat/completions` (answer
+The bundle was validated end-to-end on a test cluster (`FleetPackage` and Config
+Sync delivery, plus `kubectl apply`): Kubernetes `v1.35.2-gke.300`, one NVIDIA
+RTX PRO 6000 Blackwell GPU, NVIDIA driver `580.126.20` (CUDA 13.0). These checks
+passed: subdirectory packaging from a bare SemVer tag, least-privilege Config
+Delivery RBAC (`Role/configdelivery-rootsync-manager`) across apply and delete
+rollouts, the model download via fleet Workload Identity (`gcloud auth login
+--cred-file`), vLLM readiness, the three served model aliases in `/v1/models`,
+the GSM8K problem from [Deploy](#deploy) through `/v1/chat/completions` (answer
 `The answer is: 72`, generation stopped on `<|eot_id|>`, token 128009), the
-Gradio UI calling the vLLM Service, and the `PodMonitoring` resource.
+Gradio UI calling the vLLM Service, the `PodMonitoring` resource, and foreground
+pruning when the membership label is removed.
 
 - `vllm/vllm-openai:v0.32.0` (latest vLLM GA release on 2026-10-18).
 - `us-docker.pkg.dev/google-samples/containers/gke/gradio-app:v1.0.4`.
 - `gcr.io/google.com/cloudsdktool/cloud-sdk:589.0.0-slim`.
 
-📝 **TODO:** Validate delivery through the FleetPackage and Config Sync
-(including the least-privilege RBAC), vLLM
-metrics arriving in Cloud Monitoring, the explicit
-`gcloud auth login --cred-file` step of the initContainer in the full bundle,
-and the bundle on a physical bare-metal server.
+📝 **TODO:** Validate the bundle on a physical bare-metal server and verify vLLM
+metrics arriving in Cloud Monitoring.
