@@ -7,7 +7,9 @@
 
 ## SFT Model Serving
 
-- [SFT Model Serving with Fleet Packages on GDC Software-Only Bare Metal](/software-only/bare-metal/sft-model-serving/README.md)
+- [SFT Model Serving with Fleet Packages on Distributed Cloud Software Only Reference Architecture](/software-only/bare-metal/sft-model-serving/README.md)
+  - [SFT Model Serving with Fleet Packages Reference Implementation](/software-only/bare-metal/sft-model-serving/docs/reference-implementation.md)
+  - [SFT Model Serving with Fleet Packages User Guide](/software-only/bare-metal/sft-model-serving/docs/user-guide.md)
 
 ## ARCHIVED Solutions
 
