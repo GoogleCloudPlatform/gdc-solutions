@@ -22,6 +22,7 @@ set -o nounset
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 VARIANT="${1:-default}"
 OVERLAY_DIR="${SCRIPT_DIR}/src/overlays/${VARIANT}"
 OUTPUT_DIR="${SCRIPT_DIR}/environments/${VARIANT}"
@@ -58,6 +59,14 @@ EOF
 if [[ -n ${PRETTIER:-} ]]; then
   read -r -a PRETTIER_CMD <<< "${PRETTIER}"
   "${PRETTIER_CMD[@]}" --write "${TMP_FILE}"
+  mv "${TMP_FILE}" "${OUTPUT_FILE}"
+  echo "Rendered ${OVERLAY_DIR} to ${OUTPUT_FILE}"
+elif [[ -x "${REPO_ROOT}/node_modules/.bin/prettier" ]]; then
+  "${REPO_ROOT}/node_modules/.bin/prettier" --write "${TMP_FILE}"
+  mv "${TMP_FILE}" "${OUTPUT_FILE}"
+  echo "Rendered ${OVERLAY_DIR} to ${OUTPUT_FILE}"
+elif [[ -x "${REPO_ROOT}/.devcontainer/dependencies/node_modules/.bin/prettier" ]]; then
+  "${REPO_ROOT}/.devcontainer/dependencies/node_modules/.bin/prettier" --write "${TMP_FILE}"
   mv "${TMP_FILE}" "${OUTPUT_FILE}"
   echo "Rendered ${OVERLAY_DIR} to ${OUTPUT_FILE}"
 else
