@@ -35,6 +35,7 @@ containerd
 containerscanning
 coreutils
 cuda
+dcgm
 dearmor
 devcontainer
 devcontainers
@@ -58,9 +59,13 @@ gcloud
 gcpserviceaccount
 gdcloud
 gdcs
+gdcso
 gdcv
+gddr
 gecos
+gguf
 ghcr
+gitops
 gkeconnect
 gkehub
 gkeonprem
@@ -85,6 +90,7 @@ keygen
 keyrings
 krew
 kubeconfig
+kubelet
 kustomization
 kustomizations
 kustomize
@@ -98,6 +104,7 @@ libreadline
 libsqlite
 libstdc
 libxmlsec
+lifecycles
 localpv
 logwriter
 lstrip
@@ -105,6 +112,7 @@ mdformat
 metamathqa
 metricwriter
 mgmt
+mktemp
 moreutils
 multicloud
 multiline
@@ -114,6 +122,7 @@ nohup
 noninteractive
 nopasswd
 nounset
+ollama
 onprem
 opsconfigmonitoring
 passwordless
@@ -124,12 +133,14 @@ pgport
 pguser
 pipefail
 podmonitoring
+portforward
 preconfigured
 prettier
 psycopg
 publickey
 pycache
 pyenv
+qwen
 readyz
 resourcegroup
 rollouts
@@ -168,9 +179,11 @@ tfswitch
 tfvars
 theia
 timonwong
+toplevel
 toupper
 transactionhistory
 unenroll
+unquantized
 urlmap
 usecases
 usermod
