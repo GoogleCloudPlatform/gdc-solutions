@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-<!-- cspell:words vllm gradio kustomize jinja safetensors fleetpackage gkehub cloudsdktool metamathqa podmonitoring rootsync rootsyncs configsync resourcegroup cuda configdelivery kustomization serviceaccount mdformat rollouts anthosconfigmanagement cloudbuild secretmanager artifactregistry googleapis -->
+<!-- cspell:words vllm gradio kustomize jinja safetensors fleetpackage gkehub cloudsdktool metamathqa podmonitoring rootsync rootsyncs configsync resourcegroup cuda configdelivery kustomization serviceaccount mdformat rollouts anthosconfigmanagement cloudbuild secretmanager artifactregistry googleapis automount -->
 
 # SFT model serving with Fleet Packages on Distributed Cloud software only
 
@@ -73,9 +73,6 @@ Fork of gdc-solutions (tag vX.Y.Z)
   prompt format is reviewed in Git. The example checkpoint was tuned in the
   Llama 3 header format (`<|start_header_id|>`, `<|end_header_id|>`,
   `<|eot_id|>`), and its tokenizer has no chat template.
-
-📝 **TODO:** Link the published reference architecture and implementation guide
-when they are available.
 
 ## Prerequisites
 
@@ -296,8 +293,8 @@ so keep its prefix in Cloud Storage.
   Because Config Delivery's `rollouts-manager` field manager owns only
   `spec.override.resources`, the `roleRefs` override is expected per Server-Side
   Apply field ownership to survive in-place `Apply` release upgrades and
-  rollbacks (📝 **TODO:** verify across a live upgrade rollout; re-apply it if
-  the `RootSync` is deleted and recreated).
+  rollbacks (not yet live-tested across an upgrade rollout; verify in your
+  environment and re-apply it if the `RootSync` is deleted and recreated).
 - Both Services are `ClusterIP`. vLLM has no API key; don't expose it outside the
   cluster without an authenticating gateway. Gradio has no authentication and is
   a validation tool only.
@@ -314,14 +311,13 @@ so keep its prefix in Cloud Storage.
   covered. The `Recreate` strategy stops serving during each release.
 - The `local-shared` cache ties the vLLM pod to the node that holds the volume,
   and the cache keeps only the current model version.
-- The fleet Workload Identity credential configuration names one membership. 📝
-  **TODO:** Document the pattern for a fleet with several target clusters, for
-  example one variant per membership.
+- The fleet Workload Identity credential configuration names one membership; for
+  a fleet with several target clusters, use one variant per membership.
 - The example model is a math specialist. It answers math word problems well but
   turns open prompts into math-style derivations.
-- 📝 **TODO:** Verify the fleet Workload Identity credential configuration and
-  the Config Sync enablement on a physical Distributed Cloud software only
-  bare-metal server.
+- Validation ran on a Distributed Cloud software only cluster on Compute Engine
+  VMs; physical bare-metal servers and end-to-end vLLM metric ingestion in Cloud
+  Monitoring have not yet been live-tested.
 
 ## Clean up
 
@@ -362,9 +358,10 @@ so keep its prefix in Cloud Storage.
 
 The bundle was validated on a Distributed Cloud software only cluster running on
 Compute Engine VMs (`v1.35.2-gke.300`, one NVIDIA RTX PRO 6000 Blackwell GPU,
-NVIDIA driver `580.126.20`, CUDA 13.0) across three runs: direct `kubectl`
-bundle validation, an end-to-end `FleetPackage` and Config Sync rollout
-(adopting the pre-created `sft-model-serving` namespace and
+NVIDIA driver `580.126.20`, CUDA 13.0) across three live runs at revision
+`c745c2f` (and its placeholder-substituted rehearsal revision `49049f2`): direct
+`kubectl` bundle validation, an end-to-end `FleetPackage` and Config Sync
+lifecycle rollout (adopting the pre-created `sft-model-serving` namespace and
 `sft-model-cache-pvc` volume from the `kubectl` run, followed by foreground
 label-removal pruning), and subdirectory `ResourceBundle` packaging from the
 `gdc-solutions` fork via a 2nd gen Cloud Build GitHub connection (authorized
@@ -379,9 +376,15 @@ problem from [Deploy](#deploy) through `/v1/chat/completions` (answer
 Gradio UI calling the vLLM Service, the `PodMonitoring` resource, and foreground
 pruning when the membership label is removed.
 
+The post-review hardening added in `409b5df` (the `.complete` initContainer
+completion marker, container `securityContext` settings
+`allowPrivilegeEscalation: false` and `capabilities.drop: ["ALL"]`, and
+`automountServiceAccountToken: false` on the Gradio `Deployment`) was verified
+via `kubectl kustomize` semantic equivalence and static lint gates, and has not
+yet been exercised in a live cluster rollout. A clean-namespace `FleetPackage`
+install on physical bare-metal hardware and vLLM metric arrival in Cloud
+Monitoring are also not yet live-tested.
+
 - `vllm/vllm-openai:v0.32.0` (pinned upstream vLLM GA release).
 - `us-docker.pkg.dev/google-samples/containers/gke/gradio-app:v1.0.4`.
 - `gcr.io/google.com/cloudsdktool/cloud-sdk:589.0.0-slim`.
-
-📝 **TODO:** Validate a clean-namespace `FleetPackage` install on a physical
-bare-metal server and verify vLLM metrics arriving in Cloud Monitoring.
