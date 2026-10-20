@@ -451,6 +451,11 @@ git status --short
 git diff --stat
 ```
 
+```text
+Rendered .../fleet-package/src/overlays/default to .../fleet-package/environments/default/manifests.yaml
+Format .../fleet-package/environments/default/manifests.yaml with prettier before you commit it.
+```
+
 - [Workstation] Commit the DRY and rendered WET files together, open a pull
   request against `main`, and merge it after review.
 

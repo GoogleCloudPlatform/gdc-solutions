@@ -303,10 +303,12 @@ This section describes the concepts and technologies used in the solution.
 ### Resource management
 
 - **Container sizing:** Workload requests must equal limits to guarantee quality
-  of service. For a Llama 3.1 8B SFT model on a 96 GB GPU, the default `0.9`
-  cache ratio yields a `68.63 GiB` KV cache (supporting `562,224` tokens or
-  `34.32x` capacity). Monitor `vllm:kv_cache_usage_perc` via the
-  `nvidia-gpu-operator` DCGM exporter to tune capacity.
+  of service, sized appropriately for the target model and cache memory segment.
+- **96 GB GPU headroom (validation profile):** At
+  `--gpu-memory-utilization=0.90` (`86,963 / 97,887 MiB` total GPU memory used),
+  subtracting `14.96 GiB` of weights and CUDA/activation overhead leaves
+  `68.63 GiB` for the KV cache (`562,224` tokens—sufficient for `34.32x` max
+  concurrency at full `16,384`-token sequences on `vllm/vllm-openai:v0.32.0`).
 - **Node sizing:** Bare-metal nodes require sufficient CPU, memory, and fast
   local NVMe storage to accommodate the cache PVC and kubelet eviction
   thresholds.
@@ -334,18 +336,42 @@ This section describes the concepts and technologies used in the solution.
   ranges.
 - **CLI-driven operations:** Operators manage edge rollouts and diagnose
   inference health using the CLI, Cloud Monitoring, and Cloud Logging.
-- **Structured logging:** Kubernetes on Distributed Cloud software only parses
-  `stdout` into `jsonPayload.log` rather than `textPayload`. Operators use
-  Logging Query Language (LQL) with `jsonPayload.log` filters to extract traces.
+- **Application metrics via `PodMonitoring`:** A `monitoring.googleapis.com/v1`
+  `PodMonitoring` resource scrapes vLLM's [Prometheus](https://prometheus.io/)
+  `/metrics` endpoint every 15 seconds—capturing active requests,
+  prompt/generation token throughput, time-to-first-token latency histograms,
+  and KV-cache occupancy (`vllm:kv_cache_usage_perc`)—and forwards samples to
+  [Google Cloud Managed Service for Prometheus](https://docs.cloud.google.com/monitoring/kubernetes-engine/prometheus)
+  when managed application collection (`enableGMPForApplications`) is enabled on
+  the cluster. For cluster configuration steps, see
+  [Enable application logging and monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/application-logging-monitoring).
+- **GPU hardware metrics via DCGM Exporter:**
+  [NVIDIA DCGM Exporter](https://github.com/NVIDIA/dcgm-exporter) runs on GPU
+  nodes to expose streaming multiprocessor utilization (`DCGM_FI_DEV_GPU_UTIL`),
+  framebuffer memory used (`DCGM_FI_DEV_FB_USED`), temperature, power draw, and
+  ECC error counters; Platform Administrators deploy a customer `PodMonitoring`
+  resource (`dcgm-gmp`, selecting `app: nvidia-dcgm-exporter` on port `metrics`)
+  in the exporter's namespace (for example `gpu-operator` on Helm installs or
+  `nvidia-gpu-operator`) so Google Cloud Managed Service for Prometheus ships
+  those metrics to Cloud Monitoring. For setup instructions, see
+  [Send GPU metrics to Cloud Monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/gpu-metrics).
+- **Container logs in Cloud Logging:** Cluster log forwarders ship CRI container
+  stdout/stderr streams (`jsonPayload.log`) from the model downloader
+  `initContainer` (active Workload Identity principal, transfer progress, cache
+  pruning), vLLM, and Gradio to Cloud Logging when application logging is
+  enabled on the cluster; see
+  [Enable application logging and monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/application-logging-monitoring).
 
 ### Security and compliance
 
 - **Zero static secrets:** Fleet Workload Identity exchanges tokens dynamically,
   ensuring no Git credentials or Kubernetes secrets persist on the edge
   clusters.
-- **Request privacy:** vLLM logs full completion prompts by default. In
-  production, pass `--enable-log-requests false` (or explicitly set it to true
-  only during debugging) to prevent PII from leaking into container logs.
+- **Request logging privacy:** Enabling `--enable-log-requests` on
+  `vllm/vllm-openai:v0.32.0` writes HTTP access metadata to container stdout and
+  Cloud Logging at default `INFO` level and raw prompt/completion payloads if
+  `VLLM_LOGGING_LEVEL=DEBUG` is set; omit or restrict request logging when
+  serving regulated or personal data.
 - **Internal exposure:** Serving and validation endpoints use internal
   `ClusterIP` services and are accessed via `kubectl port-forward`; production
   exposure requires authenticating API gateways and TLS termination.
