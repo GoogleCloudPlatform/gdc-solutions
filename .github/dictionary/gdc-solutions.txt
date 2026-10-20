@@ -122,10 +122,12 @@ nohup
 noninteractive
 nopasswd
 nounset
+oauthtoken
 ollama
 onprem
 opsconfigmonitoring
 passwordless
+perc
 pgdatabase
 pghost
 pgpassword
@@ -143,6 +145,7 @@ pyenv
 qwen
 readyz
 resourcegroup
+resourcegroups
 rollouts
 rootsync
 rootsyncs

@@ -160,8 +160,8 @@ kubectl -n "${NAMESPACE}" port-forward svc/gradio-llama-sft-service 8080:8080
 ```
 
 - [Workstation] Open `http://localhost:8080` in a browser, verify that the page
-  header reads `Llama 3.1 8B SFT Chat (v1.0.0)`, and submit a math word problem
-  such as
+  banner reads `You are chatting with: llama-3.1-8b-sft-v1.0.0`, and submit a
+  math word problem such as
   `"Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"`.
   Confirm that the response ends cleanly with `The answer is: 72`.
 
@@ -206,7 +206,8 @@ curl -s http://localhost:8000/metrics | grep -E '^vllm:(num_requests_running|gen
 kill "${PF_PID}"
 ```
 
-The returned series carry label `model_name="llama-3.1-8b-sft"`.
+The returned series carry label `model_name="llama-3.1-8b-sft"` (alongside
+`vllm:kv_cache_usage_perc` and request latency histograms).
 
 - [Console] In Google Cloud Monitoring **Metrics Explorer**, switch to
   **PromQL** to inspect vLLM token generation rate alongside GPU utilization and
@@ -223,8 +224,8 @@ Replace the following:
 - `CLUSTER_NAME`: the bare-metal cluster name label reported in Google Cloud
   Managed Service for Prometheus (typically matching `MEMBERSHIP`).
 - `DCGM_NAMESPACE`: the namespace running `nvidia-dcgm-exporter` where
-  `PodMonitoring/dcgm-gmp` was applied in the SRI (for example
-  `nvidia-gpu-operator`).
+  `PodMonitoring/dcgm-gmp` was applied in the SRI (for example `gpu-operator` on
+  NVIDIA Helm chart installations or `nvidia-gpu-operator`).
 
 - [Workstation] Inspect container logs locally and in Cloud Logging.
 
@@ -232,15 +233,16 @@ Replace the following:
 kubectl -n "${NAMESPACE}" logs deploy/vllm-llama-sft-deployment -c vllm-container --tail=50
 gcloud logging read \
     "resource.type=\"k8s_container\" AND resource.labels.namespace_name=\"${NAMESPACE}\" AND resource.labels.container_name=\"vllm-container\"" \
-    --project="${PROJECT_ID}" --limit=20 --format="table(timestamp, textPayload)"
+    --project="${PROJECT_ID}" --limit=20 --format="table(timestamp, jsonPayload.log)"
 ```
 
 <!-- prettier-ignore -->
 > [!WARNING]
 > Because `--enable-log-requests` is set on the worked-example vLLM deployment,
-> prompt details appear in container logs and Cloud Logging. Remove
-> `--enable-log-requests` through a GitOps release before serving sensitive or
-> regulated prompts.
+> HTTP request metadata appears in container stdout and Cloud Logging at default
+> `INFO` level, and full prompt and completion payloads appear if
+> `VLLM_LOGGING_LEVEL=DEBUG` is enabled. Remove `--enable-log-requests` through
+> a GitOps release before serving sensitive or regulated prompts.
 
 ### Upgrade the model from v1.0.0 to v2.0.0
 
@@ -264,14 +266,14 @@ git checkout -b sft-model-serving-v2.0.0
 
 <!-- mdformat off -->
 
-| File                                        | Field                                                             | `v1.0.0` value                                                                         | `v2.0.0` value                                                                         |
-| :------------------------------------------ | :---------------------------------------------------------------- | :------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------- |
-| `src/base/vllm-llama-sft-deployment.yaml`   | `ai.gke.io/model-version` label (Deployment and pod template)     | `v1`                                                                                   | `v2`                                                                                   |
-| `src/base/vllm-llama-sft-deployment.yaml`   | `MODEL_VERSION` env (`gcs-model-downloader` and `vllm-container`) | `v1`                                                                                   | `v2`                                                                                   |
-| `src/base/vllm-llama-sft-deployment.yaml`   | `MODEL_GCS_URI` env (`gcs-model-downloader`)                      | `gs://BUCKET/sft-model-serving/checkpoints/v1`                                         | `gs://BUCKET/sft-model-serving/checkpoints/v2`                                         |
-| `src/base/vllm-llama-sft-deployment.yaml`   | `--served-model-name` aliases                                     | `llama-3.1-8b-sft`, `llama-3.1-8b-sft-v1.0.0`, `llama-3.1-8b-sft-v1`                   | `llama-3.1-8b-sft`, `llama-3.1-8b-sft-v2.0.0`, `llama-3.1-8b-sft-v2`                   |
-| `src/base/gradio-llama-sft-deployment.yaml` | `MODEL_ID`, `TITLE`, `MODEL_NAME` env                             | `llama-3.1-8b-sft-v1.0.0`, `Llama 3.1 8B SFT Chat (v1.0.0)`, `Llama-3.1-8B-SFT-v1.0.0` | `llama-3.1-8b-sft-v2.0.0`, `Llama 3.1 8B SFT Chat (v2.0.0)`, `Llama-3.1-8B-SFT-v2.0.0` |
-| `fleetpackage.yaml`                         | `tag`                                                             | `v1.0.0`                                                                               | `v2.0.0`                                                                               |
+| File                                        | Field                                                             | `v1.0.0` value                                                       | `v2.0.0` value                                                       |
+| :------------------------------------------ | :---------------------------------------------------------------- | :------------------------------------------------------------------- | :------------------------------------------------------------------- |
+| `src/base/vllm-llama-sft-deployment.yaml`   | `ai.gke.io/model-version` label (Deployment and pod template)     | `v1`                                                                 | `v2`                                                                 |
+| `src/base/vllm-llama-sft-deployment.yaml`   | `MODEL_VERSION` env (`gcs-model-downloader` and `vllm-container`) | `v1`                                                                 | `v2`                                                                 |
+| `src/base/vllm-llama-sft-deployment.yaml`   | `MODEL_GCS_URI` env (`gcs-model-downloader`)                      | `gs://BUCKET/sft-model-serving/checkpoints/v1`                       | `gs://BUCKET/sft-model-serving/checkpoints/v2`                       |
+| `src/base/vllm-llama-sft-deployment.yaml`   | `--served-model-name` aliases                                     | `llama-3.1-8b-sft`, `llama-3.1-8b-sft-v1.0.0`, `llama-3.1-8b-sft-v1` | `llama-3.1-8b-sft`, `llama-3.1-8b-sft-v2.0.0`, `llama-3.1-8b-sft-v2` |
+| `src/base/gradio-llama-sft-deployment.yaml` | `MODEL_ID` env                                                    | `llama-3.1-8b-sft-v1.0.0`                                            | `llama-3.1-8b-sft-v2.0.0`                                            |
+| `fleetpackage.yaml`                         | `tag`                                                             | `v1.0.0`                                                             | `v2.0.0`                                                             |
 
 <!-- mdformat on -->
 
@@ -403,18 +405,20 @@ gcloud container fleet packages update "${FLEET_PACKAGE}" \
     --location="${REGION}" --project="${PROJECT_ID}"
 ```
 
-Measured rollback behavior on the validation cluster (measured on the earlier
-lab source before the vLLM image update; timings vary with network bandwidth and
-GPU node storage):
+Measured upgrade and rollback behavior on the validation cluster running
+`vllm/vllm-openai:v0.32.0` (timings vary with network bandwidth and GPU node
+storage):
 
-- Managed Cloud Build OCI packaging completed in roughly `2` minutes before
-  cluster rollout began.
-- Total time from `FleetPackage` update to ready vLLM pod was `5` minutes `21`
-  seconds, with roughly `3` minutes without serving under `strategy: Recreate`
-  (largely the `120`-second readiness initial delay).
+- Managed Cloud Build OCI packaging completed in roughly `2` minutes (`115–127`
+  seconds) with zero serving downtime while cluster traffic continued normally.
+- Total time from `FleetPackage` update to a serving `/v1/models` HTTP `200`
+  response was `5` minutes `47–49` seconds (`7` minutes `39` seconds to
+  `Rollout COMPLETED`), with `3` minutes `11–13` seconds without serving under
+  `strategy: Recreate` (dominated by `vllm:v0.32.0` V1 engine and CUDA graph
+  initialization inside the `120`-second readiness initial delay).
 - Because `v2.0.0` pruned `v1` from the local PVC cache, the `initContainer`
-  re-downloaded `~15 GiB` at `781.9 MiB/s` average and pruned `v2` in `24`
-  seconds total.
+  downloaded `14.97 GiB` via keyless Fleet Workload Identity at `922–952 MiB/s`
+  and pruned the superseded cache directory in `21` seconds total.
 
 <!-- prettier-ignore -->
 > [!NOTE]
@@ -482,7 +486,8 @@ The answer is: 72
 
 - [Workstation] Re-open Gradio (see
   [Access the model through Gradio](#access-the-model-through-gradio)) and
-  verify that the title matches the active release tag.
+  verify that the `You are chatting with:` banner displays
+  `llama-3.1-8b-sft-v2.0.0` (or `llama-3.1-8b-sft-v2.0.1` after rollback).
 
 ## Operations
 
@@ -520,7 +525,7 @@ Replace the following:
 | Rollout enters `STALLED` state                             | Cluster RBAC or reconciliation failure on the active cluster                                                                        | Fix the underlying error, then run `rollouts abort` (see [Operations](#operations))                                                                                                                                                                                                                                                                             |
 | Rollback `initContainer` fails on missing checkpoint files | Prior version prefix (`checkpoints/v1`) was deleted from Cloud Storage                                                              | Restore the checkpoint files in Cloud Storage or roll forward to an intact checkpoint prefix                                                                                                                                                                                                                                                                    |
 | `kubectl port-forward` disconnects during rollout          | `strategy: Recreate` terminated the previous pod                                                                                    | Restart `kubectl port-forward` once the replacement pod reaches `1/1 Running`                                                                                                                                                                                                                                                                                   |
-| Gradio displays prior version title                        | Browser cache or pending Gradio pod rollout                                                                                         | Refresh browser cache and check `kubectl -n "${NAMESPACE}" get pods`                                                                                                                                                                                                                                                                                            |
+| Gradio banner displays prior `MODEL_ID` version            | Browser cache or pending Gradio pod rollout                                                                                         | Refresh browser cache and check `kubectl -n "${NAMESPACE}" get pods`                                                                                                                                                                                                                                                                                            |
 | Non-math prompts produce math derivations                  | Worked-example checkpoint is fine-tuned on MetaMathQA                                                                               | Validate the worked example with math word problems                                                                                                                                                                                                                                                                                                             |
 | Missing vLLM or GPU metrics in Cloud Monitoring            | `enableGMPForApplications`, `PodMonitoring/vllm-llama-sft-pod-monitoring`, `PodMonitoring/dcgm-gmp`, or DCGM Exporter isn't enabled | Verify `PodMonitoring` conditions and see [Enable application logging and monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/application-logging-monitoring) and [Send GPU metrics to Cloud Monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/gpu-metrics) |
 | Missing container logs in Cloud Logging                    | Cluster application log forwarding isn't enabled                                                                                    | Enable application logging per [Enable application logging and monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/application-logging-monitoring)                                                                                                                                                             |

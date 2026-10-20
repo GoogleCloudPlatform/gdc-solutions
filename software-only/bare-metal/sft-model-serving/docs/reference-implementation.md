@@ -93,8 +93,10 @@ back to `v2.0.1`, see the [Solution User Guide (SUG)](user-guide.md).
 
 ### Prerequisites (cluster setup)
 
-- Distributed Cloud software only for bare metal 1.35 or later, standalone
-  cluster registered to a fleet in your Google Cloud project; see
+- Distributed Cloud software only for bare metal 1.35 or later (validated on
+  Distributed Cloud software only `1.35.0-gke.525` / Kubernetes
+  `v1.35.2-gke.300`), standalone cluster registered to a fleet in your Google
+  Cloud project; see
   [Distributed Cloud software only installation preparation](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/installing/install-prep).
 - One dedicated single-node edge inference GPU sized for your
   checkpoint—validated with an NVIDIA RTX PRO 6000 Blackwell (96 GB) serving an
@@ -244,7 +246,8 @@ Replace the following:
   repository link in `REGION`, for example `sft-gitops-github` and
   `sft-gitops-repo`.
 - `DCGM_NAMESPACE`: namespace running `nvidia-dcgm-exporter` on your cluster
-  (default `nvidia-gpu-operator` or `gpu-operator`; verify with
+  (`gpu-operator` on NVIDIA Helm chart installations or `nvidia-gpu-operator` on
+  operator bundles; verify with
   `kubectl get pods -A -l app=nvidia-dcgm-exporter`).
 
 - [Workstation] Source the environment configuration in every new shell session.
@@ -356,8 +359,8 @@ A standalone GitOps repository holds `fleet-package/` at its root
   `fleet-package/environments/default/manifests.yaml`.
 
 - [Workstation] Create a new private GitHub repository under `GITOPS_OWNER`,
-  fetch the pinned `fleet-package/` directory from the Apache-2.0 reference
-  sample (without monorepo wrapper files), set `cloudBuildRepository.path` to
+  fetch the `fleet-package/` directory from the Apache-2.0 reference sample
+  (without monorepo wrapper files), set `cloudBuildRepository.path` to
   `fleet-package/environments`, and push the initial `main` branch.
 
 ```bash
@@ -469,7 +472,7 @@ the Llama 3.1 8B SFT training format:
 > [!TIP]
 > To serve a different SFT open-weight model family (`<MODEL_NAME>`), update the
 > model identifier and `--served-model-name` aliases in
-> `src/base/vllm-llama-sft-deployment.yaml` and
+> `src/base/vllm-llama-sft-deployment.yaml` and `MODEL_ID` in
 > `src/base/gradio-llama-sft-deployment.yaml`, replace the Jinja chat template
 > and `eos_token_id` values in `src/base/vllm-llama-sft-config.yaml` to match
 > your model's tokenizer, and tune `--max-model-len` and `--dtype` for your edge
@@ -624,10 +627,16 @@ kubectl apply -f "${GITOPS_DIR}/${SOLUTION_SUBDIR}/fleet-package/configdelivery-
 > Config Sync's `reconciler-manager` binds `root-reconciler-sft-model-serving`
 > to `cluster-admin` by default. Because Config Delivery's `rollouts-manager`
 > field manager owns only `spec.override.resources`, operators requiring strict
-> namespace scoping can apply `spec.override.roleRefs` via Server-Side Apply
-> under a distinct field manager (`kubectl apply --server-side
-> --field-manager=platform-admin -f -`), re-applying only if the `RootSync` is
-> deleted and recreated (verify across an upgrade rollout in your environment).
+> least-privilege scoping can pair a minimal `ClusterRole` (granting
+> `resourcegroups` inventory access, `namespaces` management restricted via
+> `resourceNames` to `<NAMESPACE>`, and cluster-scoped read-only `get`, `list`,
+> `watch` on the 6 non-Secret packaged kinds required by Config Sync status
+> informers) with a namespace `Role` in `<NAMESPACE>` for write verbs, applied
+> to `spec.override.roleRefs` via Server-Side Apply under a distinct field
+> manager (`kubectl apply --server-side --field-manager=platform-admin -f -`).
+> Disjoint Server-Side Apply field ownership preserves `roleRefs` across
+> in-place `FleetPackage` upgrades and rollbacks; re-apply only if the
+> `RootSync` is deleted and recreated.
 
 - [Workstation] Create the target namespace and apply this cluster's keyless
   Fleet Workload Identity credential `ConfigMap` (`gcs-credential-config`),
@@ -747,7 +756,7 @@ The output on the 96 GB validation GPU is similar to the following:
 
 ```text
 memory.used [MiB], memory.total [MiB]
-86965 MiB, 97887 MiB
+86963 MiB, 97887 MiB
 ```
 
 - [Workstation] Port-forward the vLLM `Service`, check `/health`, and inspect
@@ -870,21 +879,24 @@ gcloud iam service-accounts delete "${PUBLISHER_SA_NAME}@${PROJECT_ID}.iam.gserv
 
 - [Workstation] If no other 2nd-gen Cloud Build connection in the project needs
   it, remove `roles/secretmanager.admin` from the Cloud Build service agent and
-  clean up the connection secret.
+  delete any retained regional OAuth token secret created by the connection.
 
 ```bash
 gcloud projects remove-iam-policy-binding "${PROJECT_ID}" \
     --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-cloudbuild.iam.gserviceaccount.com" \
     --role="roles/secretmanager.admin" --condition=None
-gcloud secrets list --project="${PROJECT_ID}"
+CLOUDSDK_API_ENDPOINT_OVERRIDES_SECRETMANAGER="https://secretmanager.${REGION}.rep.googleapis.com/" \
+    gcloud secrets list --location="${REGION}" --project="${PROJECT_ID}" \
+    --filter="name:${CONNECTION}-github-oauthtoken"
+CLOUDSDK_API_ENDPOINT_OVERRIDES_SECRETMANAGER="https://secretmanager.${REGION}.rep.googleapis.com/" \
+    gcloud secrets delete SECRET_NAME --location="${REGION}" --project="${PROJECT_ID}"
 ```
 
-<!-- prettier-ignore -->
-> [!NOTE]
-> Inspect `gcloud secrets list --project="${PROJECT_ID}"` after deleting the
-> connection and delete any orphaned Cloud Build OAuth token secret (`gcloud
-> secrets delete SECRET_NAME --project="${PROJECT_ID}"`) if it wasn't removed
-> automatically.
+Replace the following:
+
+- `SECRET_NAME`: regional secret ID (`${CONNECTION}-github-oauthtoken-*`) listed
+  by the previous command if deleting the Cloud Build connection did not remove
+  it automatically.
 
 - [Workstation] Remove the Config Delivery RBAC manifest, DCGM `PodMonitoring`
   resource, and local working clones and configuration files.

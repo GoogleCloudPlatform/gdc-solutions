@@ -198,11 +198,15 @@ components:
   - **Config Delivery service agent and Config Sync reconciler:** The Config
     Delivery service agent manages `RootSync` objects in
     `config-management-system` under a namespace-scoped `Role` and `RoleBinding`
-    (`configdelivery-rootsync-manager`), while the Config Sync reconciler
-    applies the 9-resource bundle and can optionally be restricted to the
-    packaged resource kinds using Server-Side Apply on
-    `RootSync.spec.override.roleRefs` (verify field ownership behavior across an
-    upgrade rollout in your cluster environment).
+    (`configdelivery-rootsync-manager`, granting `create`, `delete`, `get`, and
+    `patch`), while the Config Sync reconciler applies the 9-resource bundle and
+    can optionally be restricted via Server-Side Apply on
+    `RootSync.spec.override.roleRefs` (`--field-manager=platform-admin`,
+    combining a `ClusterRole` with read-only `get`, `list`, and `watch`
+    permissions on the 6 non-Secret packaged kinds for Config Sync status
+    informers with a namespace `Role` granting write permissions in
+    `<NAMESPACE>`, preserving `secrets` access denial cluster-wide across
+    consecutive upgrade and rollback rollouts).
 - **vLLM model serving engine:**
   - **vLLM `Deployment`:** Single-replica `Deployment` (`strategy: Recreate`,
     `runtimeClassName: nvidia`, `nvidia.com/gpu: 1`) running
@@ -335,11 +339,11 @@ combination:
     token consumes `128 KiB`, so one full `16,384`-token sequence
     (`--max-model-len=16384`) requires `2.0 GiB` of KV cache.
   - **96 GB GPU headroom (validation profile):** At
-    `--gpu-memory-utilization=0.90` (`~86.0 GiB` reserved), subtracting
-    `14.96 GiB` of weights and roughly `5 GiB` of CUDA and activation overhead
-    leaves roughly `66 GiB` for the KV cache—sufficient for about `33`
-    concurrent full-length `16,384`-token sequences (confirm exact available
-    KV-cache headroom in your vLLM startup logs).
+    `--gpu-memory-utilization=0.90` (`86,963 / 97,887 MiB` total GPU memory
+    used), subtracting `14.96 GiB` of weights and CUDA/activation overhead
+    leaves `68.63 GiB` for the KV cache (`562,224` tokens—sufficient for
+    `34.32x` max concurrency at full `16,384`-token sequences on
+    `vllm/vllm-openai:v0.32.0`).
   - **48 GB GPU profile (for example, NVIDIA L40S or RTX 6000 Ada):** The same
     unquantized 8B BF16 checkpoint leaves roughly `20–25 GiB` of KV cache (`~10`
     full `16,384`-token sequences); tune `--max-model-len` or `--max-num-seqs`
@@ -458,9 +462,10 @@ abstracting deployment variables such as target `<NAMESPACE>`, `<REGION>`,
     architectures without executing arbitrary Python code from checkpoint
     directories.
 - **Gradio validation UI:** Exposed internally on `ClusterIP` port `8080`
-  (container port `7860`), displaying the active release version in its header
-  and sending `<MODEL_NAME>-vX.Y.Z` in API requests so Application Operators can
-  visually confirm which release responds.
+  (container port `7860`), displaying the active `MODEL_ID` banner
+  (`You are chatting with: <MODEL_NAME>-vX.Y.Z`) and sending
+  `<MODEL_NAME>-vX.Y.Z` in API requests so Application Operators can visually
+  confirm which release responds.
 
 ### Cloud observability integration
 
@@ -468,7 +473,7 @@ abstracting deployment variables such as target `<NAMESPACE>`, `<REGION>`,
   `PodMonitoring` resource scrapes vLLM's [Prometheus](https://prometheus.io/)
   `/metrics` endpoint every 15 seconds—capturing active requests,
   prompt/generation token throughput, time-to-first-token latency histograms,
-  and KV-cache occupancy—and forwards samples to
+  and KV-cache occupancy (`vllm:kv_cache_usage_perc`)—and forwards samples to
   [Google Cloud Managed Service for Prometheus](https://docs.cloud.google.com/monitoring/kubernetes-engine/prometheus)
   when managed application collection (`enableGMPForApplications`) is enabled on
   the cluster. For cluster configuration steps, see
@@ -479,13 +484,15 @@ abstracting deployment variables such as target `<NAMESPACE>`, `<REGION>`,
   framebuffer memory used (`DCGM_FI_DEV_FB_USED`), temperature, power draw, and
   ECC error counters; Platform Administrators deploy a customer `PodMonitoring`
   resource (`dcgm-gmp`, selecting `app: nvidia-dcgm-exporter` on port `metrics`)
-  in the exporter's namespace so Google Cloud Managed Service for Prometheus
-  ships those metrics to Cloud Monitoring. For setup instructions, see
+  in the exporter's namespace (for example `gpu-operator` on Helm installs or
+  `nvidia-gpu-operator`) so Google Cloud Managed Service for Prometheus ships
+  those metrics to Cloud Monitoring. For setup instructions, see
   [Send GPU metrics to Cloud Monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/gpu-metrics).
-- **Container logs in Cloud Logging:** Cluster log forwarders ship stdout/stderr
-  streams from the model downloader `initContainer` (active Workload Identity
-  principal, transfer progress, cache pruning), vLLM, and Gradio to Cloud
-  Logging when application logging is enabled on the cluster; see
+- **Container logs in Cloud Logging:** Cluster log forwarders ship CRI container
+  stdout/stderr streams (`jsonPayload.log`) from the model downloader
+  `initContainer` (active Workload Identity principal, transfer progress, cache
+  pruning), vLLM, and Gradio to Cloud Logging when application logging is
+  enabled on the cluster; see
   [Enable application logging and monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/application-logging-monitoring).
 
 ### Cloud Build and Config Delivery integration
@@ -540,7 +547,7 @@ environment.
   reconciliation fails.
 - **Concurrency and KV-cache bounds:** `--max-num-seqs` caps concurrent
   sequences, while available VRAM above model weights bounds simultaneous
-  long-context requests (for example, `~66 GiB` KV cache on a 96 GB GPU vs.
+  long-context requests (for example, `68.63 GiB` KV cache on a 96 GB GPU vs.
   `~20–25 GiB` on a 48 GB GPU for an 8B BF16 model).
 - **Cold-start versus warm-start latency:** Promoting a new `MODEL_VERSION`
   downloads the checkpoint over HTTPS before vLLM starts (for example, `~15 GiB`
@@ -579,10 +586,12 @@ environment.
   `resourceBundleSelector.cloudBuildRepository.tag` on the `FleetPackage` to the
   prior release tag while its Cloud Storage prefix remains intact. Because older
   versions are pruned from `/model-cache`, rollback re-downloads the prior
-  checkpoint (measured at `~782 MiB/s` inside a `24`-second download-and-prune
-  step, `~3` minutes without serving, and `5` minutes `21` seconds from
-  `FleetPackage` update to `Ready` for a `15 GiB` checkpoint on the earlier lab
-  source before the vLLM image update).
+  checkpoint (measured on `vllm/vllm-openai:v0.32.0` at `~2` minutes of managed
+  Cloud Build packaging with zero serving downtime, `21` seconds at
+  `922–952 MiB/s` for `14.97 GiB` Fleet Workload Identity download and cache
+  pruning, `3` minutes `11–13` seconds of `Recreate` serving pause, and `5`
+  minutes `47–49` seconds from `FleetPackage` update to ready serving—`7`
+  minutes `39` seconds to `Rollout COMPLETED`).
 - **Automated drift remediation:** Manual `kubectl` edits or accidental
   deletions of managed resources inside `<NAMESPACE>` are automatically reverted
   by Config Sync.
@@ -619,17 +628,22 @@ environment.
 
 - **Least-privilege cluster RBAC:** Cluster access is separated across two
   distinct identities. First, the Google Cloud Config Delivery service agent
-  only invokes `get`, `patch`, and `delete` on `rootsyncs.configsync.gke.io` in
-  `config-management-system`, so onboarding grants it a narrow namespace-scoped
-  `Role` and `RoleBinding` (`configdelivery-rootsync-manager`) rather than
-  `cluster-admin`. Second, the in-cluster Config Sync reconciler applies the 9
-  cluster-agnostic resources in the `default` bundle (`Namespace`,
-  `ServiceAccount`, vLLM `ConfigMap`, `PersistentVolumeClaim`, two `Deployment`
-  objects, two `Service` objects, and `PodMonitoring`); operators requiring
-  strict tenant isolation can bind `RootSync.spec.override.roleRefs` via
-  Server-Side Apply under a dedicated field manager so field ownership coexists
-  cleanly with Config Delivery's `rollouts-manager` (verify across an upgrade
-  rollout in your environment and re-apply if the `RootSync` is recreated).
+  invokes only `create`, `delete`, `get`, and `patch` on
+  `rootsyncs.configsync.gke.io` in `config-management-system`, so onboarding
+  grants it a narrow namespace-scoped `Role` and `RoleBinding`
+  (`configdelivery-rootsync-manager`) rather than `cluster-admin`. Second, the
+  in-cluster Config Sync reconciler applies the 9 cluster-agnostic resources in
+  the `default` bundle (`Namespace`, `ServiceAccount`, vLLM `ConfigMap`,
+  `PersistentVolumeClaim`, two `Deployment` objects, two `Service` objects, and
+  `PodMonitoring`); operators requiring strict tenant isolation can bind
+  `RootSync.spec.override.roleRefs` via Server-Side Apply under a dedicated
+  field manager (`--field-manager=platform-admin`, pairing a `ClusterRole`
+  granting read-only `get`, `list`, and `watch` on the 6 non-Secret packaged
+  kinds for Config Sync status informers with a namespace `Role` granting write
+  permissions in `<NAMESPACE>`, preserving `secrets` access denial cluster-wide)
+  so field ownership coexists cleanly with Config Delivery's `rollouts-manager`
+  across consecutive upgrade and rollback rollouts (re-apply if the `RootSync`
+  is deleted and recreated).
 - **Zero static secrets on clusters or in Git:** Fleet Workload Identity
   exchanges projected Kubernetes tokens for short-lived Cloud Storage read
   tokens (`roles/storage.objectViewer`), the per-cluster `gcs-credential-config`
@@ -640,9 +654,11 @@ environment.
   (`:8080`) use internal `ClusterIP` Services without external ingress. Operator
   validation uses RBAC-gated `kubectl port-forward`; production external
   exposure requires adding an authenticating API gateway and TLS termination.
-- **Request logging privacy:** Enabling `--enable-log-requests` on vLLM writes
-  prompt metadata/content to container stdout and Cloud Logging; omit or
-  restrict request logging when prompts contain regulated or personal data.
+- **Request logging privacy:** Enabling `--enable-log-requests` on
+  `vllm/vllm-openai:v0.32.0` writes HTTP access metadata to container stdout and
+  Cloud Logging at default `INFO` level and raw prompt/completion payloads if
+  `VLLM_LOGGING_LEVEL=DEBUG` is set; omit or restrict request logging when
+  serving regulated or personal data.
 - **Pinned container provenance:** All runtime images (`vllm-openai`,
   `gradio-app`, and `cloud-sdk`) are pinned to explicit version tags; production
   deployments should vulnerability-scan images and mirror digests into a private
@@ -820,8 +836,9 @@ environment.
 ### Assumptions
 
 - **Cluster:** Distributed Cloud software only for bare metal 1.35 or later
-  (validated on Kubernetes `v1.35.2-gke.300`), standalone cluster registered to
-  a fleet in the customer's Google Cloud project.
+  (validated on Distributed Cloud software only `1.35.0-gke.525` / Kubernetes
+  `v1.35.2-gke.300`), standalone cluster registered to a fleet in the customer's
+  Google Cloud project.
 - **GPU node:** One dedicated single-node edge inference GPU per target cluster,
   with NVIDIA GPU Operator, `nvidia` `RuntimeClass`, NVIDIA DCGM Exporter, and a
   compatible NVIDIA driver installed (branch `580+` for default CUDA 13 vLLM
@@ -859,12 +876,13 @@ environment.
     checkpoint bucket, plus `roles/iam.workloadIdentityUser` bound to
     `serviceAccount:PROJECT_ID.svc.id.goog[<NAMESPACE>/<KSA_NAME>]`.
   - Config Delivery service agent: namespace-scoped `Role` and `RoleBinding`
-    (`configdelivery-rootsync-manager`) on `rootsyncs.configsync.gke.io` in
-    `config-management-system` on each target cluster, applied alongside the
-    per-cluster `gcs-credential-config` `ConfigMap` during onboarding; Config
-    Sync reconciler optionally scoped via `RootSync.spec.override.roleRefs`
-    (verify across an upgrade rollout in your environment and re-apply if the
-    `RootSync` is recreated).
+    (`configdelivery-rootsync-manager`, granting `create`, `delete`, `get`, and
+    `patch`) on `rootsyncs.configsync.gke.io` in `config-management-system` on
+    each target cluster, applied alongside the per-cluster
+    `gcs-credential-config` `ConfigMap` during onboarding; Config Sync
+    reconciler optionally scoped via `RootSync.spec.override.roleRefs`
+    (`--field-manager=platform-admin`, re-applied if the `RootSync` is deleted
+    and recreated).
   - Platform Administrator: permissions to manage fleet memberships/labels,
     `FleetPackage` resources, Cloud Build connections, IAM bindings, and cluster
     onboarding RBAC.
@@ -882,9 +900,11 @@ environment.
   downloading a new `MODEL_VERSION`).
 - **Rollback re-downloads weights:** Because cache pruning retains only the
   active `MODEL_VERSION`, rolling back re-downloads the prior checkpoint from
-  Cloud Storage (`5` minutes `21` seconds update-to-`Ready` in lab testing on
-  the earlier lab source before the vLLM image update) and requires keeping
-  historical checkpoint prefixes in the bucket.
+  Cloud Storage (`21` seconds at `922–952 MiB/s` for `14.97 GiB` download and
+  cache pruning, `3` minutes `11–13` seconds of `Recreate` serving pause, and
+  `5` minutes `47–49` seconds from `FleetPackage` update to ready serving—`7`
+  minutes `39` seconds to `Rollout COMPLETED`—on `vllm/vllm-openai:v0.32.0`) and
+  requires keeping historical checkpoint prefixes in the bucket.
 - **Node-local volume affinity:** The `local-shared` PVC binds the serving pod
   to the specific bare-metal node holding the volume.
 - **Validation-only UI:** Gradio provides no built-in user authentication and is
