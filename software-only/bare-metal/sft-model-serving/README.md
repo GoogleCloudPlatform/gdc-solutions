@@ -43,12 +43,12 @@ Git tracks the manifests and selected model version.
 
 <!-- prettier-ignore -->
 > [!IMPORTANT]
-> SRA versus SRI scope. This document covers the architectural design and
-> structural decisions. For the deployment manifests and step-by-step deployment
-> and implementation instructions, see the [Solution Reference Implementation
-> (SRI)](docs/reference-implementation.md). For detailed user instructions on
-> how to use and demonstrate the solution capabilities, see the [Solution User
-> Guide (SUG)](docs/user-guide.md).
+> SRA versus SRI versus SUG scope. This document covers the architectural design
+> and structural decisions. For the deployment manifests and step-by-step
+> deployment and implementation instructions, see the [Solution Reference
+> Implementation (SRI)](docs/reference-implementation.md). For detailed user
+> instructions on how to use and demonstrate the solution capabilities, see the
+> [Solution User Guide (SUG)](docs/user-guide.md).
 
 <!-- prettier-ignore -->
 > [!WARNING]
@@ -95,8 +95,10 @@ Git tracks the manifests and selected model version.
   Storage URI, keeping the Git repository and Config Delivery bundles
   lightweight.
 - **Keyless identity:** Workloads authenticate via Fleet Workload Identity using
-  projected tokens, avoiding static credentials or Kubernetes secrets on the
-  cluster.
+  projected tokens, and `FleetPackage` synchronizes with the GitOps repository
+  centrally via Cloud Build rather than from each cluster individually—avoiding
+  static cloud credentials, local Git personal access token (PAT) secrets, or
+  other Kubernetes secrets on the cluster.
 - **Least privilege end to end:** Workload identity is scoped to read-only
   bucket access, and Config Delivery utilizes namespace-scoped permissions for
   rollout orchestration.
@@ -106,7 +108,7 @@ Git tracks the manifests and selected model version.
 ### Components
 
 The architecture deploys workload resources into a configurable Kubernetes
-namespace (`<NAMESPACE>`, defaulting to `sft-model-serving`) across five layers:
+namespace (`<NAMESPACE>`, for instance: `sft-model-serving`) across five layers:
 
 - **Edge cluster infrastructure (customer managed):**
   - **Distributed Cloud software only standalone cluster:** Bare-metal
@@ -122,10 +124,13 @@ namespace (`<NAMESPACE>`, defaulting to `sft-model-serving`) across five layers:
     [Kustomize](https://github.com/kubernetes-sigs/kustomize) sources
     (`fleet-package/src/`) and rendered plain-KRM WET manifests
     (`fleet-package/environments/default/`).
-  - **Cloud Build connection (2nd gen) and Secret Manager:** Read-only link to
-    the GitOps repository authenticated with a dedicated machine-user token in
-    Google Cloud Secret Manager via the Cloud Build GitHub App installation
-    scoped to that repository.
+  - **[Cloud Build connection (2nd gen)](https://docs.cloud.google.com/build/docs/automating-builds/github/connect-repo-github)
+    and
+    [Secret Manager](https://docs.cloud.google.com/secret-manager/docs/overview):**
+    Read-only link to the GitOps repository authorized via the Cloud Build
+    GitHub App scoped to that repository, storing a dedicated machine-user token
+    in regional Google Cloud Secret Manager (or configured programmatically via
+    `--authorizer-token-secret-version` and `--app-installation-id`).
   - **Publisher service account and
     [Artifact Registry](https://docs.cloud.google.com/artifact-registry/docs/overview):**
     Packages the rendered variant directory into an immutable OCI bundle in the
@@ -145,9 +150,10 @@ namespace (`<NAMESPACE>`, defaulting to `sft-model-serving`) across five layers:
     `local-shared` `PersistentVolumeClaim` (`/model-cache`), paired with a
     `16Gi` memory-backed `/dev/shm`.
 - **Interactive validation UI:**
-  - **Gradio `Deployment` and `ClusterIP` `Service`:** Web application on
-    internal port `8080` (container port `7860`) forwarding chat validation
-    requests to vLLM using the release model alias.
+  - **[Gradio](https://github.com/gradio-app/gradio) `Deployment` and
+    `ClusterIP` `Service`:** Web application on internal port `8080` (container
+    port `7860`) forwarding chat validation requests to vLLM using the release
+    model alias.
 - **Google Cloud integration:**
   - **Cloud Storage:** Stores immutable SFT checkpoints under versioned prefixes
     (`.../checkpoints/v1/`, `.../checkpoints/v2/`).
@@ -235,8 +241,8 @@ VRAM.
 
 - **Keyless model sync and pruning (`initContainer`):** Uses
   [Fleet Workload Identity](https://docs.cloud.google.com/kubernetes-engine/fleet-management/docs/use-workload-identity)
-  (`PROJECT_ID.svc.id.goog`) to authenticate without static keys and requires no
-  host-level service account credentials, verifies required
+  (`PROJECT_ID.svc.id.goog`) to authenticate without static keys or host-level
+  service account credentials, verifies required
   [Hugging Face Safetensors](https://github.com/huggingface/safetensors) and
   tokenizer files before writing `.complete`, and prunes superseded model
   directories under `/model-cache/<MODEL_NAME>/`.
@@ -289,9 +295,12 @@ VRAM.
 ### Resource management
 
 - **Container sizing:** Workload requests must equal limits to guarantee quality
-  of service (`4` CPU, `32Gi` memory, `1` GPU in the 8B reference profile), on
-  nodes with at least `16` vCPU, `64 GiB` RAM, and `250 GiB` fast local NVMe/SSD
-  storage (size CPU, memory, and NVMe capacity to your model and hardware SKU).
+  of service (`4` CPU, `32Gi` memory, `1` GPU in the 8B reference profile),
+  adding to the platform
+  [node machine prerequisites](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/installing/node-machine-prerequisites)
+  (`8` `x86-64-v3+` cores, `32 GiB` RAM, and `256 GiB` storage recommended for
+  the default standalone profile) for a target node baseline of at least `16`
+  vCPUs, `64 GiB` RAM, and `256 GiB` fast local NVMe/SSD storage.
 - **96 GB GPU headroom (validation profile):** At
   `--gpu-memory-utilization=0.90` (`86,963 / 97,887 MiB` total GPU memory used),
   subtracting `14.96 GiB` of weights (`128 KiB/token`, `2.0 GiB` per full
@@ -320,8 +329,9 @@ VRAM.
 ### Operational complexity
 
 - **DRY-to-WET workflow:** Authors edit Kustomize sources and commit both DRY
-  and rendered WET YAML in the same pull request before tagging (optionally add
-  a pull-request CI check verifying `render.sh` leaves zero diff).
+  and rendered WET YAML in the same pull request before tagging (optionally
+  enforced by a pull-request CI check verifying
+  `./fleet-package/render.sh && git diff --exit-code`).
 - **SemVer tag discipline:** Customers hosting multiple solutions in one
   repository must isolate releases using `cloudBuildRepository.path` subfolders
   and disjoint three-part SemVer major ranges.
@@ -351,11 +361,12 @@ VRAM.
   production external exposure requires an authenticating API gateway and TLS
   termination.
 - **Pinned provenance:** Runtime images are pinned to explicit version tags
-  (`vllm-openai:v0.32.0` on driver `580+` or `v0.32.0-cu129` on `575–579`;
+  (`vllm/vllm-openai:v0.32.0` built on CUDA `13.0.2` for driver `580+`, or
+  `vllm/vllm-openai:v0.32.0-cu129` built on CUDA `12.9.1` for driver `575–579`;
   `cloud-sdk:589.0.0-slim`; `gradio-app:v1.0.4`) and should be scanned and
   mirrored into Artifact Registry.
 
-## Design decision
+## Design decisions
 
 ### Delivery mechanism: Config Delivery Fleet Packages versus standalone Config Sync RootSync versus manual kubectl apply
 

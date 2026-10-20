@@ -148,6 +148,7 @@ qwen
 readyz
 resourcegroup
 resourcegroups
+resourcemanager
 rollouts
 rootsync
 rootsyncs

@@ -81,13 +81,15 @@ telemetry, upgrades (`v2.0.0`), and forward rollbacks (`v2.0.1`), see the
   `nvidia` `RuntimeClass`, and
   [NVIDIA DCGM Exporter](https://github.com/NVIDIA/dcgm-exporter) installed; see
   [Configure GPUs on bare metal](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/gpu-manual-use).
-- NVIDIA driver branch `580+` for `vllm/vllm-openai:v0.32.0` (validated on
-  `580.126.20`), or branch `575–579` with `vllm/vllm-openai:v0.32.0-cu129` in
+- NVIDIA driver branch `580+` for `vllm/vllm-openai:v0.32.0` (CUDA `13.0.2`,
+  validated on `580.126.20`), or branch `575–579` with
+  `vllm/vllm-openai:v0.32.0-cu129` (CUDA `12.9.1`) in
   `src/base/vllm-llama-sft-deployment.yaml` (verify `v0.32.0-cu129` on `575–579`
   hosts before production rollout).
-- `StorageClass` `local-shared` and at least `250 GiB` local disk on the GPU
+- `StorageClass` `local-shared` and at least `256 GiB` local disk on the GPU
   node (`100Gi` `ReadWriteOnce` `PersistentVolumeClaim` cache plus images and
-  kubelet headroom).
+  kubelet headroom; see
+  [node machine prerequisites](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/installing/node-machine-prerequisites)).
 - Application logging and
   [Google Cloud Managed Service for Prometheus](https://docs.cloud.google.com/monitoring/kubernetes-engine/prometheus)
   (`enableGMPForApplications`) enabled; see
@@ -134,10 +136,13 @@ telemetry, upgrades (`v2.0.0`), and forward rollbacks (`v2.0.1`), see the
 
 ### Identities and roles
 
-- **Platform Administrator:** permissions to enable Google Cloud APIs, manage
-  service accounts and IAM policy bindings, create Cloud Build repository
-  connections and `FleetPackage` resources, update fleet membership labels, and
-  apply cluster onboarding RBAC.
+- **Platform Administrator:** permissions to enable Google Cloud APIs
+  (`roles/serviceusage.serviceUsageAdmin`), manage service accounts
+  (`roles/iam.serviceAccountAdmin`) and IAM policy bindings
+  (`roles/resourcemanager.projectIamAdmin`, `roles/storage.admin`), create Cloud
+  Build repository connections (`roles/cloudbuild.connectionAdmin`) and
+  `FleetPackage` resources (`roles/configdelivery.admin`), update fleet
+  membership labels (`roles/gkehub.editor`), and apply cluster onboarding RBAC.
 - **Application Operator:** write access to the GitOps repository (pull requests
   and tags) and namespace RBAC in `sft-model-serving` (`get`/`list` pods and
   Services, read pod logs, and create `pods/portforward` and `pods/exec`).
@@ -323,7 +328,7 @@ git push -u origin main
   `SOLUTION_SUBDIR="software-only/bare-metal/sft-model-serving"`), fork
   `GoogleCloudPlatform/gdc-solutions` (pass `--org "${GITOPS_OWNER}"` for an
   organization) and clone it. In a shared fork, use disjoint bare SemVer major
-  ranges per solution or prefer Option A (see **Design decision** in the SRA):
+  ranges per solution or prefer Option A (see **Design decisions** in the SRA):
 
 ```bash
 gh repo fork GoogleCloudPlatform/gdc-solutions --clone=false
@@ -384,7 +389,10 @@ COMPLETE
 <!-- prettier-ignore -->
 > [!NOTE]
 > In production, authorize the connection with a dedicated machine-user (bot)
-> GitHub account rather than a personal developer account.
+> GitHub account rather than a personal developer account, or pass
+> `--authorizer-token-secret-version=projects/${PROJECT_ID}/secrets/SECRET_NAME/versions/VERSION
+> --app-installation-id=INSTALLATION_ID` directly to `gcloud builds connections
+> create github`.
 
 ## Customize and release the bundle
 
@@ -500,9 +508,10 @@ kubectl get namespace config-management-system
 
 <!-- prettier-ignore -->
 > [!NOTE]
-> On some pre-configured clusters `config-management-system` is already present;
-> running the fleet `config-management` enablement command ensures consistent
-> fleet state across newly installed bare-metal clusters.
+> On pre-configured clusters where `config-management-system` is already
+> present, running `gcloud beta container fleet config-management apply` ensures
+> consistent fleet registration state across newly installed bare-metal
+> clusters.
 
 - [Workstation] Apply the namespace-scoped `Role` and `RoleBinding`
   (`configdelivery-rootsync-manager`, granting `get`, `create`, `patch`, and
