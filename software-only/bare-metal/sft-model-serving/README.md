@@ -303,7 +303,10 @@ This section describes the concepts and technologies used in the solution.
 ### Resource management
 
 - **Container sizing:** Workload requests must equal limits to guarantee quality
-  of service, sized appropriately for the target model and cache memory segment.
+  of service. For a Llama 3.1 8B SFT model on a 96 GB GPU, the default `0.9`
+  cache ratio yields a `68.63 GiB` KV cache (supporting `562,224` tokens or
+  `34.32x` capacity). Monitor `vllm:kv_cache_usage_perc` via the
+  `nvidia-gpu-operator` DCGM exporter to tune capacity.
 - **Node sizing:** Bare-metal nodes require sufficient CPU, memory, and fast
   local NVMe storage to accommodate the cache PVC and kubelet eviction
   thresholds.
@@ -331,14 +334,21 @@ This section describes the concepts and technologies used in the solution.
   ranges.
 - **CLI-driven operations:** Operators manage edge rollouts and diagnose
   inference health using the CLI, Cloud Monitoring, and Cloud Logging.
+- **Structured logging:** Kubernetes on Distributed Cloud software only parses
+  `stdout` into `jsonPayload.log` rather than `textPayload`. Operators use
+  Logging Query Language (LQL) with `jsonPayload.log` filters to extract traces.
 
 ### Security and compliance
 
 - **Zero static secrets:** Fleet Workload Identity exchanges tokens dynamically,
   ensuring no Git credentials or Kubernetes secrets persist on the edge
   clusters.
-- **Internal exposure:** Serving and validation endpoints use internal services;
-  production exposure requires authenticating API gateways and TLS termination.
+- **Request privacy:** vLLM logs full completion prompts by default. In
+  production, pass `--enable-log-requests false` (or explicitly set it to true
+  only during debugging) to prevent PII from leaking into container logs.
+- **Internal exposure:** Serving and validation endpoints use internal
+  `ClusterIP` services and are accessed via `kubectl port-forward`; production
+  exposure requires authenticating API gateways and TLS termination.
 - **Pinned provenance:** Runtime images are pinned to explicit version tags and
   should be mirrored into a private artifact registry after vulnerability
   scanning.

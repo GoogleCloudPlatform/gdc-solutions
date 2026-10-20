@@ -35,8 +35,8 @@ from a workstation with
 [`gh`](https://cli.github.com/), and `kubectl` via the
 [Connect gateway](https://docs.cloud.google.com/kubernetes-engine/enterprise/multicluster-management/gateway).
 
-For the system architecture diagram, component inventory, GPU sizing
-methodology, and design trade-offs, see **Architecture and design** in the
+For the system architecture diagram, GPU sizing methodology, and design
+trade-offs, see **Architecture and design** in the
 [Solution Reference Architecture (SRA)](../README.md). For day-2 UI testing,
 telemetry, upgrades (`v2.0.0`), and forward rollbacks (`v2.0.1`), see the
 [Solution User Guide (SUG)](user-guide.md).
@@ -451,38 +451,6 @@ git status --short
 git diff --stat
 ```
 
-<!-- prettier-ignore -->
-> [!NOTE]
-> `fleet-package/gcs-credential-config.yaml` intentionally retains
-> `YOUR_MEMBERSHIP` outside `fleet-package/src/base/` and is applied once per
-> target cluster in [Prepare the target cluster](#prepare-the-target-cluster) so
-> the rendered `environments/default/manifests.yaml` bundle stays 100% identical
-> across all clusters matching `app-tier=sft-model-serving`.
-
-- [Workstation] Render the plain-KRM WET bundle from the DRY sources and review
-  the diff.
-
-```bash
-cd "${GITOPS_DIR}"
-"${GITOPS_DIR}/${SOLUTION_SUBDIR}/fleet-package/render.sh"
-git status --short
-git diff --stat
-```
-
-The output is similar to the following:
-
-```text
-Rendered .../fleet-package/src/overlays/default to .../fleet-package/environments/default/manifests.yaml
-Format .../fleet-package/environments/default/manifests.yaml with prettier before you commit it.
-```
-
-<!-- prettier-ignore -->
-> [!NOTE]
-> In a standalone repository (Option A), `render.sh` skips automatic `prettier`
-> formatting because no monorepo `node_modules/.bin/prettier` is present, so the
-> initial pull request includes harmless YAML indentation-only diff lines while
-> producing identical rendered KRM resources.
-
 - [Workstation] Commit the DRY and rendered WET files together, open a pull
   request against `main`, and merge it after review.
 
@@ -555,12 +523,14 @@ kubectl apply -f "${GITOPS_DIR}/${SOLUTION_SUBDIR}/fleet-package/configdelivery-
 > `resourcegroups` inventory access, `namespaces` management restricted via
 > `resourceNames` to `<NAMESPACE>`, and cluster-scoped read-only `get`, `list`,
 > `watch` on the 6 non-Secret packaged kinds required by Config Sync status
-> informers) with a namespace `Role` in `<NAMESPACE>` for write verbs, applied
-> to `spec.override.roleRefs` via Server-Side Apply under a distinct field
-> manager (`kubectl apply --server-side --field-manager=platform-admin -f -`).
-> Disjoint Server-Side Apply field ownership preserves `roleRefs` across
-> in-place `FleetPackage` upgrades and rollbacks; re-apply only if the
-> `RootSync` is deleted and recreated.
+> informers: `serviceaccounts`, `persistentvolumeclaims`, `configmaps`,
+> `services`, `deployments.apps`, and
+> `podmonitorings.monitoring.googleapis.com`) with a namespace `Role` in
+> `<NAMESPACE>` for write verbs, applied to `spec.override.roleRefs` via
+> Server-Side Apply under a distinct field manager (`kubectl apply --server-side
+> --field-manager=platform-admin -f -`). Disjoint Server-Side Apply field
+> ownership preserves `roleRefs` across in-place `FleetPackage` upgrades and
+> rollbacks; re-apply only if the `RootSync` is deleted and recreated.
 
 - [Workstation] Create the target namespace and apply this cluster's keyless
   Fleet Workload Identity credential `ConfigMap` (`gcs-credential-config`),
