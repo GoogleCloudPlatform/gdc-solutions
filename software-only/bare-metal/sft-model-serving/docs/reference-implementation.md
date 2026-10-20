@@ -19,44 +19,27 @@ limitations under the License.
 ## Overview
 
 This Solution Reference Implementation (SRI) provides step-by-step instructions
-to automate the deployment of a supervised fine-tuned (SFT) open-weight model on
+to deploy a supervised fine-tuned (SFT) open-weight model on
 [Distributed Cloud software only](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs)
-bare-metal clusters through
-[Google Cloud Config Delivery (Fleet Packages)](https://docs.cloud.google.com/kubernetes-engine/config-sync/docs/concepts/fleet-packages)
+bare-metal clusters using
+[Google Cloud Config Delivery (`FleetPackage`)](https://docs.cloud.google.com/kubernetes-engine/config-sync/docs/concepts/fleet-packages)
 and
 [Config Sync](https://docs.cloud.google.com/kubernetes-engine/config-sync/docs/overview).
-While the solution architecture supports any single-GPU
-[vLLM](https://github.com/vllm-project/vllm)-compatible SFT checkpoint
-(`<MODEL_NAME>`) and customer-owned GitOps repository, this guide instantiates
-the architecture using a **Llama 3.1 8B SFT** checkpoint (fully fine-tuned on
-MetaMathQA math word problems via
-[**Gemini Enterprise Agent Platform** open-model tuning](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/tuning/open-model-tuning),
-formerly Vertex AI; see the
-[open-model SFT Jupyter notebook](https://github.com/GoogleCloudPlatform/generative-ai/blob/main/open-models/fine-tuning/get_started_with_oss_tuning_on_vertexai.ipynb))
-served on an **NVIDIA RTX PRO 6000 Blackwell GPU** (`vllm/vllm-openai:v0.32.0`).
-
-The rendered 9-resource `default` variant bundle deploys a `Namespace`
-(`sft-model-serving`), a workload `ServiceAccount` for keyless
-[Fleet Workload Identity](https://docs.cloud.google.com/kubernetes-engine/fleet-management/docs/use-workload-identity),
-a `100Gi` local model cache `PersistentVolumeClaim` (`sft-model-cache-pvc`,
-`ReadWriteOnce`, `local-shared`), the vLLM `Deployment` with its
-model-downloader `initContainer` and [Jinja](https://jinja.palletsprojects.com/)
-`ConfigMap`, a [Gradio](https://github.com/gradio-app/gradio) validation
-`Deployment`, two `ClusterIP` Services (vLLM on port `8000`; Gradio on port
-`8080`, container port `7860`), and a `PodMonitoring` resource for
-[Google Cloud Managed Service for Prometheus](https://docs.cloud.google.com/monitoring/kubernetes-engine/prometheus).
-Because the worked-example checkpoint is fine-tuned on math word problems, smoke
-tests verify inference with a math word problem.
-
-You run every command from an operator workstation with
-[Google Cloud CLI (`gcloud`)](https://docs.cloud.google.com/sdk/docs/install),
-`git`, [GitHub CLI (`gh`)](https://cli.github.com/), and `kubectl` access to the
-cluster through the
+It instantiates the `<MODEL_NAME>` reference architecture with a **Llama 3.1 8B
+SFT** math checkpoint served by [vLLM](https://github.com/vllm-project/vllm)
+(`vllm/vllm-openai:v0.32.0`, port `8000`) and a
+[Gradio](https://github.com/gradio-app/gradio) validation UI (`ClusterIP` port
+`8080`, container port `7860`) inside `Namespace/sft-model-serving`, executed
+from a workstation with
+[`gcloud`](https://docs.cloud.google.com/sdk/docs/install), `git`,
+[`gh`](https://cli.github.com/), and `kubectl` via the
 [Connect gateway](https://docs.cloud.google.com/kubernetes-engine/enterprise/multicluster-management/gateway).
-For architectural trade-offs and component boundaries, see the
-[Solution Reference Architecture (SRA)](../README.md). For interactive Gradio
-validation, application and GPU monitoring, upgrading to `v2.0.0`, and rolling
-back to `v2.0.1`, see the [Solution User Guide (SUG)](user-guide.md).
+
+For the system architecture diagram, component inventory, GPU sizing
+methodology, and design trade-offs, see **Architecture and design** in the
+[Solution Reference Architecture (SRA)](../README.md). For day-2 UI testing,
+telemetry, upgrades (`v2.0.0`), and forward rollbacks (`v2.0.1`), see the
+[Solution User Guide (SUG)](user-guide.md).
 
 <!-- prettier-ignore -->
 > [!WARNING]
@@ -66,28 +49,22 @@ back to `v2.0.1`, see the [Solution User Guide (SUG)](user-guide.md).
 > warranty. Validate all sizing, security, and operational controls against your
 > production requirements before deployment.
 
-![High-level architecture of SFT model serving with Fleet Packages on Distributed Cloud software only](images/sft-model-serving-architecture.png)
-
 ## Objectives
 
-- Configure least-privilege Google Cloud identities: the per-solution publisher
-  service account and the keyless Fleet Workload Identity checkpoint reader
-  account.
-- Initialize your own GitOps repository—either **created from scratch as a
-  dedicated standalone repository** (`SOLUTION_SUBDIR="."`) or forked from
-  `GoogleCloudPlatform/gdc-solutions`
-  (`SOLUTION_SUBDIR="software-only/bare-metal/sft-model-serving"`)—and connect
-  it to [Cloud Build](https://docs.cloud.google.com/build/docs/overview) via a
-  machine-user account.
-- Customize the [Kustomize](https://github.com/kubernetes-sigs/kustomize) DRY
-  manifests for your project and model (`<MODEL_NAME>`), render the plain-KRM
-  WET bundle, merge through a pull request, and tag release `v1.0.0`.
-- Onboard the target bare-metal cluster with Config Sync, least-privilege Config
-  Delivery RBAC, the per-cluster Fleet Workload Identity `ConfigMap`, and
-  optional DCGM GPU `PodMonitoring`, then create the `FleetPackage`.
-- Verify the rollout, keyless
-  [Cloud Storage](https://docs.cloud.google.com/storage/docs/introduction)
-  download, and OpenAI-compatible vLLM endpoint with a math word problem.
+- Configure least-privilege publisher and keyless
+  [Fleet Workload Identity](https://docs.cloud.google.com/kubernetes-engine/fleet-management/docs/use-workload-identity)
+  Google service accounts.
+- Initialize a customer GitOps repository (standalone root layout or
+  `GoogleCloudPlatform/gdc-solutions` fork) and link it to
+  [Cloud Build](https://docs.cloud.google.com/build/docs/overview).
+- Customize [Kustomize](https://github.com/kubernetes-sigs/kustomize) DRY
+  manifests, render the plain-KRM WET bundle, merge a pull request, and push tag
+  `v1.0.0`.
+- Onboard the target cluster (Config Sync, least-privilege RBAC,
+  `gcs-credential-config` `ConfigMap`, and GPU `PodMonitoring`) and create the
+  `FleetPackage`.
+- Verify the rollout, keyless checkpoint download, and OpenAI-compatible
+  inference response.
 
 ## Before you begin
 
@@ -98,51 +75,44 @@ back to `v2.0.1`, see the [Solution User Guide (SUG)](user-guide.md).
   `v1.35.2-gke.300`), standalone cluster registered to a fleet in your Google
   Cloud project; see
   [Distributed Cloud software only installation preparation](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/installing/install-prep).
-- One dedicated single-node edge inference GPU sized for your
-  checkpoint—validated with an NVIDIA RTX PRO 6000 Blackwell (96 GB) serving an
-  unquantized 8B BF16 checkpoint (for smaller GPUs such as 48 GB L40S/RTX 6000
-  Ada or 24 GB L4/RTX 4000 Ada, size context length, concurrency, model
-  parameter count, or quantization per the SRA)—with the
+- One dedicated single-node NVIDIA GPU sized per **Hardware constraints** in the
+  SRA (validated on RTX PRO 6000 Blackwell 96 GB), with the
   [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/index.html),
-  `nvidia` `RuntimeClass`, `nvidia.com/gpu` resource, and
+  `nvidia` `RuntimeClass`, and
   [NVIDIA DCGM Exporter](https://github.com/NVIDIA/dcgm-exporter) installed; see
   [Configure GPUs on bare metal](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/gpu-manual-use).
-- An NVIDIA driver from branch `580` or later when running the default CUDA 13
-  image `vllm/vllm-openai:v0.32.0` (validated with driver `580.126.20`). If your
-  GPU node runs NVIDIA driver branch `575–579` (CUDA 12.9), switch the vLLM
-  image tag in `src/base/vllm-llama-sft-deployment.yaml` to
-  `vllm/vllm-openai:v0.32.0-cu129` (verify `v0.32.0-cu129` on `575–579` hosts
-  before production rollout).
-- A `StorageClass` named `local-shared`, and at least `250 GiB` of local disk
-  space on the GPU node for the `100Gi` cache volume, container images, and
-  system reservations.
+- NVIDIA driver branch `580+` for `vllm/vllm-openai:v0.32.0` (validated on
+  `580.126.20`), or branch `575–579` with `vllm/vllm-openai:v0.32.0-cu129` in
+  `src/base/vllm-llama-sft-deployment.yaml` (verify `v0.32.0-cu129` on `575–579`
+  hosts before production rollout).
+- `StorageClass` `local-shared` and at least `250 GiB` local disk on the GPU
+  node (`100Gi` `ReadWriteOnce` `PersistentVolumeClaim` cache plus images and
+  kubelet headroom).
 - Application logging and
   [Google Cloud Managed Service for Prometheus](https://docs.cloud.google.com/monitoring/kubernetes-engine/prometheus)
-  collection (`enableGMPForApplications`) enabled on the cluster if shipping
-  telemetry to
-  [Cloud Monitoring](https://docs.cloud.google.com/monitoring/docs/monitoring-overview)
-  and [Cloud Logging](https://docs.cloud.google.com/logging/docs/overview); see
+  (`enableGMPForApplications`) enabled; see
   [Enable application logging and monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/application-logging-monitoring)
   and
   [Send GPU metrics to Cloud Monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/gpu-metrics).
-- Outbound HTTPS (`443`) from cluster nodes to `*.googleapis.com`, Cloud
-  Storage, `gcr.io`, `us-docker.pkg.dev`, and Docker Hub (or private
+- Outbound HTTPS (`443`) from cluster nodes to `*.googleapis.com`,
+  [Cloud Storage](https://docs.cloud.google.com/storage/docs/introduction),
+  `gcr.io`, `us-docker.pkg.dev`, and Docker Hub (or
   [Artifact Registry](https://docs.cloud.google.com/artifact-registry/docs/overview)
-  image mirrors).
+  mirrors).
 
 <!-- prettier-ignore -->
 > [!TIP]
-> Docker Hub rate-limits anonymous pulls and the vLLM image exceeds several
-> gigabytes. Mirror the pinned container images into Artifact Registry in your
-> Google Cloud project and point the `image:` fields in `src/base/` to your
-> private registry.
+> Mirror the three pinned images (`vllm/vllm-openai:v0.32.0`,
+> `gcr.io/google.com/cloudsdktool/cloud-sdk:589.0.0-slim`, and
+> `us-docker.pkg.dev/google-samples/containers/gke/gradio-app:v1.0.4`) into
+> Artifact Registry and update `image:` in `src/base/` to avoid Docker Hub rate
+> limits.
 
 ### Client workstation prerequisites
 
 - [`gcloud` CLI](https://docs.cloud.google.com/sdk/docs/install), authenticated
   (`gcloud auth login`) to the fleet host project.
-- `kubectl` with [Kustomize](https://github.com/kubernetes-sigs/kustomize) v5 or
-  later (`kubectl kustomize`).
+- `kubectl` with Kustomize v5 or later (`kubectl kustomize`).
 - `git`, the [GitHub CLI `gh`](https://cli.github.com/) (authenticated as the
   owner of your GitOps repository), `curl`, and [`jq`](https://jqlang.org/).
 
@@ -150,9 +120,7 @@ back to `v2.0.1`, see the [Solution User Guide (SUG)](user-guide.md).
 
 - A merged
   [Hugging Face Safetensors](https://github.com/huggingface/safetensors) SFT
-  checkpoint in
-  [Cloud Storage](https://docs.cloud.google.com/storage/docs/introduction), such
-  as the output of
+  checkpoint in Cloud Storage, such as the output of
   [**Gemini Enterprise Agent Platform** managed open-model fine-tuning](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/tuning/open-model-tuning)
   (formerly Vertex AI; see the worked
   [Llama 3 / open-model SFT Jupyter notebook](https://github.com/GoogleCloudPlatform/generative-ai/blob/main/open-models/fine-tuning/get_started_with_oss_tuning_on_vertexai.ipynb)),
@@ -219,36 +187,24 @@ EOF
 
 Replace the following:
 
-- `PROJECT_ID`, `PROJECT_NUMBER`: the Google Cloud project ID and project number
-  hosting your fleet.
-- `REGION`: any supported Google Cloud region where Config Delivery and Cloud
-  Build 2nd-gen connections are available, for example `us-central1`.
-- `MEMBERSHIP`: the fleet membership ID of the target Distributed Cloud software
-  only cluster.
-- `PUBLISHER_SA_NAME`: name of the per-solution publisher service account, for
-  example `sft-model-serving-publisher`.
-- `GSA_NAME`: name of the workload Google service account granted read access to
-  the checkpoint bucket, for example `sft-model-serving-reader`.
-- `BUCKET`: Cloud Storage bucket name holding model checkpoints, without
-  `gs://`.
-- `TUNING_OUTPUT_URI`: Cloud Storage folder URI containing the fine-tuned merged
-  checkpoint files, without a trailing slash.
-- `GITOPS_OWNER`: GitHub organization or user owning your GitOps repository.
-- `GITOPS_REPO`, `SOLUTION_SUBDIR`, and `GITOPS_DIR`:
-  - **Option A — Standalone GitOps repository created from scratch:** keep
-    `GITOPS_REPO="sft-model-serving-gitops"`, `SOLUTION_SUBDIR="."`, and
-    `GITOPS_DIR="${HOME}/sft-model-serving-gitops"`.
-  - **Option B — Fork of `GoogleCloudPlatform/gdc-solutions`:** set
-    `GITOPS_REPO="gdc-solutions"`,
-    `SOLUTION_SUBDIR="software-only/bare-metal/sft-model-serving"`, and
-    `GITOPS_DIR="${HOME}/gdc-solutions"`.
-- `CONNECTION`, `REPOSITORY`: names for the Cloud Build connection and
-  repository link in `REGION`, for example `sft-gitops-github` and
-  `sft-gitops-repo`.
-- `DCGM_NAMESPACE`: namespace running `nvidia-dcgm-exporter` on your cluster
-  (`gpu-operator` on NVIDIA Helm chart installations or `nvidia-gpu-operator` on
-  operator bundles; verify with
-  `kubectl get pods -A -l app=nvidia-dcgm-exporter`).
+- `PROJECT_ID`, `PROJECT_NUMBER`: Google Cloud project ID and number hosting
+  your fleet.
+- `REGION`: Google Cloud region for both the Cloud Build connection and
+  `FleetPackage` (for example `us-central1`).
+- `MEMBERSHIP`: fleet membership ID of the target bare-metal cluster.
+- `PUBLISHER_SA_NAME`, `GSA_NAME`: names for the publisher service account and
+  checkpoint reader Google service account.
+- `BUCKET`, `TUNING_OUTPUT_URI`: checkpoint bucket name (without `gs://`) and
+  source `gs://` folder URI (without trailing slash).
+- `GITOPS_OWNER`, `GITOPS_REPO`, `SOLUTION_SUBDIR`, `GITOPS_DIR`: GitHub owner
+  plus repository layout—keep defaults for **Option A** (standalone repo), or
+  set `GITOPS_REPO="gdc-solutions"`,
+  `SOLUTION_SUBDIR="software-only/bare-metal/sft-model-serving"`,
+  `GITOPS_DIR="${HOME}/gdc-solutions"` for **Option B** (monorepo fork).
+- `CONNECTION`, `REPOSITORY`: Cloud Build connection and repository link names
+  in `REGION`.
+- `DCGM_NAMESPACE`: namespace running `nvidia-dcgm-exporter` (`gpu-operator` on
+  Helm installs or `nvidia-gpu-operator`).
 
 - [Workstation] Source the environment configuration in every new shell session.
 
@@ -259,11 +215,9 @@ set -a; source "${SOLUTION_HOME}/.env"; set +a
 
 ## Set up environment and credentials
 
-- [Workstation] Enable the required Google Cloud APIs. Note that
-  `artifactregistry.googleapis.com` is required because Config Delivery's
-  managed Cloud Build packaging job pushes each packaged release bundle to a
-  `fleet-packages` Artifact Registry OCI repository in `REGION` (created
-  automatically when publishing a `FleetPackage` release).
+- [Workstation] Enable the required Google Cloud APIs
+  (`artifactregistry.googleapis.com` stores Config Delivery's auto-created
+  `fleet-packages` OCI bundle repository in `REGION`):
 
 ```bash
 gcloud services enable \
@@ -309,7 +263,7 @@ gcloud storage cp -r "${TUNING_OUTPUT_URI%/}/*" "gs://${BUCKET}/sft-model-servin
 
 - [Workstation] Create the keyless workload Google service account, grant
   read-only access on the checkpoint bucket, and bind Fleet Workload Identity to
-  Kubernetes service account `${NAMESPACE}/vllm-llama-sft-sa`.
+  Kubernetes `ServiceAccount` `${NAMESPACE}/vllm-llama-sft-sa`:
 
 ```bash
 gcloud iam service-accounts create "${GSA_NAME}" \
@@ -338,30 +292,10 @@ fork of `GoogleCloudPlatform/gdc-solutions`).
 
 ### Option A: Create a standalone GitOps repository from scratch
 
-A standalone GitOps repository holds `fleet-package/` at its root
-(`SOLUTION_SUBDIR="."`):
-
-- `fleet-package/fleetpackage.yaml` — `FleetPackage` specification
-  (`resourceBundleSelector.cloudBuildRepository.path: fleet-package/environments`).
-- `fleet-package/configdelivery-rbac.yaml` — namespace-scoped `Role` and
-  `RoleBinding` in `config-management-system`.
-- `fleet-package/gcs-credential-config.yaml` — per-cluster Fleet Workload
-  Identity STS audience `ConfigMap` template.
-- `fleet-package/render.sh` — Kustomize rendering script outputting
-  `fleet-package/environments/default/manifests.yaml`.
-- `fleet-package/src/base/` — DRY Kubernetes manifests (`namespace.yaml`,
-  `vllm-llama-sft-serviceaccount.yaml`, `sft-model-cache-pvc.yaml`,
-  `vllm-llama-sft-config.yaml`, `vllm-llama-sft-deployment.yaml`,
-  `vllm-llama-sft-service.yaml`, `vllm-llama-sft-podmonitoring.yaml`,
-  `gradio-llama-sft-deployment.yaml`, `gradio-llama-sft-service.yaml`, and
-  `kustomization.yaml`).
-- `fleet-package/src/overlays/default/kustomization.yaml` and
-  `fleet-package/environments/default/manifests.yaml`.
-
-- [Workstation] Create a new private GitHub repository under `GITOPS_OWNER`,
-  fetch the `fleet-package/` directory from the Apache-2.0 reference sample
-  (without monorepo wrapper files), set `cloudBuildRepository.path` to
-  `fleet-package/environments`, and push the initial `main` branch.
+- [Workstation] Create a private GitHub repository with `fleet-package/` at its
+  root (`SOLUTION_SUBDIR="."`), seed it from the Apache-2.0 reference sample,
+  set `cloudBuildRepository.path` to `fleet-package/environments`, and push
+  `main`:
 
 ```bash
 gh repo create "${GITOPS_OWNER}/${GITOPS_REPO}" --private
@@ -385,11 +319,11 @@ git push -u origin main
 
 ### Option B: Fork the public reference repository
 
-- [Workstation] If using `GITOPS_REPO="gdc-solutions"` and
-  `SOLUTION_SUBDIR="software-only/bare-metal/sft-model-serving"`, fork
-  `GoogleCloudPlatform/gdc-solutions` (pass `--org "${GITOPS_OWNER}"` if
-  `GITOPS_OWNER` is a GitHub organization rather than your personal account) and
-  clone your fork into `GITOPS_DIR`.
+- [Workstation] For the monorepo layout (`GITOPS_REPO="gdc-solutions"`,
+  `SOLUTION_SUBDIR="software-only/bare-metal/sft-model-serving"`), fork
+  `GoogleCloudPlatform/gdc-solutions` (pass `--org "${GITOPS_OWNER}"` for an
+  organization) and clone it. In a shared fork, use disjoint bare SemVer major
+  ranges per solution or prefer Option A (see **Design decision** in the SRA):
 
 ```bash
 gh repo fork GoogleCloudPlatform/gdc-solutions --clone=false
@@ -429,8 +363,8 @@ gcloud builds connections create github "${CONNECTION}" \
   and install the Cloud Build GitHub App scoped strictly to
   `${GITOPS_OWNER}/${GITOPS_REPO}`.
 
-- [Workstation] Confirm that the connection is `COMPLETE`, then link your GitOps
-  repository.
+- [Workstation] Confirm that `installationState.stage` prints `COMPLETE`, then
+  link your GitOps repository:
 
 ```bash
 gcloud builds connections describe "${CONNECTION}" \
@@ -454,44 +388,19 @@ COMPLETE
 
 ## Customize and release the bundle
 
-The manifests reside under `${GITOPS_DIR}/${SOLUTION_SUBDIR}/fleet-package/`. In
-the worked example (`<MODEL_NAME>` instantiated as `llama-3.1-8b-sft`),
-`ConfigMap` `vllm-llama-sft-config` supplies two model-specific files matched to
-the Llama 3.1 8B SFT training format:
-
-1. `llama3_sft_chat_template.jinja`: Reproduces the exact Llama 3 turn headers
-   (`<|start_header_id|>`, `<|end_header_id|>`, `<|eot_id|>`) used during
-   supervised fine-tuning because the exported checkpoint's
-   `tokenizer_config.json` omits a chat template (using a generic ChatML
-   template emits unmapped strings).
-2. `generation_config.json`: Sets `eos_token_id` to `[128001, 128009]`
-   (`<|end_of_text|>` and `<|eot_id|>`) with `temperature: 0.2` and
-   `top_p: 1.0`, since the exported file includes only `128001`.
+Under `${GITOPS_DIR}/${SOLUTION_SUBDIR}/fleet-package/`,
+`ConfigMap/vllm-llama-sft-config` mounts two files required by the Llama 3.1 8B
+SFT checkpoint (whose exported `tokenizer_config.json` omits a chat template and
+lists only `128001` as `eos_token_id`): `llama3_sft_chat_template.jinja`
+(`<|start_header_id|>` / `<|eot_id|>` headers) and `generation_config.json`
+(`eos_token_id: [128001, 128009]`, `temperature: 0.2`, `top_p: 1.0`).
 
 <!-- prettier-ignore -->
 > [!TIP]
-> To serve a different SFT open-weight model family (`<MODEL_NAME>`), update the
-> model identifier and `--served-model-name` aliases in
-> `src/base/vllm-llama-sft-deployment.yaml` and `MODEL_ID` in
-> `src/base/gradio-llama-sft-deployment.yaml`, replace the Jinja chat template
-> and `eos_token_id` values in `src/base/vllm-llama-sft-config.yaml` to match
-> your model's tokenizer, and tune `--max-model-len` and `--dtype` for your edge
-> GPU.
-
-<!-- mdformat off -->
-
-| Placeholder              | Description                                                                                                   | Files                                                                                                                     |
-| :----------------------- | :------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------ |
-| `YOUR_PROJECT_ID`        | Fleet host project ID and Fleet Workload Identity pool (`YOUR_PROJECT_ID.svc.id.goog`)                        | `vllm-llama-sft-serviceaccount.yaml`, `vllm-llama-sft-deployment.yaml`, `fleetpackage.yaml`, `gcs-credential-config.yaml` |
-| `YOUR_PROJECT_NUMBER`    | Fleet host project number used in `service-YOUR_PROJECT_NUMBER@gcp-sa-configdelivery.iam.gserviceaccount.com` | `configdelivery-rbac.yaml`                                                                                                |
-| `YOUR_MEMBERSHIP`        | Fleet membership name of the target cluster (substituted per cluster during onboarding)                       | `gcs-credential-config.yaml`                                                                                              |
-| `YOUR_GSA_NAME`          | Workload Google service account reading the checkpoint bucket                                                 | `vllm-llama-sft-serviceaccount.yaml`, `gcs-credential-config.yaml`                                                        |
-| `YOUR_BUCKET`            | Cloud Storage bucket storing versioned checkpoints                                                            | `vllm-llama-sft-deployment.yaml`                                                                                          |
-| `YOUR_CONNECTION`        | Regional 2nd-gen Cloud Build repository connection name                                                       | `fleetpackage.yaml`                                                                                                       |
-| `YOUR_REPOSITORY`        | Linked Cloud Build repository name                                                                            | `fleetpackage.yaml`                                                                                                       |
-| `YOUR_PUBLISHER_SA_NAME` | Per-solution publisher Google service account name                                                            | `fleetpackage.yaml`                                                                                                       |
-
-<!-- mdformat on -->
+> For another `<MODEL_NAME>` family, update model names and
+> `--max-model-len`/`--dtype` in `src/base/vllm-llama-sft-deployment.yaml`,
+> `MODEL_ID` in `src/base/gradio-llama-sft-deployment.yaml`, and the Jinja
+> template and stop token IDs in `src/base/vllm-llama-sft-config.yaml`.
 
 - [Workstation] Create release branch `sft-model-serving-v1.0.0`, update
   `REGION` and all project-wide `YOUR_*` placeholders across the DRY sources,
@@ -522,10 +431,24 @@ else
 fi
 ```
 
-The output is similar to the following:
+<!-- prettier-ignore -->
+> [!NOTE]
+> Confirm that the script prints `No placeholders left.`
+> `fleet-package/gcs-credential-config.yaml` intentionally retains
+> `YOUR_MEMBERSHIP` outside `src/base/` and is applied once per cluster in
+> [Prepare the target cluster](#prepare-the-target-cluster) so
+> `environments/default/manifests.yaml` stays identical across the fleet.
 
-```text
-No placeholders left.
+- [Workstation] Render `environments/default/manifests.yaml` from the DRY
+  sources and review the diff (in Option A without monorepo `prettier`,
+  `render.sh` skips formatting, leaving harmless indentation-only diffs on first
+  run):
+
+```bash
+cd "${GITOPS_DIR}"
+"${GITOPS_DIR}/${SOLUTION_SUBDIR}/fleet-package/render.sh"
+git status --short
+git diff --stat
 ```
 
 <!-- prettier-ignore -->
@@ -608,9 +531,10 @@ kubectl get namespace config-management-system
 > running the fleet `config-management` enablement command ensures consistent
 > fleet state across newly installed bare-metal clusters.
 
-- [Workstation] Apply the least-privilege `Role` and `RoleBinding`
-  (`configdelivery-rootsync-manager`) in `config-management-system` for the
-  Config Delivery service agent.
+- [Workstation] Apply the namespace-scoped `Role` and `RoleBinding`
+  (`configdelivery-rootsync-manager`, granting `get`, `create`, `patch`, and
+  `delete` on `rootsyncs.configsync.gke.io` instead of `cluster-admin`) in
+  `config-management-system`:
 
 ```bash
 kubectl apply -f "${GITOPS_DIR}/${SOLUTION_SUBDIR}/fleet-package/configdelivery-rbac.yaml"
@@ -655,8 +579,7 @@ sed -e "s/YOUR_PROJECT_ID/${PROJECT_ID}/g" \
 - [Workstation] Apply a `PodMonitoring` resource (`dcgm-gmp`) in
   `DCGM_NAMESPACE` so Google Cloud Managed Service for Prometheus scrapes GPU
   hardware utilization and framebuffer memory metrics from NVIDIA DCGM Exporter;
-  see
-  [Send GPU metrics to Cloud Monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/gpu-metrics).
+  see Send GPU metrics to Cloud Monitoring.
 
 ```bash
 kubectl apply -f - <<EOF
@@ -802,14 +725,9 @@ The answer is: 72
 
 ## Operations
 
-Day-2 operations are detailed in the [Solution User Guide (SUG)](user-guide.md):
-interactive Gradio validation, application and DCGM GPU monitoring, promoting
-model `v2` via release `v2.0.0`, and rolling back to model `v1` via forward
-release `v2.0.1`. Every change follows the same GitOps lifecycle: edit DRY
-manifests, run `render.sh`, merge a pull request, push a bare SemVer tag, and
-update the `FleetPackage` `tag`. Because the serving pod claims the full
-single-node GPU under `strategy: Recreate`, each pod replacement briefly pauses
-serving.
+See the Solution User Guide (SUG) for interactive Gradio validation, application
+and GPU monitoring, promoting checkpoint `v2` (`v2.0.0`), and forward rollback
+to `v1` (`v2.0.1`).
 
 ## Troubleshooting
 
@@ -910,17 +828,15 @@ rmdir --ignore-fail-on-non-empty "${HOME}/gdcso-solutions" 2>/dev/null || true
 
 <!-- prettier-ignore -->
 > [!NOTE]
-> Resources retained by default (delete manually only if no other workload or
-> `FleetPackage` shares them): the
-> `gs://${BUCKET}/sft-model-serving/checkpoints/v1/` checkpoint prefix (`gcloud
-> storage rm -r`), your remote GitOps repository (`gh repo delete
-> "${GITOPS_OWNER}/${GITOPS_REPO}"`) and GitHub App installation in GitHub
-> settings, the regional `fleet-packages` Artifact Registry OCI repository
-> (`gcloud artifacts repositories delete fleet-packages --location="${REGION}"
-> --project="${PROJECT_ID}"`), and cluster-wide Config Sync enablement.
+> Retained by default (delete only if unused elsewhere):
+> `gs://${BUCKET}/sft-model-serving/checkpoints/v1/` (`gcloud storage rm -r`),
+> `${GITOPS_OWNER}/${GITOPS_REPO}` (`gh repo delete`) and its GitHub App
+> installation, `fleet-packages` in Artifact Registry (`gcloud artifacts
+> repositories delete fleet-packages --location=${REGION}
+> --project=${PROJECT_ID}`), and cluster Config Sync.
 
 ## What's next
 
 - [Solution Reference Architecture (SRA)](../README.md)
-- [Solution User Guide (SUG)](user-guide.md): Gradio validation UI, application
-  and GPU monitoring, upgrading to `v2.0.0`, and rolling back to `v2.0.1`
+- [Solution User Guide (SUG)](user-guide.md): Gradio validation, telemetry,
+  `v2.0.0` upgrades, and `v2.0.1` rollbacks
