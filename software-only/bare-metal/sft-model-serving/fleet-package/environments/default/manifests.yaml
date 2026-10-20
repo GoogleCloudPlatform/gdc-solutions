@@ -134,10 +134,6 @@ spec:
               value: http://vllm-llama-sft-service:8000
             - name: MODEL_ID
               value: llama-3.1-8b-sft-v1.0.0
-            - name: MODEL_NAME
-              value: Llama-3.1-8B-SFT-v1.0.0
-            - name: TITLE
-              value: Llama 3.1 8B SFT Chat (v1.0.0)
           image: us-docker.pkg.dev/google-samples/containers/gke/gradio-app:v1.0.4
           imagePullPolicy: IfNotPresent
           name: gradio
