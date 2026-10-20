@@ -105,56 +105,55 @@ Git tracks the manifests and selected model version.
 
 ### Components
 
-The architecture consists of five functional layers spanning Google Cloud and
-the edge cluster.
+The architecture deploys workload resources into a configurable Kubernetes
+namespace (`<NAMESPACE>`, defaulting to `sft-model-serving`) across five layers:
 
-- **Edge cluster infrastructure:**
-  - **Distributed Cloud software only cluster:** Bare-metal Kubernetes cluster
-    registered to a fleet, running Config Sync.
-  - **Single-node edge inference GPU:** Dedicated hardware accelerator for the
-    serving pod.
-  - **NVIDIA GPU Operator and DCGM Exporter:** Manages GPU drivers and exports
-    hardware metrics.
-- **GitOps delivery pipeline:**
-  - **GitOps repository:** Customer repository storing declarative Kustomize
-    sources and rendered manifests.
-  - **Cloud Build connection:** Read-only link to the GitOps repository
-    authenticated via Secret Manager.
-  - **FleetPackage:** Config Delivery resource orchestrating the release
-    rollout.
-  - **Config Sync reconciler:** In-cluster component that applies the bundle and
-    remediates drift.
+- **Edge cluster infrastructure (customer managed):**
+  - **Distributed Cloud software only standalone cluster:** Bare-metal
+    Kubernetes cluster registered to a fleet, running Config Sync.
+  - **Single-node edge inference GPU:** Dedicated hardware accelerator
+    (`nvidia.com/gpu: 1`) for the serving pod.
+  - **[NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/index.html)
+    and [NVIDIA DCGM Exporter](https://github.com/NVIDIA/dcgm-exporter):**
+    Manages GPU drivers, exposes the `nvidia` `RuntimeClass`, and exports
+    hardware GPU metrics.
+- **GitOps delivery pipeline (Google Cloud, `<REGION>`):**
+  - **GitOps repository:** Customer repository storing DRY
+    [Kustomize](https://github.com/kubernetes-sigs/kustomize) sources
+    (`fleet-package/src/`) and rendered plain-KRM WET manifests
+    (`fleet-package/environments/default/`).
+  - **Cloud Build connection (2nd gen) and Secret Manager:** Read-only link to
+    the GitOps repository authenticated with a dedicated machine-user token in
+    Google Cloud Secret Manager via the Cloud Build GitHub App installation
+    scoped to that repository.
+  - **Publisher service account and
+    [Artifact Registry](https://docs.cloud.google.com/artifact-registry/docs/overview):**
+    Packages the rendered variant directory into an immutable OCI bundle in the
+    managed `fleet-packages` repository.
+  - **`FleetPackage` and Config Sync reconciler:** `FleetPackage` rolls tagged
+    releases out across matching labeled memberships (`maxConcurrent: 1`) using
+    namespace-scoped `Role/configdelivery-rootsync-manager`, while Config Sync
+    reconciles the 9-resource bundle and remediates drift.
 - **vLLM model serving engine:**
-  - **vLLM Deployment:** Runs the OpenAI-compatible HTTP server on the edge GPU.
-  - **Model downloader initContainer:** Synchronizes weights from Cloud Storage
-    to local disk.
-  - **Model cache storage:** Node-local persistent volume and shared memory
-    segment for vLLM.
+  - **vLLM `Deployment` and `ClusterIP` `Service`:** Single-replica `Deployment`
+    (`strategy: Recreate`, `runtimeClassName: nvidia`) serving OpenAI-compatible
+    HTTP endpoints behind internal port `8000`, mounting its chat template and
+    `generation_config.json` from `ConfigMap/vllm-llama-sft-config`.
+  - **Model downloader `initContainer` and cache storage:** Authenticates via
+    Fleet Workload Identity (`ServiceAccount` plus per-cluster onboarding
+    `ConfigMap` `gcs-credential-config`) to sync checkpoints into a `100Gi`
+    `local-shared` `PersistentVolumeClaim` (`/model-cache`), paired with a
+    `16Gi` memory-backed `/dev/shm`.
 - **Interactive validation UI:**
-  - **Gradio Deployment:** Lightweight web application for chat completion
-    validation.
+  - **Gradio `Deployment` and `ClusterIP` `Service`:** Web application on
+    internal port `8080` (container port `7860`) forwarding chat validation
+    requests to vLLM using the release model alias.
 - **Google Cloud integration:**
-  - **Cloud Storage:** Stores immutable fine-tuned model checkpoints.
-  - **Cloud Monitoring and Logging:** Centralized observability for metrics and
-    container logs.
-
-### Design decision
-
-- **Fleet Workload Identity:** The initContainer exchanges projected service
-  account tokens for short-lived Google Cloud credentials to download
-  checkpoints securely without static keys.
-- **Local caching and pruning:** Checkpoints are stored in a version-scoped
-  persistent volume; the downloader skips fetching verified files and prunes
-  obsolete versions to constrain disk usage.
-- **Serving optimization:** vLLM maximizes GPU throughput using PagedAttention,
-  prefix caching, and customized Jinja chat templates loaded from a Git-managed
-  configuration map.
-- **Immutable artifact packaging:** Config Delivery uses a managed Cloud Build
-  job to package rendered manifests into an OCI bundle stored in Artifact
-  Registry.
-- **Least privilege deployment:** Config Delivery operates with a
-  namespace-scoped Role in `config-management-system`, delegating final
-  application to Config Sync.
+  - **Cloud Storage:** Stores immutable SFT checkpoints under versioned prefixes
+    (`.../checkpoints/v1/`, `.../checkpoints/v2/`).
+  - **Cloud Monitoring and Cloud Logging:** `PodMonitoring` scrapes vLLM and GPU
+    metrics into Managed Service for Prometheus, while cluster log forwarders
+    ship container logs to Cloud Logging.
 
 ### High-level architecture overview
 
@@ -203,89 +202,76 @@ VRAM.
 
 <!-- mdformat off -->
 
-| Component                       | Executed / Managed by | Notes                                                                                            |
-| :------------------------------ | :-------------------- | :----------------------------------------------------------------------------------------------- |
-| Physical hardware and OS        | Customer              | Customer-sourced server with local disk and one dedicated single-node inference GPU.             |
-| Distributed Cloud software only | Customer              | Installed and registered to a fleet on version 1.35 or later.                                    |
-| NVIDIA GPU Operator             | Customer              | Installed and maintained by the customer; Google does not support the deployment.                |
-| Config Sync                     | Joint                 | Google supports the managed feature; customer enables it before the first rollout.               |
-| Config Delivery                 | Joint                 | Google operates the managed service; customer configures the connection, package, and RBAC.      |
-| GitOps repository               | Customer              | Customer creates the repository and manages pull requests and release tags.                      |
-| Reference manifests             | Google                | Published under Apache 2.0 without official product support or SLA.                              |
-| Fine-tuned checkpoint           | Joint                 | Google operates Gemini tuning; customer executes jobs and manages bucket prefixes.               |
-| vLLM and Gradio images          | Customer              | Customer pins, scans, and mirrors upstream open source images.                                   |
-| Cloud Logging and Monitoring    | Joint                 | Google operates the backend; customer enables cluster application logging and metric collection. |
+| Component                       | Executed / Managed by | Notes                                                                                                                                                                                                                                                                                                                                           |
+| :------------------------------ | :-------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Physical hardware and OS        | Customer              | Customer-sourced server with local disk and one dedicated single-node inference GPU.                                                                                                                                                                                                                                                            |
+| Distributed Cloud software only | Customer              | Installed and registered to a fleet on version 1.35 or later.                                                                                                                                                                                                                                                                                   |
+| NVIDIA GPU Operator             | Customer              | Installed and maintained by the customer; Google does not support the deployment.                                                                                                                                                                                                                                                               |
+| Config Sync                     | Joint                 | Google supports the managed feature; customer enables it before the first rollout.                                                                                                                                                                                                                                                              |
+| Config Delivery                 | Joint                 | Google operates the managed service; customer configures the connection, package, and RBAC.                                                                                                                                                                                                                                                     |
+| GitOps repository               | Customer              | Customer creates the repository and manages pull requests and release tags.                                                                                                                                                                                                                                                                     |
+| Reference manifests             | Google                | Published under Apache 2.0 without official product support or SLA.                                                                                                                                                                                                                                                                             |
+| Fine-tuned checkpoint           | Joint                 | Google operates Gemini Enterprise Agent Platform open-model tuning; customer runs jobs (see the [Llama 3 / open-model SFT Jupyter notebook](https://github.com/GoogleCloudPlatform/generative-ai/blob/main/open-models/fine-tuning/get_started_with_oss_tuning_on_vertexai.ipynb)), complies with model licensing, and manages bucket prefixes. |
+| vLLM and Gradio images          | Customer              | Customer pins, scans, and mirrors upstream open source images.                                                                                                                                                                                                                                                                                  |
+| Cloud Logging and Monitoring    | Joint                 | Google operates the backend; customer enables cluster application logging and metric collection.                                                                                                                                                                                                                                                |
 
 <!-- mdformat on -->
 
-## Design decision
-
-### Delivery mechanism: Config Delivery Fleet Packages versus standalone Config Sync RootSync versus standalone RootSync
-
-- **Selected option:** **Config Delivery Fleet Packages with Config Sync**
-- **Rationale:** Provides a regional control plane that selects target clusters
-  by fleet label and orchestrates progressive rollouts across the edge fleet
-  without storing Git credentials on clusters.
-- **Alternatives rejected:** Standalone Config Sync lacks progressive rollout
-  waves and centralized fleet history. Manual application provides no drift
-  remediation or audit trail.
-
-### Release and manifest rendering: WET bundle committed with SemVer tags versus CI hydration
-
-- **Selected option:** **Commit locally rendered manifests in the pull request
-  and use bare SemVer tags**
-- **Rationale:** Config Delivery packages plain KRM manifests. Committing the
-  rendered WET bundle ensures reviewers see exact diffs. Pinning the tag via
-  `MODEL_VERSION` atomically binds infrastructure and weights. Config Delivery
-  enforces bare SemVer tags for resource bundle and release validation.
-- **Alternatives rejected:** CI hydration bots require write credentials. Custom
-  CI uploads bypass the native Cloud Build integration. Mutable release branches
-  break immutability.
-
-### Model weight distribution: Cloud Storage with a version-scoped PVC cache versus weights in Git
-
-- **Selected option:** **Immutable checkpoints in Cloud Storage synchronized to
-  a node-local PVC**
-- **Rationale:** Keeps multi-gigabyte safetensors shards out of Git and OCI
-  bundles. The `.complete` marker ensures offline restart resilience, and
-  post-sync pruning bounds disk consumption.
-- **Alternatives rejected:** Committing weights to Git exceeds repository
-  limits. Baking weights into images couples model updates to container
-  lifecycles.
-
-### Identity and access: Fleet Workload Identity and least-privilege RBAC versus service account key
-
-- **Selected option:** **Fleet Workload Identity and namespace-scoped Config
-  Delivery RBAC**
-- **Rationale:** Projected tokens exchange for short-lived read access to Cloud
-  Storage, eliminating static cluster secrets. The Config Delivery service agent
-  requires only namespace-scoped permissions in `config-management-system`,
-  minimizing blast radius.
-- **Alternatives rejected:** Exported JSON keys require manual rotation.
-  Unscoped cluster-admin roles violate least privilege.
-
-### Model serving runtime: vLLM versus Triton Inference Server versus Triton Inference Server versus Ollama
-
-- **Selected option:** **Upstream vLLM OpenAI-compatible server**
-- **Rationale:** Delivers high single-GPU throughput via PagedAttention, loads
-  Safetensors directly, accepts explicit Jinja templates, and exposes native
-  Prometheus endpoints.
-- **Alternatives rejected:** Triton Inference Server introduces unnecessary
-  scaffolding complexity for single-model edge serving. Ollama focuses on GGUF
-  conversion rather than native cloud pipeline outputs.
-
-### Telemetry collection: Google Cloud Managed Service for Prometheus versus a local Prometheus stack
-
-- **Selected option:** **Google Cloud Managed Service for Prometheus**
-- **Rationale:** Scrapes application and GPU metrics into Cloud Monitoring,
-  providing unified fleet-wide dashboards without running full storage servers
-  on edge hosts.
-- **Alternatives rejected:** A self-managed local Prometheus stack consumes edge
-  resources and fragments fleet observability.
-
 ## Concepts and technologies
 
-This section describes the concepts and technologies used in the solution.
+### Infrastructure and platform
+
+- **Fleet membership selection:** Bare-metal clusters register to a fleet and
+  receive one-time onboarding (`Role/configdelivery-rootsync-manager` and
+  cluster-specific `ConfigMap` `gcs-credential-config`). Membership labels
+  dynamically select rollout targets while keeping packaged workload manifests
+  100% identical across clusters.
+- **Dedicated single-GPU node profile:** The serving pod claims one whole GPU
+  without MIG or time-slicing for deterministic latency, backed by a `100Gi`
+  `local-shared` `PersistentVolumeClaim` for offline restart resilience and a
+  `16Gi` memory-backed `/dev/shm` segment for PyTorch/vLLM IPC.
+
+### Services and logic
+
+- **Keyless model sync and pruning (`initContainer`):** Uses
+  [Fleet Workload Identity](https://docs.cloud.google.com/kubernetes-engine/fleet-management/docs/use-workload-identity)
+  (`PROJECT_ID.svc.id.goog`) to authenticate without static keys and requires no
+  host-level service account credentials, verifies required
+  [Hugging Face Safetensors](https://github.com/huggingface/safetensors) and
+  tokenizer files before writing `.complete`, and prunes superseded model
+  directories under `/model-cache/<MODEL_NAME>/`.
+- **vLLM runtime and prompt control:** Serves cached BF16 checkpoints with
+  PagedAttention, prefix caching (`--enable-prefix-caching`), chunked prefill
+  (`--enable-chunked-prefill`), three `--served-model-name` aliases (stream,
+  SemVer release, and model version), Git-mounted
+  [Jinja](https://jinja.palletsprojects.com/) chat templates and
+  `generation_config.json` stop tokens, and `--trust-remote-code` omitted.
+- **Gradio validation UI:** Displays
+  `You are chatting with: <MODEL_NAME>-vX.Y.Z` and sends that release alias to
+  `/v1/chat/completions` over `kubectl port-forward`.
+
+### Cloud observability integration
+
+- **Metrics and logs:** A workload `PodMonitoring` scrapes vLLM `/metrics`
+  (`vllm:kv_cache_usage_perc`, token counters, and TTFT histograms) every 15
+  seconds and a cluster `PodMonitoring` (`dcgm-gmp`) scrapes NVIDIA DCGM
+  Exporter (`DCGM_FI_DEV_GPU_UTIL`, `DCGM_FI_DEV_FB_USED`) into
+  [Google Cloud Managed Service for Prometheus](https://docs.cloud.google.com/monitoring/kubernetes-engine/prometheus)
+  (`enableGMPForApplications`), while log forwarders ship CRI container
+  stdout/stderr (`jsonPayload.log`) to
+  [Cloud Logging](https://docs.cloud.google.com/logging/docs/overview). See
+  [Enable application logging and monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/application-logging-monitoring)
+  and
+  [Send GPU metrics to Cloud Monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/gpu-metrics).
+
+### Cloud Build and Config Delivery integration
+
+- **Immutable OCI packaging and reconciliation:** A regional 2nd-gen Cloud Build
+  repository connection links the GitOps repository without cluster Git secrets;
+  setting a new bare SemVer `tag` triggers a managed Cloud Build job as the
+  publisher service account to push a plain-KRM OCI bundle to Artifact Registry
+  (`fleet-packages`) and roll out `RootSync` updates (`maxConcurrent: 1`)
+  reconciled by Config Sync.
 
 ## Considerations
 
@@ -303,81 +289,146 @@ This section describes the concepts and technologies used in the solution.
 ### Resource management
 
 - **Container sizing:** Workload requests must equal limits to guarantee quality
-  of service, sized appropriately for the target model and cache memory segment.
+  of service (`4` CPU, `32Gi` memory, `1` GPU in the 8B reference profile), on
+  nodes with at least `16` vCPU, `64 GiB` RAM, and `250 GiB` fast local NVMe/SSD
+  storage (size CPU, memory, and NVMe capacity to your model and hardware SKU).
 - **96 GB GPU headroom (validation profile):** At
   `--gpu-memory-utilization=0.90` (`86,963 / 97,887 MiB` total GPU memory used),
-  subtracting `14.96 GiB` of weights and CUDA/activation overhead leaves
-  `68.63 GiB` for the KV cache (`562,224` tokens—sufficient for `34.32x` max
-  concurrency at full `16,384`-token sequences on `vllm/vllm-openai:v0.32.0`).
-- **Node sizing:** Bare-metal nodes require sufficient CPU, memory, and fast
-  local NVMe storage to accommodate the cache PVC and kubelet eviction
-  thresholds.
-- **Cache pruning:** Sizing the PVC to hold the active checkpoint plus one
-  incoming download prevents unbounded disk growth across atomic version
-  transitions.
+  subtracting `14.96 GiB` of weights (`128 KiB/token`, `2.0 GiB` per full
+  `16,384`-token sequence) and runtime overhead leaves `68.63 GiB` for the KV
+  cache (`562,224` tokens—`34.32x` max concurrency at full `16,384`-token
+  sequences on `vllm/vllm-openai:v0.32.0`).
+- **Cache pruning and eviction protection:** Sizing the `100Gi` PVC to hold the
+  active checkpoint plus one incoming download prevents unbounded disk growth
+  and avoids `node.kubernetes.io/disk-pressure` evictions.
 
 ### Availability and reliability
 
-- **Rollout downtime:** The recreate deployment strategy terminates the running
-  pod before starting the replacement, causing a brief inference pause during
-  rollouts.
-- **Offline resilience:** After the active model downloads and verifies
-  successfully, node reboots reload weights directly from local storage.
-- **Rollback behavior:** Because older versions are pruned, rolling back to a
-  previous release triggers a fresh download of the prior checkpoint from Cloud
-  Storage.
+- **Rollout downtime and rollback timings:** `strategy: Recreate` stops the
+  running pod before starting the replacement; rolling back via an immutable
+  forward tag (such as `v2.0.1`) re-downloads pruned weights (`~2` minutes
+  managed Cloud Build packaging with zero downtime, `21` seconds at
+  `922–952 MiB/s` for `14.97 GiB` Fleet Workload Identity download and cache
+  pruning, `3` minutes `11–13` seconds `Recreate` pause, and `5` minutes `47–49`
+  seconds to HTTP `200` / `7` minutes `39` seconds to `Rollout COMPLETED` on
+  `vllm/vllm-openai:v0.32.0`).
+- **Offline resilience and drift remediation:** Verified `.complete` checkpoints
+  reload locally across offline node reboots, Config Sync reverts manual cluster
+  drift, and removing the target fleet label prunes `<NAMESPACE>` (requiring
+  re-applying `namespace.yaml` and `gcs-credential-config` before re-labeling).
 
 ### Operational complexity
 
 - **DRY-to-WET workflow:** Authors edit Kustomize sources and commit both DRY
-  and rendered WET YAML in the same pull request before tagging.
+  and rendered WET YAML in the same pull request before tagging (optionally add
+  a pull-request CI check verifying `render.sh` leaves zero diff).
 - **SemVer tag discipline:** Customers hosting multiple solutions in one
-  repository must isolate releases using subfolders and disjoint major version
-  ranges.
+  repository must isolate releases using `cloudBuildRepository.path` subfolders
+  and disjoint three-part SemVer major ranges.
 - **CLI-driven operations:** Operators manage edge rollouts and diagnose
-  inference health using the CLI, Cloud Monitoring, and Cloud Logging.
-- **Application metrics via `PodMonitoring`:** A `monitoring.googleapis.com/v1`
-  `PodMonitoring` resource scrapes vLLM's [Prometheus](https://prometheus.io/)
-  `/metrics` endpoint every 15 seconds—capturing active requests,
-  prompt/generation token throughput, time-to-first-token latency histograms,
-  and KV-cache occupancy (`vllm:kv_cache_usage_perc`)—and forwards samples to
-  [Google Cloud Managed Service for Prometheus](https://docs.cloud.google.com/monitoring/kubernetes-engine/prometheus)
-  when managed application collection (`enableGMPForApplications`) is enabled on
-  the cluster. For cluster configuration steps, see
-  [Enable application logging and monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/application-logging-monitoring).
-- **GPU hardware metrics via DCGM Exporter:**
-  [NVIDIA DCGM Exporter](https://github.com/NVIDIA/dcgm-exporter) runs on GPU
-  nodes to expose streaming multiprocessor utilization (`DCGM_FI_DEV_GPU_UTIL`),
-  framebuffer memory used (`DCGM_FI_DEV_FB_USED`), temperature, power draw, and
-  ECC error counters; Platform Administrators deploy a customer `PodMonitoring`
-  resource (`dcgm-gmp`, selecting `app: nvidia-dcgm-exporter` on port `metrics`)
-  in the exporter's namespace (for example `gpu-operator` on Helm installs or
-  `nvidia-gpu-operator`) so Google Cloud Managed Service for Prometheus ships
-  those metrics to Cloud Monitoring. For setup instructions, see
-  [Send GPU metrics to Cloud Monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/gpu-metrics).
-- **Container logs in Cloud Logging:** Cluster log forwarders ship CRI container
-  stdout/stderr streams (`jsonPayload.log`) from the model downloader
-  `initContainer` (active Workload Identity principal, transfer progress, cache
-  pruning), vLLM, and Gradio to Cloud Logging when application logging is
-  enabled on the cluster; see
-  [Enable application logging and monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/application-logging-monitoring).
+  inference health using `gcloud`, `kubectl`, Cloud Monitoring, and Cloud
+  Logging.
 
 ### Security and compliance
 
+- **Least-privilege cluster RBAC:** The Config Delivery service agent holds only
+  `create`, `delete`, `get`, and `patch` on `rootsyncs.configsync.gke.io` in
+  `config-management-system` (`Role/configdelivery-rootsync-manager`), and
+  operators requiring strict multi-tenant isolation can scope the Config Sync
+  reconciler via Server-Side Apply on `RootSync.spec.override.roleRefs`
+  (`--field-manager=platform-admin`, pairing a `ClusterRole` granting read-only
+  `get`, `list`, and `watch` on the 6 non-Secret packaged kinds with a namespace
+  write `Role` in `<NAMESPACE>`, preserving `secrets` denial across rollouts).
 - **Zero static secrets:** Fleet Workload Identity exchanges tokens dynamically,
-  ensuring no Git credentials or Kubernetes secrets persist on the edge
-  clusters.
+  ensuring no Git credentials or Kubernetes secrets persist on edge clusters.
 - **Request logging privacy:** Enabling `--enable-log-requests` on
   `vllm/vllm-openai:v0.32.0` writes HTTP access metadata to container stdout and
   Cloud Logging at default `INFO` level and raw prompt/completion payloads if
   `VLLM_LOGGING_LEVEL=DEBUG` is set; omit or restrict request logging when
   serving regulated or personal data.
-- **Internal exposure:** Serving and validation endpoints use internal
-  `ClusterIP` services and are accessed via `kubectl port-forward`; production
-  exposure requires authenticating API gateways and TLS termination.
-- **Pinned provenance:** Runtime images are pinned to explicit version tags and
-  should be mirrored into a private artifact registry after vulnerability
-  scanning.
+- **Internal exposure:** Serving (`:8000`) and validation (`:8080`) endpoints
+  use internal `ClusterIP` services accessed via `kubectl port-forward`;
+  production external exposure requires an authenticating API gateway and TLS
+  termination.
+- **Pinned provenance:** Runtime images are pinned to explicit version tags
+  (`vllm-openai:v0.32.0` on driver `580+` or `v0.32.0-cu129` on `575–579`;
+  `cloud-sdk:589.0.0-slim`; `gradio-app:v1.0.4`) and should be scanned and
+  mirrored into Artifact Registry.
+
+## Design decision
+
+### Delivery mechanism: Config Delivery Fleet Packages versus standalone Config Sync RootSync versus manual kubectl apply
+
+- **Selected option:** **Config Delivery Fleet Packages with Config Sync**
+- **Rationale:** Provides a regional control plane that selects target clusters
+  by fleet label and orchestrates progressive rollouts (`maxConcurrent: 1`)
+  across the edge fleet without storing Git credentials on clusters.
+- **Alternatives rejected:** Standalone Config Sync lacks progressive rollout
+  waves and centralized fleet history and requires per-cluster Git credentials
+  across multi-cluster fleets. Manual application provides no drift remediation
+  or audit trail.
+
+### Release and manifest rendering: WET bundle committed with SemVer tags versus CI hydration
+
+- **Selected option:** **Commit locally rendered manifests in the pull request
+  and use bare SemVer tags**
+- **Rationale:** Config Delivery packages plain KRM manifests verbatim without
+  Kustomize (avoiding `KNV2010`). Committing rendered manifests lets reviewers
+  inspect exact diffs, and bare three-part SemVer tags (`vX.Y.Z`) atomically
+  bind configuration and `MODEL_VERSION`.
+- **Alternatives rejected:** CI hydration bots require write credentials and
+  race with tags. Slash-prefixed or prerelease tags are rejected by Config
+  Delivery, direct CI bundle uploads bypass native repository integration, and
+  mutable branches break immutability.
+
+### Model weight distribution: Cloud Storage with a version-scoped PVC cache versus weights in Git
+
+- **Selected option:** **Immutable checkpoints in Cloud Storage synchronized to
+  a node-local PVC**
+- **Rationale:** Keeps multi-gigabyte safetensors shards out of Git and OCI
+  bundles. The `.complete` marker ensures offline restart resilience, and
+  post-sync pruning bounds disk consumption.
+- **Alternatives rejected:** Committing weights to Git or bundles exceeds size
+  limits, baking weights into images couples weight updates to container
+  rebuilds, and runtime hub downloads add external dependencies.
+
+### Identity and access: Fleet Workload Identity and least-privilege RBAC versus service account key
+
+- **Selected option:** **Fleet Workload Identity (`gcs-credential-config`
+  applied per cluster) and namespace-scoped Config Delivery RBAC**
+- **Rationale:** Isolating the per-cluster `gcs-credential-config` `ConfigMap`
+  at onboarding keeps the packaged bundle identical across all fleet clusters
+  while exchanging projected tokens without static keys, and
+  `Role/configdelivery-rootsync-manager` eliminates `cluster-admin` blast
+  radius.
+- **Alternatives rejected:** Embedding `gcs-credential-config` in the shared
+  bundle hard-codes one cluster membership ID, exported JSON keys require manual
+  rotation, node credentials violate least privilege, and unscoped
+  `cluster-admin` over-privileges service agents.
+
+### Model serving runtime: vLLM versus Triton Inference Server versus Ollama
+
+- **Selected option:** **Upstream [vLLM](https://github.com/vllm-project/vllm)
+  OpenAI-compatible server**
+- **Rationale:** Loads Safetensors BF16/FP8 checkpoints directly, maximizes
+  single-GPU throughput via PagedAttention and prefix caching, accepts explicit
+  Jinja chat templates and `generation_config.json` stop tokens, and exports
+  native Prometheus metrics.
+- **Alternatives rejected:**
+  [NVIDIA Triton Inference Server](https://github.com/triton-inference-server/server)
+  adds unnecessary repository scaffolding for single-model edge serving, while
+  [Ollama](https://github.com/ollama/ollama) centers on GGUF conversion and
+  lacks native OpenMetrics serving telemetry.
+
+### Telemetry collection: Google Cloud Managed Service for Prometheus versus a local Prometheus stack
+
+- **Selected option:**
+  **[Google Cloud Managed Service for Prometheus](https://docs.cloud.google.com/monitoring/kubernetes-engine/prometheus)**
+- **Rationale:** Scrapes vLLM and DCGM Exporter `PodMonitoring` targets into
+  Cloud Monitoring for unified fleet dashboards without running full Prometheus
+  storage servers on single-node edge hosts.
+- **Alternatives rejected:** Self-managed local Prometheus and Grafana stacks
+  consume edge node resources and fragment fleet observability.
 
 ## Assumptions and limitations
 

@@ -554,7 +554,8 @@ sed -e "s/YOUR_PROJECT_ID/${PROJECT_ID}/g" \
 - [Workstation] Apply a `PodMonitoring` resource (`dcgm-gmp`) in
   `DCGM_NAMESPACE` so Google Cloud Managed Service for Prometheus scrapes GPU
   hardware utilization and framebuffer memory metrics from NVIDIA DCGM Exporter;
-  see Send GPU metrics to Cloud Monitoring.
+  see
+  [Send GPU metrics to Cloud Monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/gpu-metrics).
 
 ```bash
 kubectl apply -f - <<EOF

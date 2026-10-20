@@ -128,6 +128,7 @@ onprem
 opsconfigmonitoring
 passwordless
 perc
+persistentvolumeclaims
 pgdatabase
 pghost
 pgpassword
@@ -135,6 +136,7 @@ pgport
 pguser
 pipefail
 podmonitoring
+podmonitorings
 portforward
 preconfigured
 prettier
@@ -156,6 +158,7 @@ scrd
 secretmanager
 seqs
 serviceaccount
+serviceaccounts
 serviceusage
 shellcheck
 shellformat
@@ -186,6 +189,7 @@ timonwong
 toplevel
 toupper
 transactionhistory
+ttft
 unenroll
 unquantized
 urlmap
