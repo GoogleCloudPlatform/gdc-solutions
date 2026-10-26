@@ -18,109 +18,54 @@ limitations under the License.
 
 ## Overview
 
-This Solution User Guide (SUG) builds on the
-[Solution Reference Implementation (SRI)](reference-implementation.md) to
-demonstrate automated day-2 MLOps operations for supervised fine-tuned (SFT)
-open-weight models on
-[Distributed Cloud software only](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs)
-bare-metal clusters. Starting from a deployed `v1.0.0` baseline, **Application
-Operators** and **Platform Administrators** interactively validate the served
-model through [Gradio](https://github.com/gradio-app/gradio), inspect
-application (`PodMonitoring`) and GPU (`dcgm-gmp` for
-[NVIDIA DCGM Exporter](https://github.com/NVIDIA/dcgm-exporter); see
-[Send GPU metrics to Cloud Monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/gpu-metrics))
-telemetry in
-[Google Cloud Managed Service for Prometheus](https://docs.cloud.google.com/monitoring/kubernetes-engine/prometheus),
-[Cloud Monitoring](https://docs.cloud.google.com/monitoring/docs/monitoring-overview),
-and [Cloud Logging](https://docs.cloud.google.com/logging/docs/overview),
-promote a new checkpoint (`v2`) via release `v2.0.0`, and roll back to
-checkpoint `v1` via immutable forward release `v2.0.1`.
-
-Every change uses the same GitOps lifecycle whether your repository was
-initialized from scratch as a standalone GitOps repository
-(`SOLUTION_SUBDIR="."`) or forked from `GoogleCloudPlatform/gdc-solutions`
-(`SOLUTION_SUBDIR="software-only/bare-metal/sft-model-serving"`), with
-`resourceBundleSelector.cloudBuildRepository.path` selecting the environment
-subfolder while Config Delivery enforces bare three-part SemVer tags (`vX.Y.Z`):
-update the DRY [Kustomize](https://github.com/kubernetes-sigs/kustomize)
-sources, render the WET bundle, merge through a pull request, push a bare SemVer
-tag, and point the
-[Config Delivery `FleetPackage`](https://docs.cloud.google.com/kubernetes-engine/config-sync/docs/concepts/fleet-packages)
-to the tag for
-[Config Sync](https://docs.cloud.google.com/kubernetes-engine/config-sync/docs/overview)
-reconciliation.
+This Solution User Guide (SUG) demonstrates day-2 MLOps operations on a cluster
+deployed with the
+[Solution Reference Implementation (SRI)](reference-implementation.md):
+interactive [Gradio](https://github.com/gradio-app/gradio) release validation,
+[Cloud Monitoring](https://docs.cloud.google.com/monitoring/docs/monitoring-overview)
+and [Cloud Logging](https://docs.cloud.google.com/logging/docs/overview)
+inspection, upgrading from `v1.0.0` (model `v1`) to `v2.0.0` (model `v2`), and
+forward rollback via `v2.0.1`. For the system architecture diagram, GitOps
+pipeline design, and component boundaries, see
+[Architecture and design](../README.md#architecture-and-design) in the Solution
+Reference Architecture (SRA). For the detailed, step-by-step implementation of
+the solution on a validation and testing environment, which this guide builds
+on, see the SRI.
 
 <!-- prettier-ignore -->
 > [!NOTE]
-> In the worked lab example, the `v1` and `v2` [Cloud
-> Storage](https://docs.cloud.google.com/storage/docs/introduction) prefixes
-> hold byte-identical Llama 3.1 8B SFT weights fine-tuned via [**Gemini
-> Enterprise Agent Platform** open-model
-> tuning](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/tuning/open-model-tuning)
-> (formerly Vertex AI; see the worked [Llama 3 / open-model SFT Jupyter
-> notebook](https://github.com/GoogleCloudPlatform/generative-ai/blob/main/open-models/fine-tuning/get_started_with_oss_tuning_on_vertexai.ipynb))
-> on MetaMathQA math word problems. The upgrade and rollback exercises
-> demonstrate end-to-end GitOps mechanics—version labels, keyless [Fleet
-> Workload
-> Identity](https://docs.cloud.google.com/kubernetes-engine/fleet-management/docs/use-workload-identity)
-> Cloud Storage download and cache pruning,
-> [vLLM](https://github.com/vllm-project/vllm) served-model aliases, and UI
-> version display—rather than a change in model outputs. With your own
-> fine-tuning runs (`<MODEL_NAME>`), `v2` holds the checkpoint from a new tuning
-> job.
-
-![High-level architecture of SFT model serving with Fleet Packages on Distributed Cloud software only](images/sft-model-serving-architecture.png)
-
-### Features and benefits
-
-- **Release-pinned model lifecycle:** Each bare SemVer Git tag atomically binds
-  Kubernetes manifests, serving parameters, and the Cloud Storage checkpoint URI
-  so **Platform Administrators** promote or roll back fleet deployments by
-  updating a single `FleetPackage` `tag` field.
-- **Auditable plain-KRM pull requests:** Rendering WET manifests locally ensures
-  reviewers see exact Kubernetes resource diffs before any release reaches edge
-  clusters.
-- **Full-stack application and GPU telemetry:** **Application Operators** and
-  **Platform Administrators** correlate vLLM serving metrics (`PodMonitoring`),
-  GPU hardware utilization and VRAM occupancy (NVIDIA DCGM Exporter), and
-  container logs in Cloud Monitoring and Cloud Logging.
-- **Zero cluster secrets and private network boundaries:** Checkpoints sync via
-  keyless Fleet Workload Identity while Gradio and vLLM remain strictly inside
-  cluster-internal `ClusterIP` Services accessed through `kubectl port-forward`.
-
-### Use cases
-
-- **Domain-specialized edge assistant:** An organization fine-tunes an
-  open-weight model in **Gemini Enterprise Agent Platform** on domain workflows
-  (illustrated here with math word-problem solving) and promotes updated
-  checkpoints across bare-metal sites term by term.
-- **Progressive fleet promotion and rapid rollback:** A platform team rolls out
-  a newly fine-tuned checkpoint across edge sites one membership at a time
-  (`maxConcurrent: 1`) and rolls back cleanly via a forward release tag if
-  domain validation detects quality regressions.
+> In the worked example, `v1` and `v2` hold identical Llama 3.1 8B SFT math
+> weights so the upgrade and rollback exercises isolate GitOps release tagging,
+> keyless [Cloud
+> Storage](https://docs.cloud.google.com/storage/docs/introduction) sync, cache
+> pruning, served-model aliases, and UI banner updates rather than model output
+> changes. In your own `<MODEL_NAME>` workflow, `v2` should point to a newly
+> fine-tuned checkpoint.
 
 ## Before you begin
 
-- The [Solution Reference Implementation (SRI)](reference-implementation.md) is
-  deployed and verified at release `v1.0.0`, and
-  `${HOME}/gdcso-solutions/sft-model-serving/.env` exists on your workstation
-  (defining `GITOPS_OWNER`, `GITOPS_REPO`, `SOLUTION_SUBDIR`, `GITOPS_DIR`,
-  `REGION`, `PROJECT_ID`, `BUCKET`, `FLEET_PACKAGE`, `NAMESPACE`, and
-  `DCGM_NAMESPACE`).
-- Your local GitOps clone (`GITOPS_DIR`) has a clean, up-to-date `main` branch.
-- In the worked Llama 3.1 8B SFT example, the checkpoint is specialized for
-  mathematical reasoning: test with math word problems rather than open
-  chit-chat prompts.
+- Release `v1.0.0` from the Solution Reference Implementation (SRI) is deployed
+  and verified (see [Verification](reference-implementation.md#verification) in
+  the SRI), `${HOME}/gdcso-solutions/sft-model-serving/.env` exists on your
+  workstation, and `GITOPS_DIR` is clean on `main`.
+- Your workstation meets
+  [Client workstation prerequisites](reference-implementation.md#client-workstation-prerequisites)
+  in the SRI, including
+  [Connect gateway](https://docs.cloud.google.com/kubernetes-engine/enterprise/multicluster-management/gateway)
+  access to the target cluster. Every `kubectl` command in this guide reaches
+  the cluster through the Connect gateway.
 
 ### Identity and Access Management
 
-- **Application Operator:** namespace RBAC from the SRI (`get` and `list` pods
-  and Services, read pod logs, `pods/portforward`, and `pods/exec`) plus write
-  access to `${GITOPS_OWNER}/${GITOPS_REPO}` to open pull requests and push
-  release tags.
+- **Application Operator:** Connect gateway access (`roles/gkehub.gatewayEditor`
+  and `roles/gkehub.viewer` on `PROJECT_ID`), namespace RBAC from
+  [Identities and roles](reference-implementation.md#identities-and-roles) in
+  the SRI (`get` and `list` pods and Services, read pod logs,
+  `pods/portforward`, and `pods/exec`), and write access to
+  `${GITOPS_OWNER}/${GITOPS_REPO}` to open pull requests and push release tags.
 - **Platform Administrator:** permissions to update `FleetPackage` resources in
-  `REGION`.
-- **Observability:** Monitoring Viewer (`roles/monitoring.viewer`) and Logs
+  `REGION` (`roles/configdelivery.admin`).
+- **Both personas:** Monitoring Viewer (`roles/monitoring.viewer`) and Logs
   Viewer (`roles/logging.viewer`) on `PROJECT_ID` to inspect metrics and logs in
   the Google Cloud console.
 
@@ -144,9 +89,32 @@ set -a; source "${SOLUTION_HOME}/sug.env"; set +a
 
 Replace the following:
 
-- `NEW_CHECKPOINT_SOURCE_URI`: Cloud Storage folder URI holding the new merged
-  SFT checkpoint, without a trailing slash (for lab testing with identical
-  weights, use `gs://${BUCKET}/sft-model-serving/checkpoints/v1`).
+<!-- mdformat off -->
+
+| Placeholder                 | Value to set                                                                                                                                                                              |
+| :-------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEW_CHECKPOINT_SOURCE_URI` | Cloud Storage folder URI holding the new merged SFT checkpoint, without a trailing slash (for lab testing with identical weights, use `gs://${BUCKET}/sft-model-serving/checkpoints/v1`). |
+
+<!-- mdformat on -->
+
+- [Workstation] Fetch the cluster credentials through the Connect gateway and
+  confirm that `kubectl` targets the solution cluster before you run any
+  `kubectl` command in this guide.
+
+```bash
+gcloud container fleet memberships get-credentials "${MEMBERSHIP}" --project="${PROJECT_ID}"
+kubectl config current-context
+kubectl -n "${NAMESPACE}" get pods
+```
+
+The output is similar to the following:
+
+```text
+connectgateway_PROJECT_ID_global_MEMBERSHIP
+NAME                                           READY   STATUS    RESTARTS   AGE
+gradio-llama-sft-deployment-6c9f7b8d5d-x2k4p   1/1     Running   0          6m
+vllm-llama-sft-deployment-7d8b9c6f4b-q7m2n     1/1     Running   0          6m
+```
 
 ## Implementation
 
@@ -159,11 +127,11 @@ Replace the following:
 kubectl -n "${NAMESPACE}" port-forward svc/gradio-llama-sft-service 8080:8080
 ```
 
-- [Workstation] Open `http://localhost:8080` in a browser, verify that the page
-  banner reads `You are chatting with: llama-3.1-8b-sft-v1.0.0`, and submit a
-  math word problem such as
-  `"Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"`.
-  Confirm that the response ends cleanly with `The answer is: 72`.
+- [Workstation] Open `http://localhost:8080` in a browser and verify that the
+  page banner reads `You are chatting with: llama-3.1-8b-sft-v1.0.0`.
+- [Workstation] Submit the math word problem
+  `"Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"`
+  and confirm that the response ends cleanly with `The answer is: 72`.
 
 <!-- prettier-ignore -->
 > [!NOTE]
@@ -174,25 +142,12 @@ kubectl -n "${NAMESPACE}" port-forward svc/gradio-llama-sft-service 8080:8080
 
 ### Monitor the model
 
-Workload metrics (`PodMonitoring/vllm-llama-sft-pod-monitoring`), GPU hardware
-metrics (`PodMonitoring/dcgm-gmp` scraping NVIDIA DCGM Exporter per
-[Send GPU metrics to Cloud Monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/gpu-metrics)),
-and container logs integrate with Cloud Monitoring and Cloud Logging once
-application logging and Managed Service for Prometheus collection are enabled;
-see
-[Enable application logging and monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/application-logging-monitoring).
-
-- [Workstation] Check that the `PodMonitoring` resource reconciled cleanly.
+- [Workstation] Confirm that `PodMonitoring/vllm-llama-sft-pod-monitoring`
+  reports `ConfigurationCreateSuccess=True`:
 
 ```bash
 kubectl -n "${NAMESPACE}" get podmonitoring vllm-llama-sft-pod-monitoring \
     -o jsonpath='{range .status.conditions[*]}{.type}={.status}{"\n"}{end}'
-```
-
-The output is similar to the following:
-
-```text
-ConfigurationCreateSuccess=True
 ```
 
 - [Workstation] Query vLLM's local Prometheus `/metrics` endpoint directly to
@@ -209,9 +164,10 @@ kill "${PF_PID}"
 The returned series carry label `model_name="llama-3.1-8b-sft"` (alongside
 `vllm:kv_cache_usage_perc` and request latency histograms).
 
-- [Console] In Google Cloud Monitoring **Metrics Explorer**, switch to
-  **PromQL** to inspect vLLM token generation rate alongside GPU utilization and
-  framebuffer memory occupancy exported by DCGM Exporter:
+- [Console] In Cloud Monitoring
+  [Metrics Explorer](https://console.cloud.google.com/monitoring/metrics-explorer),
+  switch to **PromQL** to inspect vLLM token generation rate alongside GPU
+  utilization and framebuffer memory occupancy exported by DCGM Exporter:
 
 ```text
 rate(vllm:generation_tokens_total{model_name="llama-3.1-8b-sft"}[1m])
@@ -221,13 +177,17 @@ DCGM_FI_DEV_FB_USED{cluster="CLUSTER_NAME", namespace="DCGM_NAMESPACE"}
 
 Replace the following:
 
-- `CLUSTER_NAME`: the bare-metal cluster name label reported in Google Cloud
-  Managed Service for Prometheus (typically matching `MEMBERSHIP`).
-- `DCGM_NAMESPACE`: the namespace running `nvidia-dcgm-exporter` where
-  `PodMonitoring/dcgm-gmp` was applied in the SRI (for example `gpu-operator` on
-  NVIDIA Helm chart installations or `nvidia-gpu-operator`).
+<!-- mdformat off -->
 
-- [Workstation] Inspect container logs locally and in Cloud Logging.
+| Placeholder      | Value to set                                                                                                                                |
+| :--------------- | :------------------------------------------------------------------------------------------------------------------------------------------ |
+| `CLUSTER_NAME`   | Cluster name reported in Managed Service for Prometheus and Cloud Logging (typically `MEMBERSHIP`).                                         |
+| `DCGM_NAMESPACE` | Namespace where `PodMonitoring/dcgm-gmp` runs: the `DCGM_NAMESPACE` value in the SRI `.env` file (`gpu-operator` or `nvidia-gpu-operator`). |
+
+<!-- mdformat on -->
+
+- [Workstation] Inspect the vLLM container logs with `kubectl`, and query the
+  same logs in Cloud Logging with `gcloud`.
 
 ```bash
 kubectl -n "${NAMESPACE}" logs deploy/vllm-llama-sft-deployment -c vllm-container --tail=50
@@ -235,6 +195,24 @@ gcloud logging read \
     "resource.type=\"k8s_container\" AND resource.labels.namespace_name=\"${NAMESPACE}\" AND resource.labels.container_name=\"vllm-container\"" \
     --project="${PROJECT_ID}" --limit=20 --format="table(timestamp, jsonPayload.log)"
 ```
+
+- [Console] In the Google Cloud console, open
+  [Logs Explorer](https://console.cloud.google.com/logs/query) in project
+  `PROJECT_ID`, paste the following query into the query editor, and click **Run
+  query**. To see the checkpoint download and cache pruning logs instead, set
+  `container_name` to `gcs-model-downloader`.
+
+```text
+resource.type="k8s_container"
+resource.labels.cluster_name="CLUSTER_NAME"
+resource.labels.namespace_name="sft-model-serving"
+resource.labels.container_name="vllm-container"
+```
+
+You can build the same filter without typing a query: click **Resource**, select
+**Kubernetes Container**, then your cluster and the `sft-model-serving`
+namespace, and click **Add** and then **Run query**; see
+[Enable application logging and monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/application-logging-monitoring).
 
 <!-- prettier-ignore -->
 > [!WARNING]
@@ -310,13 +288,8 @@ fi
 git diff --stat
 ```
 
-The output is similar to the following:
-
-```text
-No v1 values left.
-Rendered .../fleet-package/src/overlays/default to .../fleet-package/environments/default/manifests.yaml
-Format .../fleet-package/environments/default/manifests.yaml with prettier before you commit it.
-```
+Confirm that the script prints `No v1 values left.` and writes
+`environments/default/manifests.yaml`.
 
 - [Workstation] Commit DRY and WET files together, merge through a pull request,
   and push SemVer tag `v2.0.0`.
@@ -341,6 +314,92 @@ gcloud container fleet packages update "${FLEET_PACKAGE}" \
     --source="${GITOPS_DIR}/${SOLUTION_SUBDIR}/fleet-package/fleetpackage.yaml" \
     --location="${REGION}" --project="${PROJECT_ID}"
 ```
+
+### Verify the upgrade to v2.0.0
+
+Verify the upgrade before you roll back. Measured upgrade and rollback behavior
+on the validation cluster running `vllm/vllm-openai:v0.32.0` (timings vary with
+network bandwidth and GPU node storage):
+
+- Managed Cloud Build OCI packaging completed in roughly 2 minutes (`115–127`
+  seconds) with zero serving downtime while cluster traffic continued normally.
+- Total time from `FleetPackage` update to a serving `/v1/models` HTTP `200`
+  response was 5 minutes `47–49` seconds (`7` minutes `39` seconds to
+  `Rollout COMPLETED`), with `3` minutes `11–13` seconds without serving under
+  `strategy: Recreate` (dominated by `vllm:v0.32.0` V1 engine and CUDA graph
+  initialization inside the `120`-second readiness initial delay).
+- The `initContainer` downloaded `14.97 GiB` via keyless Fleet Workload Identity
+  at `922–952 MiB/s` and pruned the superseded cache directory in 21 seconds
+  total.
+
+- [Workstation] Wait until the newest rollout, for release `v2-0-0`, reports
+  state `COMPLETED`.
+
+```bash
+gcloud container fleet packages rollouts list \
+    --fleet-package="${FLEET_PACKAGE}" --location="${REGION}" --project="${PROJECT_ID}" \
+    --sort-by=~createTime --limit=2
+```
+
+- [Workstation] Confirm that the replacement vLLM pod is `Running` and `Ready`
+  and runs model version `v2`.
+
+```bash
+kubectl -n "${NAMESPACE}" get pods -l app=vllm-llama-sft -L ai.gke.io/model-version
+```
+
+The pod shows `1/1` in the `READY` column and `v2` in the `MODEL-VERSION`
+column.
+
+- [Workstation] Inspect the `gcs-model-downloader` logs to confirm that the pod
+  downloaded checkpoint `v2` with keyless credentials and pruned `v1` from the
+  cache.
+
+```bash
+kubectl -n "${NAMESPACE}" logs deploy/vllm-llama-sft-deployment -c gcs-model-downloader
+```
+
+The output is similar to the following:
+
+```text
+Checking the cache for model version 'v2'...
+Active account: GSA_NAME@PROJECT_ID.iam.gserviceaccount.com
+Downloading gs://BUCKET/sft-model-serving/checkpoints/v2 with fleet Workload Identity credentials...
+Checking the required files for model version 'v2'...
+Deleting other model versions from the cache...
+Removing /model-cache/llama-3.1-8b-sft/v1
+Model version 'v2' sync and cache maintenance complete.
+```
+
+- [Workstation] Confirm that `/v1/models` lists the `v2.0.0` aliases, and run
+  the math smoke test.
+
+```bash
+kubectl -n "${NAMESPACE}" port-forward svc/vllm-llama-sft-service 8000:8000 >/dev/null &
+PF_PID=$!
+sleep 5
+curl -s http://localhost:8000/v1/models | jq -r '.data[].id'
+curl -s http://localhost:8000/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{"model": "llama-3.1-8b-sft", "max_tokens": 512, "temperature": 0,
+         "messages": [{"role": "user", "content": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"}]}' \
+    | jq -r '.choices[0].message.content' | tail -n 1
+kill "${PF_PID}"
+```
+
+The output is similar to the following:
+
+```text
+llama-3.1-8b-sft
+llama-3.1-8b-sft-v2.0.0
+llama-3.1-8b-sft-v2
+The answer is: 72
+```
+
+- [Workstation] Restart the Gradio port-forward (see
+  [Access the model through Gradio](#access-the-model-through-gradio)), reload
+  `http://localhost:8080`, and verify that the banner reads
+  `You are chatting with: llama-3.1-8b-sft-v2.0.0`.
 
 ### Roll back the model from v2 to v1 with a forward release
 
@@ -378,13 +437,8 @@ fi
 git diff --stat
 ```
 
-The output is similar to the following:
-
-```text
-No v2 values left.
-Rendered .../fleet-package/src/overlays/default to .../fleet-package/environments/default/manifests.yaml
-Format .../fleet-package/environments/default/manifests.yaml with prettier before you commit it.
-```
+Confirm that the script prints `No v2 values left.` and writes
+`environments/default/manifests.yaml`.
 
 - [Workstation] Commit, merge through a pull request, push tag `v2.0.1`, and
   update the `FleetPackage`.
@@ -405,21 +459,6 @@ gcloud container fleet packages update "${FLEET_PACKAGE}" \
     --location="${REGION}" --project="${PROJECT_ID}"
 ```
 
-Measured upgrade and rollback behavior on the validation cluster running
-`vllm/vllm-openai:v0.32.0` (timings vary with network bandwidth and GPU node
-storage):
-
-- Managed Cloud Build OCI packaging completed in roughly `2` minutes (`115–127`
-  seconds) with zero serving downtime while cluster traffic continued normally.
-- Total time from `FleetPackage` update to a serving `/v1/models` HTTP `200`
-  response was `5` minutes `47–49` seconds (`7` minutes `39` seconds to
-  `Rollout COMPLETED`), with `3` minutes `11–13` seconds without serving under
-  `strategy: Recreate` (dominated by `vllm:v0.32.0` V1 engine and CUDA graph
-  initialization inside the `120`-second readiness initial delay).
-- Because `v2.0.0` pruned `v1` from the local PVC cache, the `initContainer`
-  downloaded `14.97 GiB` via keyless Fleet Workload Identity at `922–952 MiB/s`
-  and pruned the superseded cache directory in `21` seconds total.
-
 <!-- prettier-ignore -->
 > [!NOTE]
 > Re-pointing `FleetPackage` directly back to `tag: v1.0.0` also redeploys
@@ -427,38 +466,53 @@ storage):
 > forward releases are preferred so the active deployment always matches `HEAD`
 > on `main`.
 
-## Verification
+### Verify the rollback to v2.0.1
 
-- [Workstation] Wait for the newest rollout to report `COMPLETED` and confirm
-  the replacement pod is `Running` and `Ready`.
+The rollback takes about as long as the upgrade (5 minutes `49` seconds to a
+serving `/v1/models` response on the validation cluster): because `v2.0.0`
+pruned `v1` from the local PVC cache, the `initContainer` downloads checkpoint
+`v1` again.
+
+- [Workstation] Wait until the newest rollout, for release `v2-0-1`, reports
+  state `COMPLETED`.
 
 ```bash
 gcloud container fleet packages rollouts list \
-    --fleet-package="${FLEET_PACKAGE}" --location="${REGION}" --project="${PROJECT_ID}"
-kubectl -n "${NAMESPACE}" get pods -l app=vllm-llama-sft
+    --fleet-package="${FLEET_PACKAGE}" --location="${REGION}" --project="${PROJECT_ID}" \
+    --sort-by=~createTime --limit=2
 ```
 
-- [Workstation] Inspect `gcs-model-downloader` logs to verify keyless download
-  and cache pruning (`v1` pruned on upgrade; `v2` pruned on rollback).
+- [Workstation] Confirm that the replacement vLLM pod is `Running` and `Ready`
+  and runs model version `v1` again.
+
+```bash
+kubectl -n "${NAMESPACE}" get pods -l app=vllm-llama-sft -L ai.gke.io/model-version
+```
+
+The pod shows `1/1` in the `READY` column and `v1` in the `MODEL-VERSION`
+column.
+
+- [Workstation] Inspect the `gcs-model-downloader` logs to confirm that the pod
+  downloaded checkpoint `v1` again and pruned `v2` from the cache.
 
 ```bash
 kubectl -n "${NAMESPACE}" logs deploy/vllm-llama-sft-deployment -c gcs-model-downloader
 ```
 
-The output after upgrading to `v2.0.0` is similar to the following:
+The output is similar to the following:
 
 ```text
-Checking the cache for model version 'v2'...
+Checking the cache for model version 'v1'...
 Active account: GSA_NAME@PROJECT_ID.iam.gserviceaccount.com
-Downloading gs://BUCKET/sft-model-serving/checkpoints/v2 with fleet Workload Identity credentials...
-Checking the required files for model version 'v2'...
+Downloading gs://BUCKET/sft-model-serving/checkpoints/v1 with fleet Workload Identity credentials...
+Checking the required files for model version 'v1'...
 Deleting other model versions from the cache...
-Removing /model-cache/llama-3.1-8b-sft/v1
-Model version 'v2' sync and cache maintenance complete.
+Removing /model-cache/llama-3.1-8b-sft/v2
+Model version 'v1' sync and cache maintenance complete.
 ```
 
-- [Workstation] Check the active model aliases on `/v1/models` and run the math
-  smoke test.
+- [Workstation] Confirm that `/v1/models` lists the `v2.0.1` aliases, and run
+  the math smoke test.
 
 ```bash
 kubectl -n "${NAMESPACE}" port-forward svc/vllm-llama-sft-service 8000:8000 >/dev/null &
@@ -473,34 +527,26 @@ curl -s http://localhost:8000/v1/chat/completions \
 kill "${PF_PID}"
 ```
 
-After upgrading to `v2.0.0`, the output is similar to the following (after
-rolling back via `v2.0.1`, the versioned aliases read `llama-3.1-8b-sft-v2.0.1`
-and `llama-3.1-8b-sft-v1`):
+The output is similar to the following:
 
 ```text
 llama-3.1-8b-sft
-llama-3.1-8b-sft-v2.0.0
-llama-3.1-8b-sft-v2
+llama-3.1-8b-sft-v2.0.1
+llama-3.1-8b-sft-v1
 The answer is: 72
 ```
 
-- [Workstation] Re-open Gradio (see
-  [Access the model through Gradio](#access-the-model-through-gradio)) and
-  verify that the `You are chatting with:` banner displays
-  `llama-3.1-8b-sft-v2.0.0` (or `llama-3.1-8b-sft-v2.0.1` after rollback).
+- [Workstation] Restart the Gradio port-forward (see
+  [Access the model through Gradio](#access-the-model-through-gradio)), reload
+  `http://localhost:8080`, and verify that the banner reads
+  `You are chatting with: llama-3.1-8b-sft-v2.0.1`.
 
 ## Operations
 
-- **Subsequent model promotions:** Repeat the upgrade workflow (`v3` / tag
-  `v3.0.0`) while retaining prior checkpoint prefixes in Cloud Storage for
-  rollback safety.
-- **Container runtime updates:** Bump pinned image versions (for example
-  `vllm/vllm-openai`) in `src/base/`, render, merge, and tag—never deploy
-  mutable `:latest` tags.
-- **Serving pause window:** Schedule releases inside maintenance windows because
-  single-GPU `strategy: Recreate` pauses inference while pods swap.
-- **Canary fleet wave:** With `maxConcurrent: 1`, verify inference health on the
-  first updated membership before the wave advances across remaining clusters.
+- **Subsequent promotions and image updates:** Advance model checkpoints (`v3` /
+  `v3.0.0`) or pinned container tags in `src/base/` inside maintenance windows
+  (`strategy: Recreate`), retaining prior Cloud Storage checkpoint prefixes for
+  rollback and validating the first cluster wave (`maxConcurrent: 1`).
 - **Aborting a stalled rollout:** If a rollout stalls, remediate the root cause
   first, then abort the stalled rollout so Config Delivery unblocks subsequent
   releases:
@@ -512,8 +558,13 @@ gcloud container fleet packages rollouts abort ROLLOUT_ID \
 
 Replace the following:
 
-- `ROLLOUT_ID`: identifier of the stalled rollout returned by
-  `gcloud container fleet packages rollouts list`.
+<!-- mdformat off -->
+
+| Placeholder  | Value to set                                                                                   |
+| :----------- | :--------------------------------------------------------------------------------------------- |
+| `ROLLOUT_ID` | Identifier of the stalled rollout returned by `gcloud container fleet packages rollouts list`. |
+
+<!-- mdformat on -->
 
 ## Troubleshooting
 
@@ -534,11 +585,9 @@ Replace the following:
 
 ## Clean up
 
-This user guide creates checkpoint prefix `v2`, two merged branches, two release
-tags, and `${SOLUTION_HOME}/sug.env`. To tear down the entire cluster deployment
-and Google Cloud resources afterward, run the
-[Clean up](reference-implementation.md#clean-up) section of the Solution
-Reference Implementation (SRI).
+To tear down the entire cluster deployment and Google Cloud resources after
+removing the day-2 artifacts below, run
+[Clean up](reference-implementation.md#clean-up) in the SRI.
 
 - [Workstation] Verify that `FleetPackage` points to `v2.0.1` (model `v1`), then
   remove checkpoint prefix `v2` if you no longer need to redeploy `v2.0.0`.
@@ -562,5 +611,7 @@ rm -f "${SOLUTION_HOME}/sug.env"
 
 ## What's next
 
-- [Solution Reference Architecture (SRA)](../README.md)
-- [Solution Reference Implementation (SRI)](reference-implementation.md)
+- [Solution Reference Architecture (SRA)](../README.md): architecture, sizing,
+  and design decisions
+- [Solution Reference Implementation (SRI)](reference-implementation.md):
+  step-by-step deployment, verification, and clean up of release `v1.0.0`

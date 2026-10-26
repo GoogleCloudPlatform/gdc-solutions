@@ -127,7 +127,9 @@ ollama
 onprem
 opsconfigmonitoring
 passwordless
+peft
 perc
+persistentvolumeclaims
 pgdatabase
 pghost
 pgpassword
@@ -135,6 +137,7 @@ pgport
 pguser
 pipefail
 podmonitoring
+podmonitorings
 portforward
 preconfigured
 prettier
@@ -146,6 +149,7 @@ qwen
 readyz
 resourcegroup
 resourcegroups
+resourcemanager
 rollouts
 rootsync
 rootsyncs
@@ -156,6 +160,7 @@ scrd
 secretmanager
 seqs
 serviceaccount
+serviceaccounts
 serviceusage
 shellcheck
 shellformat
@@ -170,6 +175,7 @@ srd
 sri
 stackdriver
 startswith
+subfolders
 subnetworks
 subshell
 sug
@@ -185,6 +191,7 @@ timonwong
 toplevel
 toupper
 transactionhistory
+ttft
 unenroll
 unquantized
 urlmap
