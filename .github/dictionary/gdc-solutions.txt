@@ -127,6 +127,7 @@ ollama
 onprem
 opsconfigmonitoring
 passwordless
+peft
 perc
 persistentvolumeclaims
 pgdatabase

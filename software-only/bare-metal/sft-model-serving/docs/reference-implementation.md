@@ -25,21 +25,28 @@ bare-metal clusters using
 [Google Cloud Config Delivery (`FleetPackage`)](https://docs.cloud.google.com/kubernetes-engine/config-sync/docs/concepts/fleet-packages)
 and
 [Config Sync](https://docs.cloud.google.com/kubernetes-engine/config-sync/docs/overview).
-It instantiates the `<MODEL_NAME>` reference architecture with a **Llama 3.1 8B
-SFT** math checkpoint served by [vLLM](https://github.com/vllm-project/vllm)
+It instantiates the Solution Reference Architecture with a **Llama 3.1 8B SFT**
+checkpoint served by [vLLM](https://github.com/vllm-project/vllm)
 (`vllm/vllm-openai:v0.32.0`, port `8000`) and a
 [Gradio](https://github.com/gradio-app/gradio) validation UI (`ClusterIP` port
 `8080`, container port `7860`) inside `Namespace/sft-model-serving`, executed
-from a workstation with
-[`gcloud`](https://docs.cloud.google.com/sdk/docs/install), `git`,
-[`gh`](https://cli.github.com/), and `kubectl` via the
-[Connect gateway](https://docs.cloud.google.com/kubernetes-engine/enterprise/multicluster-management/gateway).
+from a workstation through the Connect gateway.
 
 For the system architecture diagram, GPU sizing methodology, and design
-trade-offs, see **Architecture and design** in the
-[Solution Reference Architecture (SRA)](../README.md). For day-2 UI testing,
-telemetry, upgrades (`v2.0.0`), and forward rollbacks (`v2.0.1`), see the
+trade-offs, see [Architecture and design](../README.md#architecture-and-design)
+in the Solution Reference Architecture (SRA). For day-2 UI testing, telemetry,
+upgrades (`v2.0.0`), and forward rollbacks (`v2.0.1`), see the
 [Solution User Guide (SUG)](user-guide.md).
+
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> Fine-tuning the model is out of scope for this solution and is a prerequisite
+> for this implementation. To run full supervised fine-tuning of Llama 3.1 8B
+> and store the resulting checkpoint in a Cloud Storage bucket, see [Supervised
+> and distillation fine-tuning for open
+> models](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/tuning/open-model-tuning)
+> and [Model checkpoint prerequisites](#model-checkpoint-prerequisites) in this
+> guide.
 
 <!-- prettier-ignore -->
 > [!WARNING]
@@ -54,8 +61,8 @@ telemetry, upgrades (`v2.0.0`), and forward rollbacks (`v2.0.1`), see the
 - Configure least-privilege publisher and keyless
   [Fleet Workload Identity](https://docs.cloud.google.com/kubernetes-engine/fleet-management/docs/use-workload-identity)
   Google service accounts.
-- Initialize a customer GitOps repository (standalone root layout or
-  `GoogleCloudPlatform/gdc-solutions` fork) and link it to
+- Create a private GitOps repository from the public sample in
+  `GoogleCloudPlatform/gdc-solutions` and link it to
   [Cloud Build](https://docs.cloud.google.com/build/docs/overview).
 - Customize [Kustomize](https://github.com/kubernetes-sigs/kustomize) DRY
   manifests, render the plain-KRM WET bundle, merge a pull request, and push tag
@@ -68,28 +75,38 @@ telemetry, upgrades (`v2.0.0`), and forward rollbacks (`v2.0.1`), see the
 
 ## Before you begin
 
-### Prerequisites (cluster setup)
+### Cluster setup prerequisites
 
 - Distributed Cloud software only for bare metal 1.35 or later (validated on
   Distributed Cloud software only `1.35.0-gke.525` / Kubernetes
   `v1.35.2-gke.300`), standalone cluster registered to a fleet in your Google
   Cloud project; see
   [Distributed Cloud software only installation preparation](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/installing/install-prep).
-- One dedicated single-node NVIDIA GPU sized per **Hardware constraints** in the
-  SRA (validated on RTX PRO 6000 Blackwell 96 GB), with the
+- One dedicated single-node NVIDIA GPU sized per
+  [Hardware constraints](../README.md#hardware-constraints) in the SRA (for
+  example, NVIDIA L4, L40S, RTX Ada series, or RTX PRO 6000 Blackwell; this
+  guide was validated on RTX PRO 6000 Blackwell 96 GB).
+- The
   [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/index.html),
-  `nvidia` `RuntimeClass`, and
-  [NVIDIA DCGM Exporter](https://github.com/NVIDIA/dcgm-exporter) installed; see
-  [Configure GPUs on bare metal](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/gpu-manual-use).
-- NVIDIA driver branch `580+` for `vllm/vllm-openai:v0.32.0` (CUDA `13.0.2`,
-  validated on `580.126.20`), or branch `575–579` with
-  `vllm/vllm-openai:v0.32.0-cu129` (CUDA `12.9.1`) in
-  `src/base/vllm-llama-sft-deployment.yaml` (verify `v0.32.0-cu129` on `575–579`
-  hosts before production rollout).
-- `StorageClass` `local-shared` and at least `256 GiB` local disk on the GPU
-  node (`100Gi` `ReadWriteOnce` `PersistentVolumeClaim` cache plus images and
-  kubelet headroom; see
-  [node machine prerequisites](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/installing/node-machine-prerequisites)).
+  the `nvidia` RuntimeClass, and
+  [NVIDIA DCGM Exporter](https://github.com/NVIDIA/dcgm-exporter) installed.
+  Install the GPU Operator with Helm as described in
+  [Install and verify the NVIDIA GPU Operator](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/gpu-manual-use),
+  and confirm that the node reports `nvidia.com/gpu: 1` under `Allocatable`.
+- An NVIDIA driver branch that matches the vLLM image: branch 580 or later for
+  the default `vllm/vllm-openai:v0.32.0` image (CUDA 13.0.2, validated on driver
+  `580.126.20`), or branch 575–579 with the `vllm/vllm-openai:v0.32.0-cu129`
+  image (CUDA 12.9.1) set in `src/base/vllm-llama-sft-deployment.yaml`. Verify
+  `v0.32.0-cu129` on 575–579 hosts before a production rollout.
+- A driver installed either by the GPU Operator (pin the branch with the chart's
+  `driver.version` option; see
+  [Common chart customization options](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html#gpu-operator-helm-chart-options))
+  or preinstalled on the node (`--set driver.enabled=false`). Run `nvidia-smi`
+  on the GPU node to check the installed driver version.
+- A `local-shared` StorageClass and at least 256 GiB of local disk on the GPU
+  node, for the `100Gi` ReadWriteOnce model cache PersistentVolumeClaim plus
+  container images and kubelet headroom; see
+  [node machine prerequisites](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/installing/node-machine-prerequisites).
 - Application logging and
   [Google Cloud Managed Service for Prometheus](https://docs.cloud.google.com/monitoring/kubernetes-engine/prometheus)
   (`enableGMPForApplications`) enabled; see
@@ -98,41 +115,137 @@ telemetry, upgrades (`v2.0.0`), and forward rollbacks (`v2.0.1`), see the
   [Send GPU metrics to Cloud Monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/gpu-metrics).
 - Outbound HTTPS (`443`) from cluster nodes to `*.googleapis.com`,
   [Cloud Storage](https://docs.cloud.google.com/storage/docs/introduction),
-  `gcr.io`, `us-docker.pkg.dev`, and Docker Hub (or
-  [Artifact Registry](https://docs.cloud.google.com/artifact-registry/docs/overview)
-  mirrors).
-
-<!-- prettier-ignore -->
-> [!TIP]
-> Mirror the three pinned images (`vllm/vllm-openai:v0.32.0`,
-> `gcr.io/google.com/cloudsdktool/cloud-sdk:589.0.0-slim`, and
-> `us-docker.pkg.dev/google-samples/containers/gke/gradio-app:v1.0.4`) into
-> Artifact Registry and update `image:` in `src/base/` to avoid Docker Hub rate
-> limits.
+  `gcr.io`, `us-docker.pkg.dev`, and Docker Hub.
 
 ### Client workstation prerequisites
 
 - [`gcloud` CLI](https://docs.cloud.google.com/sdk/docs/install), authenticated
   (`gcloud auth login`) to the fleet host project.
 - `kubectl` with Kustomize v5 or later (`kubectl kustomize`).
-- `git`, the [GitHub CLI `gh`](https://cli.github.com/) (authenticated as the
-  owner of your GitOps repository), `curl`, and [`jq`](https://jqlang.org/).
+- `git`, `curl`, and [`jq`](https://jqlang.org/). For a GitHub-hosted GitOps
+  repository (the worked example), also the
+  [GitHub CLI `gh`](https://cli.github.com/), authenticated as the owner of that
+  repository.
+- [Connect gateway](https://docs.cloud.google.com/kubernetes-engine/enterprise/multicluster-management/gateway)
+  access to the target cluster, so that every `kubectl` command in this guide
+  reaches that cluster from your workstation:
+  - IAM roles `roles/gkehub.gatewayEditor` and `roles/gkehub.viewer` on the
+    fleet host project for your Google account.
+  - Kubernetes RBAC for your Google account on the cluster: either list the
+    account in `clusterSecurity.authorization.clusterAdmin.gcpAccounts` of the
+    [cluster configuration](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/reference/cluster-config-ref),
+    or apply gateway RBAC with
+    `gcloud container fleet memberships generate-gateway-rbac`; see
+    [Set up the Connect gateway](https://docs.cloud.google.com/kubernetes-engine/enterprise/multicluster-management/gateway/setup).
+  - You fetch the gateway credentials in
+    [Set up environment and credentials](#set-up-environment-and-credentials),
+    after you create the `.env` file.
 
-### Model checkpoint
+### GitOps repository prerequisites
 
-- A merged
-  [Hugging Face Safetensors](https://github.com/huggingface/safetensors) SFT
-  checkpoint in Cloud Storage, such as the output of
-  [**Gemini Enterprise Agent Platform** managed open-model fine-tuning](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/tuning/open-model-tuning)
-  (formerly Vertex AI; see the worked
-  [Llama 3 / open-model SFT Jupyter notebook](https://github.com/GoogleCloudPlatform/generative-ai/blob/main/open-models/fine-tuning/get_started_with_oss_tuning_on_vertexai.ipynb)),
-  containing `config.json`, `tokenizer.json`, `special_tokens_map.json`, either
+This guide stores the bundle in your own private Git repository, which you
+create from the public sample in
+[Initialize and connect the GitOps repository](#initialize-and-connect-the-gitops-repository).
+Config Delivery reads it through a
+[Cloud Build repository connection](https://docs.cloud.google.com/build/docs/repositories#2nd-gen-repos),
+which supports GitHub and GitLab, among others. The commands in this guide use
+GitHub (validated in our test environment); the GitLab differences are noted
+where they apply. Before you start, make sure that you have:
+
+- A user, organization, or group on your Git provider (`GITOPS_OWNER`) where you
+  can create a private repository; for GitHub, the `gh` CLI signed in as that
+  owner (`gh auth login`).
+- A dedicated machine-user (bot) account on your Git provider with access to
+  that repository; it authorizes the Cloud Build connection, so no personal
+  developer credential is used. On GitHub, the bot authorizes the Cloud Build
+  GitHub App; for GitLab, see the GitLab note in Connect the GitOps repository
+  to Cloud Build.
+- On GitHub, permission to install the Cloud Build GitHub App on `GITOPS_OWNER`
+  (in an organization, this needs an organization owner or their approval).
+
+<!-- prettier-ignore -->
+> [!WARNING]
+> Keep the GitOps repository private. After you customize the bundle, it
+> contains your project ID, project number, Cloud Storage bucket, and service
+> account names. These values aren't credentials, but you shouldn't publish
+> them.
+
+### Model checkpoint prerequisites
+
+You need a merged
+[Hugging Face Safetensors](https://github.com/huggingface/safetensors) SFT
+checkpoint in Cloud Storage before you start. This guide doesn't cover
+fine-tuning; the worked example used full supervised fine-tuning of Llama 3.1 8B
+(`meta/llama3_1@llama-3.1-8b`) on the MetaMathQA dataset with Gemini Enterprise
+Agent Platform managed open-model tuning (formerly Vertex AI). To produce an
+equivalent checkpoint, follow that guide or the worked
+[Llama 3 / open-model SFT Jupyter notebook](https://github.com/GoogleCloudPlatform/generative-ai/blob/main/open-models/fine-tuning/get_started_with_oss_tuning_on_vertexai.ipynb):
+
+- Prepare a training dataset, and optionally a validation dataset, in a
+  supported JSON Lines format (for example,
+  `{"prompt": "...", "completion": "..."}` per line) and upload it to Cloud
+  Storage.
+- Create a full fine-tuning job, for example with the Agent Platform SDK for
+  Python (or **Create tuned model** on the **Tuning** page of the Google Cloud
+  console):
+
+```python
+sft_tuning_job = sft.train(
+    source_model=SourceModel(
+        base_model="meta/llama3_1@llama-3.1-8b",
+    ),
+    tuning_mode="FULL",  # FULL or PEFT_ADAPTER
+    epochs=3,
+    train_dataset="gs://DATASET_BUCKET/train.jsonl",
+    validation_dataset="gs://DATASET_BUCKET/validation.jsonl",
+    output_uri="gs://OUTPUT_DIR",
+)
+```
+
+- When the job finishes, the final merged checkpoint is in
+  `gs://OUTPUT_DIR/postprocess/node-0/checkpoints/final/`. Use this folder as
+  `TUNING_OUTPUT_URI` in the `.env` file, and check that it holds `config.json`,
+  `tokenizer.json`, `special_tokens_map.json`, and either
   `model.safetensors.index.json` with safetensors shards or a single
-  `model.safetensors` file, and optional `generation_config.json` /
-  `tokenizer_config.json`. The bundle stores one immutable prefix per model
-  version, defaulting to `gs://BUCKET/sft-model-serving/checkpoints/v1/`.
-- Compliance with the upstream model license for every deployment (for example,
-  the Llama 3.1 Community License when serving a Llama 3.1 derivative).
+  `model.safetensors` file (`generation_config.json` and `tokenizer_config.json`
+  are optional):
+
+```bash
+gcloud storage ls -l "gs://OUTPUT_DIR/postprocess/node-0/checkpoints/final/"
+```
+
+The output for the Llama 3.1 8B worked example is similar to the following:
+
+```text
+       838  2026-07-24T20:48:51Z  gs://OUTPUT_DIR/postprocess/node-0/checkpoints/final/config.json
+       121  2026-07-24T20:48:52Z  gs://OUTPUT_DIR/postprocess/node-0/checkpoints/final/generation_config.json
+        78  2026-07-24T20:48:51Z  gs://OUTPUT_DIR/postprocess/node-0/checkpoints/final/managed_oss_fine_tuning_marker.json
+4976698672  2026-07-24T20:48:52Z  gs://OUTPUT_DIR/postprocess/node-0/checkpoints/final/model-00001-of-00004.safetensors
+4999802720  2026-07-24T20:48:52Z  gs://OUTPUT_DIR/postprocess/node-0/checkpoints/final/model-00002-of-00004.safetensors
+4915916176  2026-07-24T20:48:52Z  gs://OUTPUT_DIR/postprocess/node-0/checkpoints/final/model-00003-of-00004.safetensors
+1168138808  2026-07-24T20:48:52Z  gs://OUTPUT_DIR/postprocess/node-0/checkpoints/final/model-00004-of-00004.safetensors
+     23986  2026-07-24T20:48:52Z  gs://OUTPUT_DIR/postprocess/node-0/checkpoints/final/model.safetensors.index.json
+       599  2026-07-24T20:48:52Z  gs://OUTPUT_DIR/postprocess/node-0/checkpoints/final/special_tokens_map.json
+  17209920  2026-07-24T20:48:52Z  gs://OUTPUT_DIR/postprocess/node-0/checkpoints/final/tokenizer.json
+     50600  2026-07-24T20:48:52Z  gs://OUTPUT_DIR/postprocess/node-0/checkpoints/final/tokenizer_config.json
+TOTAL: 11 objects, 16077842518 bytes (14.97GiB)
+```
+
+Replace the following:
+
+<!-- mdformat off -->
+
+| Placeholder      | Value to set                                                                |
+| :--------------- | :-------------------------------------------------------------------------- |
+| `OUTPUT_DIR`     | The Cloud Storage folder that you passed as `output_uri` to the tuning job. |
+| `DATASET_BUCKET` | The Cloud Storage location of your JSON Lines datasets.                     |
+
+<!-- mdformat on -->
+
+Comply with the upstream model license for every deployment (for example, the
+Llama 3.1 Community License when serving a Llama 3.1 derivative). The bundle
+copies the checkpoint into one immutable Cloud Storage prefix per model version,
+starting with `gs://BUCKET/sft-model-serving/checkpoints/v1/`.
 
 ### Identities and roles
 
@@ -142,22 +255,27 @@ telemetry, upgrades (`v2.0.0`), and forward rollbacks (`v2.0.1`), see the
   (`roles/resourcemanager.projectIamAdmin`, `roles/storage.admin`), create Cloud
   Build repository connections (`roles/cloudbuild.connectionAdmin`) and
   `FleetPackage` resources (`roles/configdelivery.admin`), update fleet
-  membership labels (`roles/gkehub.editor`), and apply cluster onboarding RBAC.
+  membership labels (`roles/gkehub.editor`), reach the cluster through the
+  Connect gateway (`roles/gkehub.gatewayEditor`, `roles/gkehub.viewer`), and
+  apply cluster onboarding RBAC.
 - **Application Operator:** write access to the GitOps repository (pull requests
-  and tags) and namespace RBAC in `sft-model-serving` (`get`/`list` pods and
-  Services, read pod logs, and create `pods/portforward` and `pods/exec`).
-- **Machine-user (bot) GitHub account:** dedicated read-only account that
-  authorizes the 2nd-gen Cloud Build GitHub connection so personal developer
-  tokens never enter
+  and tags), Connect gateway access (`roles/gkehub.gatewayEditor`,
+  `roles/gkehub.viewer`), and namespace RBAC in `sft-model-serving`
+  (`get`/`list` pods and Services, read pod logs, and create `pods/portforward`
+  and `pods/exec`).
+- **Machine-user (bot) Git account:** dedicated account on your Git provider
+  (GitHub or GitLab) that authorizes the 2nd-gen Cloud Build repository
+  connection so personal developer tokens never enter
   [Google Cloud Secret Manager](https://docs.cloud.google.com/secret-manager/docs/overview)
   and zero Git secrets sit on clusters.
 
 ### Central reference configuration
 
 - [Workstation] Create the local working directory and `.env` configuration
-  file. Set `REGION` to any supported Google Cloud region (for example
-  `us-central1`); both the Cloud Build repository connection and the
-  `FleetPackage` use this same region.
+  file. Keep `REGION="us-central1"`: the Config Delivery API is available only
+  in `us-central1`, and the Cloud Build repository connection must be in the
+  same region as the `FleetPackage`; see
+  [Deploy fleet packages](https://docs.cloud.google.com/kubernetes-engine/config-sync/docs/how-to/fleet-packages).
 
 ```bash
 export SOLUTION_HOME="${HOME}/gdcso-solutions/sft-model-serving"
@@ -176,7 +294,7 @@ GSA_NAME="GSA_NAME"
 # Checkpoint
 BUCKET="BUCKET"
 TUNING_OUTPUT_URI="TUNING_OUTPUT_URI"
-# GitOps repository and delivery (supports standalone repo OR gdc-solutions fork)
+# GitOps repository and delivery
 GITOPS_OWNER="GITOPS_OWNER"
 GITOPS_REPO="sft-model-serving-gitops"
 SOLUTION_SUBDIR="."
@@ -186,30 +304,26 @@ REPOSITORY="REPOSITORY"
 FLEET_PACKAGE="sft-model-serving"
 RELEASE_TAG="v1.0.0"
 NAMESPACE="sft-model-serving"
-DCGM_NAMESPACE="nvidia-gpu-operator"
+DCGM_NAMESPACE="gpu-operator"
 EOF
 ```
 
-Replace the following:
+Replace the following values in the `.env` file:
 
-- `PROJECT_ID`, `PROJECT_NUMBER`: Google Cloud project ID and number hosting
-  your fleet.
-- `REGION`: Google Cloud region for both the Cloud Build connection and
-  `FleetPackage` (for example `us-central1`).
-- `MEMBERSHIP`: fleet membership ID of the target bare-metal cluster.
-- `PUBLISHER_SA_NAME`, `GSA_NAME`: names for the publisher service account and
-  checkpoint reader Google service account.
-- `BUCKET`, `TUNING_OUTPUT_URI`: checkpoint bucket name (without `gs://`) and
-  source `gs://` folder URI (without trailing slash).
-- `GITOPS_OWNER`, `GITOPS_REPO`, `SOLUTION_SUBDIR`, `GITOPS_DIR`: GitHub owner
-  plus repository layout—keep defaults for **Option A** (standalone repo), or
-  set `GITOPS_REPO="gdc-solutions"`,
-  `SOLUTION_SUBDIR="software-only/bare-metal/sft-model-serving"`,
-  `GITOPS_DIR="${HOME}/gdc-solutions"` for **Option B** (monorepo fork).
-- `CONNECTION`, `REPOSITORY`: Cloud Build connection and repository link names
-  in `REGION`.
-- `DCGM_NAMESPACE`: namespace running `nvidia-dcgm-exporter` (`gpu-operator` on
-  Helm installs or `nvidia-gpu-operator`).
+<!-- mdformat off -->
+
+| Variable                                    | Value to set                                                                                                                                                                                                 |
+| :------------------------------------------ | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PROJECT_ID`, `PROJECT_NUMBER`              | Google Cloud project ID and number hosting your fleet.                                                                                                                                                       |
+| `REGION`                                    | Keep `us-central1`, the only Config Delivery location; the Cloud Build connection and the `FleetPackage` both use it.                                                                                        |
+| `MEMBERSHIP`                                | Fleet membership ID of the target bare-metal cluster.                                                                                                                                                        |
+| `PUBLISHER_SA_NAME`, `GSA_NAME`             | Names for the publisher service account and the checkpoint reader Google service account.                                                                                                                    |
+| `BUCKET`, `TUNING_OUTPUT_URI`               | Checkpoint bucket name (without `gs://`) and the source `gs://` folder of the tuned checkpoint (without trailing slash), for example `gs://OUTPUT_DIR/postprocess/node-0/checkpoints/final`.                 |
+| `GITOPS_OWNER`, `GITOPS_REPO`, `GITOPS_DIR` | Owner (GitHub user or organization, or GitLab group) and name of your private GitOps repository, and its local clone path. Keep `SOLUTION_SUBDIR="."`, which places `fleet-package/` at the repository root. |
+| `CONNECTION`, `REPOSITORY`                  | Cloud Build connection and repository link names in `REGION`.                                                                                                                                                |
+| `DCGM_NAMESPACE`                            | Namespace running `nvidia-dcgm-exporter`: `gpu-operator` for the Helm install described in Before you begin, or `nvidia-gpu-operator` if your installation uses that namespace.                              |
+
+<!-- mdformat on -->
 
 - [Workstation] Source the environment configuration in every new shell session.
 
@@ -236,12 +350,20 @@ gcloud services enable \
     --project="${PROJECT_ID}"
 ```
 
-- [Workstation] Fetch cluster credentials through the Connect gateway and verify
-  node readiness.
+- [Workstation] Fetch cluster credentials through the Connect gateway, confirm
+  that `kubectl` now targets the solution cluster, and verify node readiness.
+  All later `kubectl` commands in this guide use this context.
 
 ```bash
 gcloud container fleet memberships get-credentials "${MEMBERSHIP}" --project="${PROJECT_ID}"
+kubectl config current-context
 kubectl get nodes
+```
+
+The `kubectl config current-context` output is similar to the following:
+
+```text
+connectgateway_PROJECT_ID_global_MEMBERSHIP
 ```
 
 - [Workstation] Create the per-solution publisher service account and grant the
@@ -286,19 +408,21 @@ gcloud iam service-accounts add-iam-policy-binding \
 
 ## Initialize and connect the GitOps repository
 
-Choose **either** Option A (a dedicated standalone repository with its own clean
-commit history and repository-scoped SemVer tag namespace) **or** Option B (a
-fork of `GoogleCloudPlatform/gdc-solutions`).
+Config Delivery reads the bundle from a Git repository that you own, because you
+customize the manifests with your project values and cut your own release tags.
+You create that repository as a private copy of the Apache 2.0 sample in
+[`GoogleCloudPlatform/gdc-solutions`](https://github.com/GoogleCloudPlatform/gdc-solutions/tree/main/software-only/bare-metal/sft-model-serving),
+so that it has its own commit history and release tags.
 
 <!-- prettier-ignore -->
 > [!NOTE]
 > Set `SEED_REF` to `main` (default) or override it to a specific release tag or
 > staging branch when testing pre-release changes before merging into `main`.
 
-### Option A: Create a standalone GitOps repository from scratch
+### Create your GitOps repository from the sample
 
-- [Workstation] Create a private GitHub repository with `fleet-package/` at its
-  root (`SOLUTION_SUBDIR="."`), seed it from the Apache-2.0 reference sample,
+- [Workstation] Create a private GitOps repository (GitHub in this example),
+  copy the sample `fleet-package/` folder to its root (`SOLUTION_SUBDIR="."`),
   set `cloudBuildRepository.path` to `fleet-package/environments`, and push
   `main`:
 
@@ -318,30 +442,48 @@ sed -i 's|software-only/bare-metal/sft-model-serving/fleet-package/environments|
     "${GITOPS_DIR}/fleet-package/fleetpackage.yaml"
 cd "${GITOPS_DIR}" && git checkout -B main
 git add fleet-package
-git commit -m "chore: initialize standalone SFT serving GitOps repository"
+git commit -m "chore: initialize SFT serving GitOps repository"
 git push -u origin main
 ```
 
-### Option B: Fork the public reference repository
+The resulting `${GITOPS_DIR}/fleet-package/fleetpackage.yaml` is similar to the
+following (license header omitted). Only `cloudBuildRepository.path` changes;
+you replace the `YOUR_*` placeholders in
+[Customize and release the bundle](#customize-and-release-the-bundle):
 
-- [Workstation] For the monorepo layout (`GITOPS_REPO="gdc-solutions"`,
-  `SOLUTION_SUBDIR="software-only/bare-metal/sft-model-serving"`), fork
-  `GoogleCloudPlatform/gdc-solutions` (pass `--org "${GITOPS_OWNER}"` for an
-  organization) and clone it. In a shared fork, use disjoint bare SemVer major
-  ranges per solution or prefer Option A (see **Design decisions** in the SRA):
-
-```bash
-gh repo fork GoogleCloudPlatform/gdc-solutions --clone=false
-git clone "https://github.com/${GITOPS_OWNER}/${GITOPS_REPO}.git" "${GITOPS_DIR}"
+```yaml
+deletionPropagationPolicy: FOREGROUND
+resourceBundleSelector:
+  cloudBuildRepository:
+    name: projects/YOUR_PROJECT_ID/locations/us-central1/connections/YOUR_CONNECTION/repositories/YOUR_REPOSITORY
+    path: fleet-package/environments
+    serviceAccount: projects/YOUR_PROJECT_ID/serviceAccounts/YOUR_PUBLISHER_SA_NAME@YOUR_PROJECT_ID.iam.gserviceaccount.com
+    tag: v1.0.0
+rolloutStrategy:
+  rolling:
+    maxConcurrent: 1
+target:
+  fleet:
+    project: projects/YOUR_PROJECT_ID
+    selector:
+      matchLabels:
+        app-tier: sft-model-serving
+variantSelector:
+  variantNameTemplate: default
 ```
+
+Config Delivery packages the `default` variant folder (`variantNameTemplate`)
+under `path` from the Git tag in `tag`, and rolls it out one cluster at a time
+(`maxConcurrent: 1`) to every fleet membership labeled
+`app-tier=sft-model-serving`.
 
 <!-- prettier-ignore -->
 > [!NOTE]
-> Because Config Delivery requires bare three-part SemVer tags (`v1.0.0`,
-> `v2.0.0`, `v2.0.1`), Git tags in a shared `gdc-solutions` fork are
-> repository-global. If you manage multiple solutions from one fork, use
-> disjoint SemVer major ranges per solution—or prefer Option A so each solution
-> has an isolated repository and tag namespace.
+> Config Delivery requires bare three-part SemVer tags (`v1.0.0`, `v2.0.0`,
+> `v2.0.1`), and Git tags are repository-wide. Keep one solution per repository,
+> or use disjoint SemVer major ranges if several solutions share a repository
+> (see [Operational complexity](../README.md#operational-complexity) in the
+> SRA).
 
 ### Connect the GitOps repository to Cloud Build
 
@@ -394,24 +536,100 @@ COMPLETE
 > --app-installation-id=INSTALLATION_ID` directly to `gcloud builds connections
 > create github`.
 
+<!-- prettier-ignore -->
+> [!NOTE]
+> If your GitOps repository is on GitLab, make these changes; the
+> `FleetPackage`, release tags, and cluster steps are the same:
+
+- Create the private project in GitLab instead of running `gh repo create`,
+  clone it from your GitLab host, and use merge requests where this guide uses
+  `gh pr`.
+- Store the bot account's `api` and `read_api` personal access tokens and a
+  webhook secret in Secret Manager, then run
+  `gcloud builds connections create gitlab` in `REGION` instead of the GitHub
+  connection steps.
+- Link the repository with `gcloud builds repositories create` and your GitLab
+  `--remote-uri`; see
+  [Connect to a GitLab host](https://docs.cloud.google.com/build/docs/automating-builds/gitlab/connect-host-gitlab)
+  and
+  [Connect to a GitLab repository](https://docs.cloud.google.com/build/docs/automating-builds/gitlab/connect-repo-gitlab).
+
 ## Customize and release the bundle
 
-Under `${GITOPS_DIR}/${SOLUTION_SUBDIR}/fleet-package/`,
-`ConfigMap/vllm-llama-sft-config` mounts two files required by the Llama 3.1 8B
-SFT checkpoint (whose exported `tokenizer_config.json` omits a chat template and
-lists only `128001` as `eos_token_id`): `llama3_sft_chat_template.jinja`
-(`<|start_header_id|>` / `<|eot_id|>` headers) and `generation_config.json`
-(`eos_token_id: [128001, 128009]`, `temperature: 0.2`, `top_p: 1.0`).
+The bundle under `${GITOPS_DIR}/${SOLUTION_SUBDIR}/fleet-package/` contains the
+following files. This guide shows the files that you edit or apply by hand; the
+others are in the
+[public sample](https://github.com/GoogleCloudPlatform/gdc-solutions/tree/main/software-only/bare-metal/sft-model-serving/fleet-package).
+
+<!-- mdformat off -->
+
+| File                                                                                  | Purpose                                                                                                                         | Shown in                                                                                        |
+| :------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------------------------- |
+| `fleetpackage.yaml`                                                                   | `FleetPackage` specification: Cloud Build repository, variant `path`, release `tag`, rollout strategy, and fleet label selector | [Create your GitOps repository from the sample](#create-your-gitops-repository-from-the-sample) |
+| `configdelivery-rbac.yaml`                                                            | Namespace-scoped `Role` and `RoleBinding` for the Config Delivery service agent; applied once per cluster                       | [Prepare the target cluster](#prepare-the-target-cluster)                                       |
+| `gcs-credential-config.yaml`                                                          | Per-cluster Fleet Workload Identity credential `ConfigMap`; applied once per cluster                                            | [Prepare the target cluster](#prepare-the-target-cluster)                                       |
+| `src/base/vllm-llama-sft-config.yaml`                                                 | `ConfigMap` with the chat template and `generation_config.json` for the checkpoint                                              | This section                                                                                    |
+| `src/base/vllm-llama-sft-deployment.yaml`                                             | vLLM `Deployment` with the `gcs-model-downloader` initContainer, `MODEL_VERSION`, and `MODEL_GCS_URI`                           | Public sample                                                                                   |
+| `src/base/vllm-llama-sft-serviceaccount.yaml`                                         | Kubernetes `ServiceAccount` `vllm-llama-sft-sa` annotated with the workload Google service account                              | Public sample                                                                                   |
+| `src/base/vllm-llama-sft-service.yaml`                                                | `ClusterIP` `Service` on port `8000`                                                                                            | Public sample                                                                                   |
+| `src/base/vllm-llama-sft-podmonitoring.yaml`                                          | `PodMonitoring` that scrapes vLLM `/metrics` every 15 seconds                                                                   | Public sample                                                                                   |
+| `src/base/sft-model-cache-pvc.yaml`                                                   | `100Gi` `local-shared` ReadWriteOnce model cache `PersistentVolumeClaim`                                                        | Public sample                                                                                   |
+| `src/base/gradio-llama-sft-deployment.yaml`, `src/base/gradio-llama-sft-service.yaml` | Gradio validation UI `Deployment` and `ClusterIP` `Service` (port `8080` to container port `7860`)                              | Public sample                                                                                   |
+| `src/base/namespace.yaml`                                                             | `Namespace/sft-model-serving`                                                                                                   | Public sample                                                                                   |
+| `src/base/kustomization.yaml`, `src/overlays/default/kustomization.yaml`              | DRY Kustomize base (nine resources) and the `default` overlay (namespace and `app.kubernetes.io/part-of` label)                 | Public sample                                                                                   |
+| `render.sh`                                                                           | Renders the overlay into `environments/default/manifests.yaml` with `kubectl kustomize`                                         | Public sample                                                                                   |
+| `environments/default/manifests.yaml`                                                 | WET plain-KRM bundle that Config Delivery packages; never edit by hand                                                          | Generated                                                                                       |
+
+<!-- mdformat on -->
+
+`ConfigMap/vllm-llama-sft-config` mounts two files at `/etc/vllm/config` that
+the Llama 3.1 8B SFT checkpoint needs, because its exported
+`tokenizer_config.json` omits a chat template and its `generation_config.json`
+lists only `128001` as `eos_token_id`:
+
+- `llama3_sft_chat_template.jinja`: wraps each message in the Llama 3
+  `<|start_header_id|>` / `<|end_header_id|>` / `<|eot_id|>` format that the
+  checkpoint was tuned on.
+- `generation_config.json`: adds `<|eot_id|>` (`128009`) as a stop token
+  (`eos_token_id: [128001, 128009]`) and sets `temperature: 0.2` and
+  `top_p: 1.0`.
+
+The file is similar to the following (license header omitted):
+
+```yaml
+# Chat template and generation config for the Llama 3.1 8B SFT checkpoint.
+# vLLM reads both files at startup: restart the vLLM pod after you change them.
+apiVersion: v1
+data:
+  generation_config.json: |
+    {"bos_token_id": 128000, "eos_token_id": [128001, 128009], "temperature": 0.2, "top_p": 1.0}
+  llama3_sft_chat_template.jinja: |
+    {{- bos_token }}
+    {%- for message in messages %}
+        {{- '<|start_header_id|>' + message['role'] + '<|end_header_id|>\n\n' + (message['content'] | trim) + '<|eot_id|>' }}
+    {%- endfor %}
+    {%- if add_generation_prompt %}
+        {{- '<|start_header_id|>assistant<|end_header_id|>\n\n' }}
+    {%- endif %}
+kind: ConfigMap
+metadata:
+  labels:
+    app: vllm-llama-sft
+  name: vllm-llama-sft-config
+  namespace: sft-model-serving
+```
 
 <!-- prettier-ignore -->
 > [!TIP]
-> For another `<MODEL_NAME>` family, update model names and
-> `--max-model-len`/`--dtype` in `src/base/vllm-llama-sft-deployment.yaml`,
-> `MODEL_ID` in `src/base/gradio-llama-sft-deployment.yaml`, and the Jinja
-> template and stop token IDs in `src/base/vllm-llama-sft-config.yaml`.
+> For another `<MODEL_NAME>` family, derive the template from the prompt format
+> used during fine-tuning (usually the base model's `chat_template` in
+> `tokenizer_config.json`), list every end-of-turn token ID in `eos_token_id`,
+> and update model names and `--max-model-len`/`--dtype` in
+> `src/base/vllm-llama-sft-deployment.yaml` and `MODEL_ID` in
+> `src/base/gradio-llama-sft-deployment.yaml`.
 
-- [Workstation] Create release branch `sft-model-serving-v1.0.0`, update
-  `REGION` and all project-wide `YOUR_*` placeholders across the DRY sources,
+- [Workstation] Create release branch `sft-model-serving-v1.0.0`, replace all
+  project-wide `YOUR_*` placeholders across the DRY sources,
   `fleetpackage.yaml`, and `configdelivery-rbac.yaml`, and verify that zero
   placeholders remain.
 
@@ -420,8 +638,6 @@ cd "${GITOPS_DIR}" && git checkout -b sft-model-serving-v1.0.0
 BUNDLE_ROOT="${GITOPS_DIR}/${SOLUTION_SUBDIR}/fleet-package"
 find "${BUNDLE_ROOT}/src" "${BUNDLE_ROOT}/fleetpackage.yaml" "${BUNDLE_ROOT}/configdelivery-rbac.yaml" -name '*.yaml' \
     -exec sed -i \
-        -e "s|/locations/us-central1/|/locations/${REGION}/|g" \
-        -e "s|--location=us-central1|--location=${REGION}|g" \
         -e "s/YOUR_PROJECT_ID/${PROJECT_ID}/g" \
         -e "s/YOUR_PROJECT_NUMBER/${PROJECT_NUMBER}/g" \
         -e "s/YOUR_GSA_NAME/${GSA_NAME}/g" \
@@ -448,7 +664,7 @@ fi
 > `environments/default/manifests.yaml` stays identical across the fleet.
 
 - [Workstation] Render `environments/default/manifests.yaml` from the DRY
-  sources and review the diff (in Option A without monorepo `prettier`,
+  sources and review the diff (your repository has no `prettier` setup, so
   `render.sh` skips formatting, leaving harmless indentation-only diffs on first
   run):
 
@@ -458,6 +674,8 @@ cd "${GITOPS_DIR}"
 git status --short
 git diff --stat
 ```
+
+The output is similar to the following:
 
 ```text
 Rendered .../fleet-package/src/overlays/default to .../fleet-package/environments/default/manifests.yaml
@@ -508,10 +726,9 @@ kubectl get namespace config-management-system
 
 <!-- prettier-ignore -->
 > [!NOTE]
-> On pre-configured clusters where `config-management-system` is already
-> present, running `gcloud beta container fleet config-management apply` ensures
-> consistent fleet registration state across newly installed bare-metal
-> clusters.
+> If `config-management-system` already exists on the cluster, still run `gcloud
+> beta container fleet config-management apply` so that the fleet records Config
+> Sync as enabled for this membership.
 
 - [Workstation] Apply the namespace-scoped `Role` and `RoleBinding`
   (`configdelivery-rootsync-manager`, granting `get`, `create`, `patch`, and
@@ -520,6 +737,42 @@ kubectl get namespace config-management-system
 
 ```bash
 kubectl apply -f "${GITOPS_DIR}/${SOLUTION_SUBDIR}/fleet-package/configdelivery-rbac.yaml"
+```
+
+The manifest is similar to the following (license header omitted);
+`YOUR_PROJECT_NUMBER` was replaced in
+[Customize and release the bundle](#customize-and-release-the-bundle):
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: configdelivery-rootsync-manager
+  namespace: config-management-system
+rules:
+  - apiGroups:
+      - configsync.gke.io
+    resources:
+      - rootsyncs
+    verbs:
+      - create
+      - delete
+      - get
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: configdelivery-rootsync-manager
+  namespace: config-management-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: configdelivery-rootsync-manager
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: service-YOUR_PROJECT_NUMBER@gcp-sa-configdelivery.iam.gserviceaccount.com
 ```
 
 <!-- prettier-ignore -->
@@ -531,25 +784,26 @@ kubectl apply -f "${GITOPS_DIR}/${SOLUTION_SUBDIR}/fleet-package/configdelivery-
 <!-- prettier-ignore -->
 > [!NOTE]
 > Config Sync's `reconciler-manager` binds `root-reconciler-sft-model-serving`
-> to `cluster-admin` by default. Because Config Delivery's `rollouts-manager`
-> field manager owns only `spec.override.resources`, operators requiring strict
-> least-privilege scoping can pair a minimal `ClusterRole` (granting
-> `resourcegroups` inventory access, `namespaces` management restricted via
-> `resourceNames` to `<NAMESPACE>`, and cluster-scoped read-only `get`, `list`,
-> `watch` on the 6 non-Secret packaged kinds required by Config Sync status
-> informers: `serviceaccounts`, `persistentvolumeclaims`, `configmaps`,
-> `services`, `deployments.apps`, and
-> `podmonitorings.monitoring.googleapis.com`) with a namespace `Role` in
-> `<NAMESPACE>` for write verbs, applied to `spec.override.roleRefs` via
-> Server-Side Apply under a distinct field manager (`kubectl apply --server-side
-> --field-manager=platform-admin -f -`). Disjoint Server-Side Apply field
-> ownership preserves `roleRefs` across in-place `FleetPackage` upgrades and
-> rollbacks; re-apply only if the `RootSync` is deleted and recreated.
+> to `cluster-admin` by default. Config Delivery's `rollouts-manager` field
+> manager owns only `spec.override.resources`, so operators who need strict
+> least privilege can scope the reconciler:
+
+- Create a minimal `ClusterRole` that grants `resourcegroups` inventory access,
+  `namespaces` management restricted through `resourceNames` to `<NAMESPACE>`,
+  and cluster-scoped read-only `get`, `list`, and `watch` on the 6 non-Secret
+  packaged kinds that Config Sync status informers need: `serviceaccounts`,
+  `persistentvolumeclaims`, `configmaps`, `services`, `deployments.apps`, and
+  `podmonitorings.monitoring.googleapis.com`.
+- Pair it with a namespace `Role` in `<NAMESPACE>` for write verbs, and apply
+  both to `spec.override.roleRefs` with Server-Side Apply under a distinct field
+  manager (`kubectl apply --server-side --field-manager=platform-admin -f -`).
+- Disjoint Server-Side Apply field ownership preserves `roleRefs` across
+  in-place `FleetPackage` upgrades and rollbacks; re-apply only if the
+  `RootSync` is deleted and recreated.
 
 - [Workstation] Create the target namespace and apply this cluster's keyless
   Fleet Workload Identity credential `ConfigMap` (`gcs-credential-config`),
-  substituting `YOUR_PROJECT_ID`, `YOUR_GSA_NAME`, and `YOUR_MEMBERSHIP`; see
-  [Authenticate to Google Cloud APIs from fleet workloads](https://docs.cloud.google.com/kubernetes-engine/fleet-management/docs/use-workload-identity).
+  substituting `YOUR_PROJECT_ID`, `YOUR_GSA_NAME`, and `YOUR_MEMBERSHIP`.
 
 ```bash
 kubectl apply -f "${GITOPS_DIR}/${SOLUTION_SUBDIR}/fleet-package/src/base/namespace.yaml"
@@ -560,11 +814,35 @@ sed -e "s/YOUR_PROJECT_ID/${PROJECT_ID}/g" \
     | kubectl apply -f -
 ```
 
+The source file is similar to the following (license header omitted). The
+`audience` binds the token exchange to this cluster's fleet membership, so you
+apply it per cluster instead of packaging it in the shared bundle:
+
+```yaml
+apiVersion: v1
+data:
+  credential-configuration.json: |
+    {
+      "audience": "identitynamespace:YOUR_PROJECT_ID.svc.id.goog:https://gkehub.googleapis.com/projects/YOUR_PROJECT_ID/locations/global/memberships/YOUR_MEMBERSHIP",
+      "credential_source": {
+        "file": "/var/run/secrets/tokens/gcp-ksa/token"
+      },
+      "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/YOUR_GSA_NAME@YOUR_PROJECT_ID.iam.gserviceaccount.com:generateAccessToken",
+      "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+      "token_url": "https://sts.googleapis.com/v1/token",
+      "type": "external_account"
+    }
+kind: ConfigMap
+metadata:
+  labels:
+    app: vllm-llama-sft
+  name: gcs-credential-config
+  namespace: sft-model-serving
+```
+
 - [Workstation] Apply a `PodMonitoring` resource (`dcgm-gmp`) in
   `DCGM_NAMESPACE` so Google Cloud Managed Service for Prometheus scrapes GPU
-  hardware utilization and framebuffer memory metrics from NVIDIA DCGM Exporter;
-  see
-  [Send GPU metrics to Cloud Monitoring](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/gpu-metrics).
+  hardware utilization and framebuffer memory metrics from NVIDIA DCGM Exporter.
 
 ```bash
 kubectl apply -f - <<EOF
@@ -582,6 +860,19 @@ spec:
     interval: 30s
 EOF
 ```
+
+<!-- prettier-ignore -->
+> [!NOTE]
+> Instead of applying `dcgm-gmp` by hand, you can add it to the bundle so that
+> Config Delivery rolls it out with the workload. This variant isn't validated
+> in the reference lab:
+
+- List it as a file in `src/base/kustomization.yaml`, not in the `FleetPackage`
+  specification, which holds no resources.
+- Do this only if every target cluster runs DCGM Exporter in the same namespace,
+  because the bundle must stay identical across clusters.
+- Don't do this if you scope the Config Sync reconciler with
+  `spec.override.roleRefs`, which limits writes to `NAMESPACE`.
 
 - [Workstation] Label the fleet membership so the `FleetPackage` targets this
   cluster.
@@ -718,22 +1009,22 @@ to `v1` (`v2.0.1`).
 
 <!-- mdformat off -->
 
-| Symptom                                                                                                                              | Cause                                                                                                            | Resolution                                                                                                                                         |
-| :----------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gcloud builds repositories create` fails with `FAILED_PRECONDITION: repository ... is not accessible to the Cloud Build GitHub App` | The connection stores a different GitHub App installation ID than the one installed on your repository           | Run `gcloud builds connections update github "${CONNECTION}" --region="${REGION}" --project="${PROJECT_ID}" --app-installation-id=INSTALLATION_ID` |
-| Rollout fails with `RESOURCE_BUNDLE_BUILD_FAILED` (`could not parse reference` or invalid version)                                   | The tag uses a slash prefix (`sft-model-serving/v1.0.0`) or prerelease suffix (`-rc1`)                           | Push a bare three-part SemVer tag (`v1.0.0`) and update `FleetPackage` `tag`                                                                       |
-| Rollout stalls with `403 Forbidden` on `rootsyncs`                                                                                   | Missing Config Delivery RBAC in `config-management-system`                                                       | Apply `${GITOPS_DIR}/${SOLUTION_SUBDIR}/fleet-package/configdelivery-rbac.yaml`                                                                    |
-| Config Sync error `KNV2010` about `kind: Kustomization`                                                                              | A `kustomization.yaml` file is inside `fleet-package/environments/default/`                                      | Keep only plain rendered KRM in `environments/default/`; rerun `render.sh`                                                                         |
-| `FleetPackage` targets zero clusters                                                                                                 | Target cluster membership lacks `app-tier=sft-model-serving`                                                     | Run `gcloud container fleet memberships update` to apply `app-tier=sft-model-serving`                                                              |
-| vLLM pod stuck in `ContainerCreating` with `configmap "gcs-credential-config" not found`                                             | Per-cluster onboarding `ConfigMap` wasn't applied (or cluster was previously un-labeled, deleting `<NAMESPACE>`) | Re-apply `src/base/namespace.yaml` and `gcs-credential-config.yaml` with `YOUR_PROJECT_ID`, `YOUR_GSA_NAME`, and `YOUR_MEMBERSHIP` substituted     |
-| `initContainer` fails with missing `config.json`, `tokenizer.json`, `special_tokens_map.json`, or `model.safetensors*`               | `MODEL_GCS_URI` prefix is empty or incomplete                                                                    | Upload all checkpoint files to the target Cloud Storage prefix                                                                                     |
-| `initContainer` shows node service account or `403` on `storage.objects.get`                                                         | Fleet Workload Identity binding or audience mismatch                                                             | Check `roles/iam.workloadIdentityUser`, bucket IAM, and `MEMBERSHIP` in `gcs-credential-config.yaml`                                               |
-| Pod `Pending` with `Insufficient nvidia.com/gpu`                                                                                     | GPU Operator not healthy or another pod holds the GPU                                                            | Inspect NVIDIA GPU Operator pods and free the GPU                                                                                                  |
-| vLLM fails at startup with CUDA driver error                                                                                         | Driver branch `575–579` with default CUDA 13 image, or branch older than `575`                                   | Upgrade NVIDIA driver to `580+`, or select `vllm/vllm-openai:v0.32.0-cu129` on driver branch `575–579`                                             |
-| Answers emit `<\|im_end\|>` or never stop                                                                                            | Chat template or `generation_config.json` mismatch with SFT training format                                      | Verify `--chat-template` and `--generation-config` mount `/etc/vllm/config`                                                                        |
-| Image pull slow or `429 Too Many Requests`                                                                                           | Docker Hub anonymous pull rate limit                                                                             | Mirror pinned images into Artifact Registry                                                                                                        |
-| `gcloud container fleet packages delete` fails with `FAILED_PRECONDITION`                                                            | Child `Rollout` resources still exist                                                                            | Pass `--force` to `gcloud container fleet packages delete`                                                                                         |
-| `PersistentVolumeClaim/sft-model-cache-pvc` stuck in `Terminating`                                                                   | Unmanaged pod still mounts `sft-model-cache-pvc`                                                                 | Delete any unmanaged pod mounting the PVC so `kubernetes.io/pvc-protection` clears                                                                 |
+| Symptom                                                                                                                                         | Cause                                                                                                            | Resolution                                                                                                                                                                                                                                                                                                  |
+| :---------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| On GitHub, `gcloud builds repositories create` fails with `FAILED_PRECONDITION: repository ... is not accessible to the Cloud Build GitHub App` | The connection stores a different GitHub App installation ID than the one installed on your repository           | Run `gcloud builds connections update github "${CONNECTION}" --region="${REGION}" --project="${PROJECT_ID}" --app-installation-id=INSTALLATION_ID`                                                                                                                                                          |
+| Rollout fails with `RESOURCE_BUNDLE_BUILD_FAILED` (`could not parse reference` or invalid version)                                              | The tag uses a slash prefix (`sft-model-serving/v1.0.0`) or prerelease suffix (`-rc1`)                           | Push a bare three-part SemVer tag (`v1.0.0`) and update `FleetPackage` `tag`                                                                                                                                                                                                                                |
+| Rollout stalls with `403 Forbidden` on `rootsyncs`                                                                                              | Missing Config Delivery RBAC in `config-management-system`                                                       | Apply `${GITOPS_DIR}/${SOLUTION_SUBDIR}/fleet-package/configdelivery-rbac.yaml`                                                                                                                                                                                                                             |
+| Config Sync error `KNV2010` about `kind: Kustomization`                                                                                         | A `kustomization.yaml` file is inside `fleet-package/environments/default/`                                      | Keep only plain rendered KRM in `environments/default/`; rerun `render.sh`                                                                                                                                                                                                                                  |
+| `FleetPackage` targets zero clusters                                                                                                            | Target cluster membership lacks `app-tier=sft-model-serving`                                                     | Run `gcloud container fleet memberships update` to apply `app-tier=sft-model-serving`                                                                                                                                                                                                                       |
+| vLLM pod stuck in `ContainerCreating` with `configmap "gcs-credential-config" not found`                                                        | Per-cluster onboarding `ConfigMap` wasn't applied (or cluster was previously un-labeled, deleting `<NAMESPACE>`) | Re-apply `src/base/namespace.yaml` and `gcs-credential-config.yaml` with `YOUR_PROJECT_ID`, `YOUR_GSA_NAME`, and `YOUR_MEMBERSHIP` substituted                                                                                                                                                              |
+| `initContainer` fails with missing `config.json`, `tokenizer.json`, `special_tokens_map.json`, or `model.safetensors*`                          | `MODEL_GCS_URI` prefix is empty or incomplete                                                                    | Upload all checkpoint files to the target Cloud Storage prefix                                                                                                                                                                                                                                              |
+| `initContainer` shows node service account or `403` on `storage.objects.get`                                                                    | Fleet Workload Identity binding or audience mismatch                                                             | Check `roles/iam.workloadIdentityUser`, bucket IAM, and `MEMBERSHIP` in `gcs-credential-config.yaml`                                                                                                                                                                                                        |
+| Pod `Pending` with `Insufficient nvidia.com/gpu`                                                                                                | GPU Operator not healthy or another pod holds the GPU                                                            | Inspect NVIDIA GPU Operator pods and free the GPU                                                                                                                                                                                                                                                           |
+| vLLM fails at startup with CUDA driver error                                                                                                    | Driver branch `575–579` with default CUDA 13 image, or branch older than `575`                                   | Upgrade NVIDIA driver to `580+`, or select `vllm/vllm-openai:v0.32.0-cu129` on driver branch `575–579`                                                                                                                                                                                                      |
+| Answers emit `<\|im_end\|>` or never stop                                                                                                       | Chat template or `generation_config.json` mismatch with SFT training format                                      | Verify `--chat-template` and `--generation-config` mount `/etc/vllm/config`                                                                                                                                                                                                                                 |
+| Image pull slow or `429 Too Many Requests`                                                                                                      | Docker Hub anonymous pull rate limit                                                                             | Pull `vllm/vllm-openai` through an Artifact Registry Docker Hub remote repository (see [Create a Docker Hub remote repository](https://docs.cloud.google.com/artifact-registry/docs/repositories/create-dockerhub-remote-repository)) and point `image:` in `src/base/vllm-llama-sft-deployment.yaml` to it |
+| `gcloud container fleet packages delete` fails with `FAILED_PRECONDITION`                                                                       | Child `Rollout` resources still exist                                                                            | Pass `--force` to `gcloud container fleet packages delete`                                                                                                                                                                                                                                                  |
+| `PersistentVolumeClaim/sft-model-cache-pvc` stuck in `Terminating`                                                                              | Unmanaged pod still mounts `sft-model-cache-pvc`                                                                 | Delete any unmanaged pod mounting the PVC so `kubernetes.io/pvc-protection` clears                                                                                                                                                                                                                          |
 
 <!-- mdformat on -->
 
@@ -797,9 +1088,19 @@ CLOUDSDK_API_ENDPOINT_OVERRIDES_SECRETMANAGER="https://secretmanager.${REGION}.r
 
 Replace the following:
 
-- `SECRET_NAME`: regional secret ID (`${CONNECTION}-github-oauthtoken-*`) listed
-  by the previous command if deleting the Cloud Build connection did not remove
-  it automatically.
+<!-- mdformat off -->
+
+| Placeholder   | Value to set                                                                                                                                                    |
+| :------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SECRET_NAME` | Regional secret ID (`${CONNECTION}-github-oauthtoken-*`) listed by the previous command if deleting the Cloud Build connection did not remove it automatically. |
+
+<!-- mdformat on -->
+
+<!-- prettier-ignore -->
+> [!NOTE]
+> On GitLab, delete the `api` token, `read_api` token, and webhook secrets that
+> you created in Secret Manager for the connection, and revoke the two personal
+> access tokens in GitLab.
 
 - [Workstation] Remove the Config Delivery RBAC manifest, DCGM `PodMonitoring`
   resource, and local working clones and configuration files.
@@ -822,6 +1123,7 @@ rmdir --ignore-fail-on-non-empty "${HOME}/gdcso-solutions" 2>/dev/null || true
 
 ## What's next
 
-- [Solution Reference Architecture (SRA)](../README.md)
+- [Solution Reference Architecture (SRA)](../README.md): architecture, sizing,
+  and design decisions
 - [Solution User Guide (SUG)](user-guide.md): Gradio validation, telemetry,
   `v2.0.0` upgrades, and `v2.0.1` rollbacks
