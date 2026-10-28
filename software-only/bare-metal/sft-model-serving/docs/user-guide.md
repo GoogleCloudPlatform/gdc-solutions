@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# SFT model deployment using Fleet Packages on Distributed Cloud software only user guide
+# Llama 3.1 8B SFT model deployment using Fleet Packages on Distributed Cloud software only user guide
 
 ## Overview
 
@@ -31,6 +31,10 @@ pipeline design, and component boundaries, see
 Reference Architecture (SRA). For the detailed, step-by-step implementation of
 the solution on a validation and testing environment, which this guide builds
 on, see the SRI.
+
+This SUG is specific to the Llama 3.1 8B SFT model. The SRA and SRI are
+model-agnostic, so each additional model gets its own SUG on top of the same SRI
+deployment.
 
 <!-- prettier-ignore -->
 > [!NOTE]
@@ -244,14 +248,12 @@ git checkout -b sft-model-serving-v2.0.0
 
 <!-- mdformat off -->
 
-| File                                        | Field                                                             | `v1.0.0` value                                                       | `v2.0.0` value                                                       |
-| :------------------------------------------ | :---------------------------------------------------------------- | :------------------------------------------------------------------- | :------------------------------------------------------------------- |
-| `src/base/vllm-llama-sft-deployment.yaml`   | `ai.gke.io/model-version` label (Deployment and pod template)     | `v1`                                                                 | `v2`                                                                 |
-| `src/base/vllm-llama-sft-deployment.yaml`   | `MODEL_VERSION` env (`gcs-model-downloader` and `vllm-container`) | `v1`                                                                 | `v2`                                                                 |
-| `src/base/vllm-llama-sft-deployment.yaml`   | `MODEL_GCS_URI` env (`gcs-model-downloader`)                      | `gs://BUCKET/sft-model-serving/checkpoints/v1`                       | `gs://BUCKET/sft-model-serving/checkpoints/v2`                       |
-| `src/base/vllm-llama-sft-deployment.yaml`   | `--served-model-name` aliases                                     | `llama-3.1-8b-sft`, `llama-3.1-8b-sft-v1.0.0`, `llama-3.1-8b-sft-v1` | `llama-3.1-8b-sft`, `llama-3.1-8b-sft-v2.0.0`, `llama-3.1-8b-sft-v2` |
-| `src/base/gradio-llama-sft-deployment.yaml` | `MODEL_ID` env                                                    | `llama-3.1-8b-sft-v1.0.0`                                            | `llama-3.1-8b-sft-v2.0.0`                                            |
-| `fleetpackage.yaml`                         | `tag`                                                             | `v1.0.0`                                                             | `v2.0.0`                                                             |
+| File                                        | Field                                                                                                                                             | `v1.0.0` value                                                 | `v2.0.0` value                                                 |
+| :------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------- | :------------------------------------------------------------- |
+| `src/base/vllm-llama-sft-deployment.yaml`   | `ai.gke.io/model-version` label (Deployment and pod template)                                                                                     | `v1`                                                           | `v2`                                                           |
+| `src/base/kustomization.yaml`               | `configMapGenerator` literals `MODEL_VERSION`, `MODEL_GCS_URI`, and `RELEASE_TAG` (read by both containers and the `--served-model-name` aliases) | `v1`, `gs://BUCKET/sft-model-serving/checkpoints/v1`, `v1.0.0` | `v2`, `gs://BUCKET/sft-model-serving/checkpoints/v2`, `v2.0.0` |
+| `src/base/gradio-llama-sft-deployment.yaml` | `MODEL_ID` env                                                                                                                                    | `llama-3.1-8b-sft-v1.0.0`                                      | `llama-3.1-8b-sft-v2.0.0`                                      |
+| `fleetpackage.yaml`                         | `tag`                                                                                                                                             | `v1.0.0`                                                       | `v2.0.0`                                                       |
 
 <!-- mdformat on -->
 
@@ -270,13 +272,13 @@ sed -i \
     -e "s/v1\.0\.0/${NEW_RELEASE_TAG}/g" \
     -e "s|checkpoints/v1\$|checkpoints/${NEW_MODEL_VERSION}|" \
     -e "s/model-version: v1\$/model-version: ${NEW_MODEL_VERSION}/" \
-    -e "s/value: v1\$/value: ${NEW_MODEL_VERSION}/" \
-    -e "s/sft-v1\$/sft-${NEW_MODEL_VERSION}/" \
+    -e "s/MODEL_VERSION=v1\$/MODEL_VERSION=${NEW_MODEL_VERSION}/" \
+    "${FP_DIR}/src/base/kustomization.yaml" \
     "${FP_DIR}/src/base/vllm-llama-sft-deployment.yaml" \
     "${FP_DIR}/src/base/gradio-llama-sft-deployment.yaml" \
     "${FP_DIR}/fleetpackage.yaml"
 rc=0
-grep -rnE 'v1\.0\.0|checkpoints/v1|(value|model-version): v1$|sft-v1$' \
+grep -rnE 'v1\.0\.0|checkpoints/v1|(MODEL_VERSION=|model-version: )v1$' \
     "${FP_DIR}/src" "${FP_DIR}/fleetpackage.yaml" || rc=$?
 if [ "${rc}" -eq 1 ]; then
   echo "No v1 values left."
@@ -321,16 +323,16 @@ Verify the upgrade before you roll back. Measured upgrade and rollback behavior
 on the validation cluster running `vllm/vllm-openai:v0.32.0` (timings vary with
 network bandwidth and GPU node storage):
 
-- Managed Cloud Build OCI packaging completed in roughly 2 minutes (`115–127`
+- Managed Cloud Build OCI packaging completed in roughly 2 minutes (`115–128`
   seconds) with zero serving downtime while cluster traffic continued normally.
 - Total time from `FleetPackage` update to a serving `/v1/models` HTTP `200`
-  response was 5 minutes `47–49` seconds (`7` minutes `39` seconds to
-  `Rollout COMPLETED`), with `3` minutes `11–13` seconds without serving under
+  response was 5 minutes `52–56` seconds (`7` minutes `39–44` seconds to
+  `Rollout COMPLETED`), with `3` minutes `17–21` seconds without serving under
   `strategy: Recreate` (dominated by `vllm:v0.32.0` V1 engine and CUDA graph
   initialization inside the `120`-second readiness initial delay).
-- The `initContainer` downloaded `14.97 GiB` via keyless Fleet Workload Identity
-  at `922–952 MiB/s` and pruned the superseded cache directory in 21 seconds
-  total.
+- The `initContainer` (`4` CPU) downloaded `14.97 GiB` via keyless Fleet
+  Workload Identity at `444–452 MiB/s`, verified it, and pruned the superseded
+  cache directory in about 37 seconds.
 
 - [Workstation] Wait until the newest rollout, for release `v2-0-0`, reports
   state `COMPLETED`.
@@ -419,13 +421,13 @@ sed -i \
     -e "s/${NEW_RELEASE_TAG_ESCAPED}/${ROLLBACK_RELEASE_TAG}/g" \
     -e "s|checkpoints/${NEW_MODEL_VERSION}\$|checkpoints/${ROLLBACK_MODEL_VERSION}|" \
     -e "s/model-version: ${NEW_MODEL_VERSION}\$/model-version: ${ROLLBACK_MODEL_VERSION}/" \
-    -e "s/value: ${NEW_MODEL_VERSION}\$/value: ${ROLLBACK_MODEL_VERSION}/" \
-    -e "s/sft-${NEW_MODEL_VERSION}\$/sft-${ROLLBACK_MODEL_VERSION}/" \
+    -e "s/MODEL_VERSION=${NEW_MODEL_VERSION}\$/MODEL_VERSION=${ROLLBACK_MODEL_VERSION}/" \
+    "${FP_DIR}/src/base/kustomization.yaml" \
     "${FP_DIR}/src/base/vllm-llama-sft-deployment.yaml" \
     "${FP_DIR}/src/base/gradio-llama-sft-deployment.yaml" \
     "${FP_DIR}/fleetpackage.yaml"
 rc=0
-grep -rnE 'v2\.0\.0|checkpoints/v2|(value|model-version): v2$|sft-v2$' \
+grep -rnE 'v2\.0\.0|checkpoints/v2|(MODEL_VERSION=|model-version: )v2$' \
     "${FP_DIR}/src" "${FP_DIR}/fleetpackage.yaml" || rc=$?
 if [ "${rc}" -eq 1 ]; then
   echo "No v2 values left."
@@ -468,7 +470,7 @@ gcloud container fleet packages update "${FLEET_PACKAGE}" \
 
 ### Verify the rollback to v2.0.1
 
-The rollback takes about as long as the upgrade (5 minutes `49` seconds to a
+The rollback takes about as long as the upgrade (5 minutes `52` seconds to a
 serving `/v1/models` response on the validation cluster): because `v2.0.0`
 pruned `v1` from the local PVC cache, the `initContainer` downloads checkpoint
 `v1` again.

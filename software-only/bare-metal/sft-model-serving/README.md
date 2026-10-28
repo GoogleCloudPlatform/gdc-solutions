@@ -33,11 +33,10 @@ The architecture introduces two primary personas: the **Platform Administrator**
 **Application Operator** (AO) who manages the model weights, GitOps manifests,
 and interactive validation.
 
-Enterprises fine-tuning models in Google Cloud often need to serve those models
-at the edge. This architecture applies to open-weight models supported by
-[vLLM](https://github.com/vllm-project/vllm) running on a single-node GPU. The
-model weights remain in
-[Cloud Storage](https://docs.cloud.google.com/storage/docs/introduction), while
+Enterprises that fine-tune models in Google Cloud often need to serve them at
+the edge. This architecture applies to open-weight models supported by
+[vLLM](https://github.com/vllm-project/vllm) on a single-node GPU; weights stay
+in [Cloud Storage](https://docs.cloud.google.com/storage/docs/introduction), and
 Git tracks the manifests and selected model version.
 
 <!-- prettier-ignore -->
@@ -101,11 +100,10 @@ Git tracks the manifests and selected model version.
 - **Weights never enter Git:** Manifests reference model checkpoints by Cloud
   Storage URI, keeping the Git repository and Config Delivery bundles
   lightweight.
-- **Keyless identity:** Workloads authenticate via Fleet Workload Identity using
-  projected tokens, and `FleetPackage` synchronizes with the GitOps repository
-  centrally via Cloud Build rather than from each cluster—avoiding static cloud
-  credentials, local Git personal access token (PAT) secrets, or other
-  Kubernetes secrets on the cluster.
+- **Keyless identity:** Workloads use Fleet Workload Identity projected tokens,
+  and `FleetPackage` reads the GitOps repository centrally through Cloud Build,
+  so clusters hold no static cloud credentials, Git tokens, or other Kubernetes
+  secrets.
 - **Least privilege end to end:** Workload identity is scoped to read-only
   bucket access, and Config Delivery utilizes namespace-scoped permissions for
   rollout orchestration.
@@ -147,7 +145,7 @@ namespace (`<NAMESPACE>`, for example `sft-model-serving`) across five layers:
   - **`FleetPackage` and Config Sync reconciler:** `FleetPackage` rolls tagged
     releases out across matching labeled memberships (`maxConcurrent: 1`) using
     namespace-scoped `Role/configdelivery-rootsync-manager`, while Config Sync
-    reconciles the 9-resource bundle and remediates drift.
+    reconciles the 10-resource bundle and remediates drift.
 - **vLLM model serving engine:**
   - **vLLM `Deployment` and `ClusterIP` `Service`:** Single-replica `Deployment`
     (`strategy: Recreate`, `runtimeClassName: nvidia`) serving OpenAI-compatible
@@ -205,11 +203,11 @@ VRAM.
 
 <!-- mdformat off -->
 
-| GPU Profile | Example Hardware       | Sizing and KV Cache Headroom                                                                                                                                                             |
-| :---------- | :--------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **96 GB**   | RTX PRO 6000 Blackwell | 8B BF16 weights leave ~69 GiB for KV cache, about 34 concurrent full-length sequences at `--max-model-len=16384`, `--gpu-memory-utilization=0.90`, and `--max-num-seqs=256` (32 layers). |
-| **48 GB**   | L40S, RTX 6000 Ada     | 8B BF16 weights leave ~20 GiB to ~25 GiB for KV cache; tune limits to prevent preemption under peak load.                                                                                |
-| **24 GB**   | L4, RTX 4000 Ada       | 8B BF16 weights leave minimal headroom; requires smaller models (2B-4B) or quantization.                                                                                                 |
+| GPU Profile | Example Hardware                           | Sizing and KV Cache Headroom                                                                                                                                                                                              |
+| :---------- | :----------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **96 GB**   | RTX PRO 6000 Blackwell (manifest defaults) | 8B BF16 weights leave ~69 GiB for KV cache, about 34 concurrent full-length sequences at `--max-model-len=16384`, `--gpu-memory-utilization=0.90`, and `--max-num-seqs=256` (32 layers).                                  |
+| **48 GB**   | L40S, RTX 6000 Ada                         | 8B BF16 weights leave ~20 GiB to ~25 GiB for KV cache; tune limits to prevent preemption under peak load.                                                                                                                 |
+| **24 GB**   | L4, RTX 4500 Ada (RTX 4000 Ada: 20 GB)     | 8B BF16 leaves ~3–4 GiB KV cache at 24 GB; at 20 GB, under one 16,384-token sequence (2.0 GiB), so vLLM won't start. Lower `--max-model-len` and `--max-num-seqs` (for example, `8192` and `64`) or use quantized models. |
 
 <!-- mdformat on -->
 
@@ -252,10 +250,11 @@ VRAM.
 - **Keyless model sync and pruning (`initContainer`):** Uses
   [Fleet Workload Identity](https://docs.cloud.google.com/kubernetes-engine/fleet-management/docs/use-workload-identity)
   (`PROJECT_ID.svc.id.goog`) to authenticate without static keys or host-level
-  service account credentials, verifies required
-  [Hugging Face Safetensors](https://github.com/huggingface/safetensors) and
-  tokenizer files before writing `.complete`, and prunes superseded model
-  directories under `/model-cache/<MODEL_NAME>/`.
+  service account credentials, verifies that tokenizer files and
+  [Hugging Face Safetensors](https://github.com/huggingface/safetensors) shards
+  are non-empty and synced before recording the source URI in `.complete`,
+  re-downloads on mismatch, and prunes superseded model directories under
+  `/model-cache/<MODEL_NAME>/`.
 - **vLLM runtime and prompt control:** Serves cached BF16 checkpoints with
   PagedAttention, prefix caching (`--enable-prefix-caching`), chunked prefill
   (`--enable-chunked-prefill`), three `--served-model-name` aliases (stream,
@@ -313,11 +312,10 @@ VRAM.
   default standalone profile. Adding the workload gives a target of at least 16
   vCPUs, 64 GiB RAM, and 256 GiB fast local NVMe/SSD storage.
 - **96 GB GPU headroom (validation profile):** At
-  `--gpu-memory-utilization=0.90` (86,963 / 97,887 MiB total GPU memory used),
-  subtracting 14.96 GiB of weights (128 KiB/token, 2.0 GiB per full 16,384-token
-  sequence) and runtime overhead leaves 68.63 GiB for the KV cache (562,224
-  tokens—34.32x max concurrency at full 16,384-token sequences on
-  `vllm/vllm-openai:v0.32.0`).
+  `--gpu-memory-utilization=0.90` (86,963 / 97,887 MiB used), 14.96 GiB of
+  weights (128 KiB/token, 2.0 GiB per 16,384-token sequence) and runtime
+  overhead leave 68.63 GiB (562,224 tokens) for the KV cache on
+  `vllm/vllm-openai:v0.32.0`.
 - **Cache pruning and eviction protection:** Sizing the `100Gi` PVC to hold the
   active checkpoint plus one incoming download prevents unbounded disk growth
   and avoids `node.kubernetes.io/disk-pressure` evictions.
@@ -325,9 +323,9 @@ VRAM.
 ### Availability and reliability
 
 - **Rollout downtime and rollback:** `strategy: Recreate` stops the running pod
-  before starting the replacement, so each release causes a serving pause of
-  about three minutes. A forward-tag rollback (`v2.0.1`) re-downloads pruned
-  weights; the SUG records measured timings.
+  before starting its replacement, pausing serving for about three minutes per
+  release; a forward-tag rollback (`v2.0.1`) re-downloads pruned weights (see
+  the SUG).
 - **Offline resilience and drift remediation:** Verified `.complete` checkpoints
   reload locally across offline node reboots, Config Sync reverts manual cluster
   drift, and removing the target fleet label prunes `<NAMESPACE>` (requiring
@@ -351,25 +349,26 @@ VRAM.
 - **Least-privilege cluster RBAC:** The Config Delivery service agent holds only
   `create`, `delete`, `get`, and `patch` on `rootsyncs.configsync.gke.io` in
   `config-management-system` (`Role/configdelivery-rootsync-manager`). For
-  strict multi-tenant isolation, operators can also scope the Config Sync
-  reconciler through `RootSync.spec.override.roleRefs` with Server-Side Apply,
-  preserving `secrets` denial across rollouts (see the SRI).
+  multi-tenant isolation, the SRI also scopes the Config Sync reconciler through
+  `RootSync.spec.override.roleRefs`.
 - **Zero static secrets:** Fleet Workload Identity exchanges tokens dynamically,
   ensuring no Git credentials or Kubernetes secrets persist on edge clusters.
-- **Request logging privacy:** Enabling `--enable-log-requests` on
-  `vllm/vllm-openai:v0.32.0` writes HTTP access metadata to container stdout and
-  Cloud Logging at default `INFO` level and raw prompt/completion payloads if
-  `VLLM_LOGGING_LEVEL=DEBUG` is set; omit or restrict request logging when
-  serving regulated or personal data.
+- **Request logging privacy:** `--enable-log-requests` writes HTTP access
+  metadata to stdout and Cloud Logging at `INFO`, and raw prompts and
+  completions at `VLLM_LOGGING_LEVEL=DEBUG`; omit or restrict it for regulated
+  or personal data.
 - **Internal exposure:** Serving (`:8000`) and validation (`:8080`) endpoints
   use internal `ClusterIP` services accessed via `kubectl port-forward`;
   production external exposure requires an authenticating API gateway and TLS
   termination.
-- **Pinned provenance:** Runtime images are pinned to explicit version tags
-  (`vllm/vllm-openai:v0.32.0` built on CUDA 13.0.2 for driver 580+, or
+- **Pinned provenance:** Runtime images are pinned to version tags with `sha256`
+  digests (`vllm/vllm-openai:v0.32.0` built on CUDA 13.0.2 for driver 580+, or
   `vllm/vllm-openai:v0.32.0-cu129` built on CUDA 12.9.1 for driver 575–579;
-  `cloud-sdk:589.0.0-slim`; `gradio-app:v1.0.4`) and should be scanned and
-  mirrored into Artifact Registry.
+  `google-cloud-cli:589.0.0-slim`; `gradio-app:v1.0.4`) and should be scanned
+  and mirrored into Artifact Registry.
+- **Pod security:** Seccomp `RuntimeDefault`, no privilege escalation, and no
+  Linux capabilities; vLLM runs as root (upstream default); non-root is
+  untested.
 
 ## Design decisions
 
