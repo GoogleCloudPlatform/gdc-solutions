@@ -53,8 +53,8 @@ EOF
   kubectl kustomize "${OVERLAY_DIR}"
 } > "${TMP_FILE}"
 
-# The repository CI checks YAML formatting with prettier. Set PRETTIER to your
-# prettier command, for example:
+# Commit the bundle formatted with prettier (CI only checks Markdown, so this
+# keeps diffs stable). Set PRETTIER to your prettier command, for example:
 #   PRETTIER="npx --prefix .devcontainer/dependencies prettier" ./render.sh
 if [[ -n ${PRETTIER:-} ]]; then
   read -r -a PRETTIER_CMD <<< "${PRETTIER}"

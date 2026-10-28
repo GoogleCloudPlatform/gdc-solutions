@@ -24,3 +24,11 @@ resources:
   - vllm-llama-sft-podmonitoring.yaml
   - vllm-llama-sft-service.yaml
   - vllm-llama-sft-serviceaccount.yaml
+# Single source of truth for the model release. Kustomize appends a content
+# hash to the ConfigMap name, so changing a value rolls out a new pod.
+configMapGenerator:
+  - name: vllm-llama-sft-release
+    literals:
+      - MODEL_GCS_URI=gs://YOUR_BUCKET/sft-model-serving/checkpoints/v1
+      - MODEL_VERSION=v1
+      - RELEASE_TAG=v1.0.0

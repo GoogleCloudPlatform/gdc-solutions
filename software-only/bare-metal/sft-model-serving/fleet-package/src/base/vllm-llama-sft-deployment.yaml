@@ -45,8 +45,8 @@ spec:
             - /model-cache/llama-3.1-8b-sft/$(MODEL_VERSION)
             - --served-model-name
             - llama-3.1-8b-sft
-            - llama-3.1-8b-sft-v1.0.0
-            - llama-3.1-8b-sft-v1
+            - llama-3.1-8b-sft-$(RELEASE_TAG)
+            - llama-3.1-8b-sft-$(MODEL_VERSION)
             - --host=0.0.0.0
             - --port=8000
             - --tensor-parallel-size=1
@@ -59,12 +59,15 @@ spec:
             - --enable-chunked-prefill
             - --chat-template=/etc/vllm/config/llama3_sft_chat_template.jinja
             - --generation-config=/etc/vllm/config
-          env:
-            - name: MODEL_VERSION
-              value: v1
+          # MODEL_VERSION, MODEL_GCS_URI, and RELEASE_TAG come from one
+          # generated ConfigMap (src/base/kustomization.yaml), so the
+          # initContainer and the server always use the same release.
+          envFrom:
+            - configMapRef:
+                name: vllm-llama-sft-release
           # Upstream image; the default entrypoint is the OpenAI-compatible
           # server (vllm serve).
-          image: vllm/vllm-openai:v0.32.0
+          image: vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34
           imagePullPolicy: IfNotPresent
           name: vllm-container
           ports:
@@ -88,6 +91,10 @@ spec:
               nvidia.com/gpu: "1"
           securityContext:
             allowPrivilegeEscalation: false
+            # The NVIDIA runtime injects the GPU devices without capabilities.
+            capabilities:
+              drop:
+                - ALL
           volumeMounts:
             - mountPath: /model-cache
               name: cache-volume
@@ -104,40 +111,75 @@ spec:
               set -o errexit
               set -o nounset
               set -o pipefail
+              # Reject empty values, ".", "..", and path separators before
+              # MODEL_VERSION is used in any mkdir or rm.
+              if [[ ! "${MODEL_VERSION}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+                echo "ERROR: MODEL_VERSION '${MODEL_VERSION}' is not a safe directory name." >&2
+                exit 1
+              fi
+              MODEL_GCS_URI="${MODEL_GCS_URI%/}"
               BASE_DIR="/model-cache/llama-3.1-8b-sft"
               TARGET_DIR="${BASE_DIR}/${MODEL_VERSION}"
-              mkdir -p "${TARGET_DIR}"
+              mkdir -p "${BASE_DIR}"
+
+              # Serialize pods that share the cache volume on the same node.
+              exec 9> "${BASE_DIR}/.lock"
+              flock --timeout 7200 9
+
+              # A cached copy is valid only if .complete records the same source
+              # URI and every required file and safetensors shard is non-empty.
+              checkpoint_ok() {
+                if [ "$(cat "${TARGET_DIR}/.complete" 2> /dev/null)" != "${MODEL_GCS_URI}" ]; then
+                  echo "Cache check: no verified copy of ${MODEL_GCS_URI}." >&2
+                  return 1
+                fi
+                for file in config.json tokenizer.json special_tokens_map.json; do
+                  if [ ! -s "${TARGET_DIR}/${file}" ]; then
+                    echo "Cache check: required file '${file}' is missing or empty." >&2
+                    return 1
+                  fi
+                done
+                if [ -f "${TARGET_DIR}/model.safetensors.index.json" ]; then
+                  shards="$(grep -o '"[^"]*\.safetensors"' "${TARGET_DIR}/model.safetensors.index.json" | tr -d '"' | sort -u)" || true
+                elif [ -f "${TARGET_DIR}/model.safetensors" ]; then
+                  shards="model.safetensors"
+                else
+                  shards=""
+                fi
+                if [ -z "${shards}" ]; then
+                  echo "Cache check: neither 'model.safetensors.index.json' nor 'model.safetensors' lists any weights." >&2
+                  return 1
+                fi
+                for shard in ${shards}; do
+                  if [ ! -s "${TARGET_DIR}/${shard}" ]; then
+                    echo "Cache check: shard '${shard}' is missing or empty." >&2
+                    return 1
+                  fi
+                done
+              }
 
               echo "Checking the cache for model version '${MODEL_VERSION}'..."
-              if [ -f "${TARGET_DIR}/.complete" ] \
-                && [ -f "${TARGET_DIR}/config.json" ] \
-                && [ -f "${TARGET_DIR}/tokenizer.json" ] \
-                && [ -f "${TARGET_DIR}/special_tokens_map.json" ] \
-                && { [ -f "${TARGET_DIR}/model.safetensors.index.json" ] || [ -f "${TARGET_DIR}/model.safetensors" ]; }; then
-                echo "Model version '${MODEL_VERSION}' is already cached. Skipping the download."
+              if checkpoint_ok; then
+                echo "Model version '${MODEL_VERSION}' is already cached and verified. Skipping the download."
               else
-                rm -f "${TARGET_DIR}/.complete"
+                rm -rf "${TARGET_DIR}"
+                mkdir -p "${TARGET_DIR}"
                 # Activate the fleet Workload Identity credential explicitly, so
                 # gcloud never falls back to other credentials on the node.
                 gcloud auth login --cred-file="${GOOGLE_APPLICATION_CREDENTIALS}" --quiet
                 echo "Active account: $(gcloud auth list --filter=status:ACTIVE --format='value(account)')"
                 echo "Downloading ${MODEL_GCS_URI} with fleet Workload Identity credentials..."
                 gcloud storage cp -r "${MODEL_GCS_URI}/*" "${TARGET_DIR}/"
-              fi
-
-              echo "Checking the required files for model version '${MODEL_VERSION}'..."
-              for file in config.json tokenizer.json special_tokens_map.json; do
-                if [ ! -f "${TARGET_DIR}/${file}" ]; then
-                  echo "ERROR: required file '${file}' is missing from ${TARGET_DIR}." >&2
+                # Flush the weights to disk before .complete marks them valid.
+                sync
+                printf '%s\n' "${MODEL_GCS_URI}" > "${TARGET_DIR}/.complete"
+                if ! checkpoint_ok; then
+                  rm -f "${TARGET_DIR}/.complete"
+                  echo "ERROR: the checkpoint at ${MODEL_GCS_URI} is incomplete." >&2
                   exit 1
                 fi
-              done
-              if [ ! -f "${TARGET_DIR}/model.safetensors.index.json" ] && [ ! -f "${TARGET_DIR}/model.safetensors" ]; then
-                echo "ERROR: neither 'model.safetensors.index.json' nor 'model.safetensors' was found in ${TARGET_DIR}." >&2
-                exit 1
+                sync
               fi
-
-              touch "${TARGET_DIR}/.complete"
               chmod -R 755 "${TARGET_DIR}"
 
               echo "Deleting other model versions from the cache..."
@@ -152,13 +194,21 @@ spec:
           env:
             - name: GOOGLE_APPLICATION_CREDENTIALS
               value: /var/run/secrets/tokens/gcp-ksa/credential-configuration.json
-            - name: MODEL_GCS_URI
-              value: gs://YOUR_BUCKET/sft-model-serving/checkpoints/v1
-            - name: MODEL_VERSION
-              value: v1
-          image: gcr.io/google.com/cloudsdktool/cloud-sdk:589.0.0-slim
+          envFrom:
+            - configMapRef:
+                name: vllm-llama-sft-release
+          image: gcr.io/google.com/cloudsdktool/google-cloud-cli:589.0.0-slim@sha256:159c2b19fee4d45a4ee0d5388f4f6a22d3598b217a26213e9fe3e0387e0d992c
           imagePullPolicy: IfNotPresent
           name: gcs-model-downloader
+          # Requests equal limits, so the pod keeps the Guaranteed QoS class.
+          # Values at or below the vllm-container add no scheduling cost.
+          resources:
+            limits:
+              cpu: "4"
+              memory: 8Gi
+            requests:
+              cpu: "4"
+              memory: 8Gi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -171,6 +221,9 @@ spec:
               name: gcp-ksa
               readOnly: true
       runtimeClassName: nvidia
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       serviceAccountName: vllm-llama-sft-sa
       volumes:
         - name: cache-volume
