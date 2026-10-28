@@ -1,0 +1,49 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Least-privilege RBAC for the Google Cloud Config Delivery service agent on
+# each target cluster. Config Delivery only manages RootSync objects in the
+# config-management-system namespace, so a namespace-scoped Role and
+# RoleBinding is sufficient; do not bind the service agent to cluster-admin.
+# Apply on each target cluster before creating the FleetPackage:
+#   kubectl apply -f fleet-package/configdelivery-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: configdelivery-rootsync-manager
+  namespace: config-management-system
+rules:
+  - apiGroups:
+      - configsync.gke.io
+    resources:
+      - rootsyncs
+    verbs:
+      - create
+      - delete
+      - get
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: configdelivery-rootsync-manager
+  namespace: config-management-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: configdelivery-rootsync-manager
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: service-YOUR_PROJECT_NUMBER@gcp-sa-configdelivery.iam.gserviceaccount.com

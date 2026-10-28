@@ -5,6 +5,12 @@
 - [Jupyter Notebooks on GDC Reference Architecture](/docs/solutions/jupyter-notebooks/reference-architecture.md)
   - [Jupyter Notebooks with JupyterHub on GDC-ag Reference Implementation](/docs/solutions/jupyter-notebooks/air-gapped/jupyterhub/reference-implementation.md)
 
+## SFT Model Serving
+
+- [SFT Model Serving with Fleet Packages on Distributed Cloud Software Only Reference Architecture](/software-only/bare-metal/sft-model-serving/README.md)
+  - [SFT Model Serving with Fleet Packages Reference Implementation](/software-only/bare-metal/sft-model-serving/docs/reference-implementation.md)
+  - [SFT Model Serving with Fleet Packages User Guide](/software-only/bare-metal/sft-model-serving/docs/user-guide.md)
+
 ## ARCHIVED Solutions
 
 - [Google Distributed Cloud (software only) for bare metal reference architecture](/docs/software-only_bare-metal_reference-architecture/README.md)
