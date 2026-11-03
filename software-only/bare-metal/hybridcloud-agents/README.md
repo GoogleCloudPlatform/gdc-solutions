@@ -25,3 +25,50 @@ reference and educational purposes only, on a best-effort basis, with no
 official support and no service level agreement (SLA). It is not eligible for
 the
 [Google Open Source Software Vulnerability Rewards Program](https://bughunters.google.com/open-source-security).
+
+## Repository layout
+
+```text
+hybridcloud-agents/
+├── README.md
+└── fleet-package/
+    ├── configdelivery-rbac.yaml
+    ├── environments/
+    │   └── agents/
+    │       └── manifests.yaml
+    ├── fleetpackage.yaml
+    ├── render.sh
+    └── src/
+        ├── base/
+        │   ├── kustomization.yaml
+        │   ├── namespace.yaml
+        │   └── network-policies.yaml
+        └── overlays/
+            └── agents/
+                └── kustomization.yaml
+```
+
+- `fleet-package/` contains the Google Cloud Config Delivery (`FleetPackage`)
+  specification, least-privilege `RootSync` RBAC manifest, DRY Kustomize sources
+  (`src/`), render script (`render.sh`), and rendered plain-KRM variant bundle
+  (`environments/agents/manifests.yaml`) for clusters labeled
+  `cluster-role=agents` (`Namespace/agent-workloads` with `restricted` Pod
+  Security Standards plus default-deny and CoreDNS egress `NetworkPolicy`
+  resources).
+
+## Configuration
+
+Replace these placeholders in `fleet-package/configdelivery-rbac.yaml` and
+`fleet-package/fleetpackage.yaml` before you deploy:
+
+<!-- mdformat off -->
+
+| Placeholder              | Description                                                                            |
+| :----------------------- | :------------------------------------------------------------------------------------- |
+| `YOUR_PROJECT_ID`        | Google Cloud fleet host project ID                                                     |
+| `YOUR_PROJECT_NUMBER`    | Numeric Google Cloud fleet host project number (for the Config Delivery service agent) |
+| `YOUR_CONNECTION`        | Cloud Build 2nd-gen Git repository connection name in `us-central1`                    |
+| `YOUR_REPOSITORY`        | Linked repository resource name inside `YOUR_CONNECTION`                               |
+| `YOUR_PUBLISHER_SA_NAME` | Service account name used by Config Delivery / Cloud Build to package releases         |
+
+<!-- mdformat on -->

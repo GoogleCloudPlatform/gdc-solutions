@@ -76,6 +76,7 @@ gsas
 gsutil
 healthcheck
 healthz
+hybridcloud
 iamcredentials
 identitynamespace
 ingressgateway

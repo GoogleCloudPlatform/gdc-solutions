@@ -1,0 +1,45 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# FleetPackage specification for Config Delivery.
+# Create it with:
+#   gcloud container fleet packages create hybridcloud-agents \
+#     --source=fleet-package/fleetpackage.yaml --location=us-central1
+# Update it after changing the tag or specification with:
+#   gcloud container fleet packages update hybridcloud-agents \
+#     --source=fleet-package/fleetpackage.yaml --location=us-central1
+# The publisher service account packages each variant directory under
+# fleet-package/environments/ (for example environments/agents/) of the tag
+# below as plain KRM, and variantNameTemplate selects the folder matching each
+# cluster membership's cluster-role label.
+deletionPropagationPolicy: FOREGROUND
+labels:
+  configdelivery-skip-bmctl-clusters: "true"
+resourceBundleSelector:
+  cloudBuildRepository:
+    name: projects/YOUR_PROJECT_ID/locations/us-central1/connections/YOUR_CONNECTION/repositories/YOUR_REPOSITORY
+    path: software-only/bare-metal/hybridcloud-agents/fleet-package/environments
+    serviceAccount: projects/YOUR_PROJECT_ID/serviceAccounts/YOUR_PUBLISHER_SA_NAME@YOUR_PROJECT_ID.iam.gserviceaccount.com
+    tag: v0.1.0
+rolloutStrategy:
+  rolling:
+    maxConcurrent: 1
+target:
+  fleet:
+    project: projects/YOUR_PROJECT_ID
+    selector:
+      matchLabels:
+        cluster-role: agents
+variantSelector:
+  variantNameTemplate: "${membership.labels['cluster-role']}"
