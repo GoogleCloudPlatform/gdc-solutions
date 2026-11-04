@@ -17,3 +17,8 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - network-policies.yaml
+  - envoy-mtls-ingress-config.yaml
+  - ops-egress-envoy.yaml
+  - adk-sovereign-agent.yaml
+  - adk-ops-orchestrator.yaml
+  - pod-monitoring.yaml

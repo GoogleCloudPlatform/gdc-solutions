@@ -1,0 +1,45 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Cloud Build pipeline for automated Agent Registry reconciliation on Git tags.
+# Documentation references:
+#   - https://docs.cloud.google.com/agent-registry/manual-registration
+#   - https://docs.cloud.google.com/agent-registry/roles-permissions
+#   - https://docs.cloud.google.com/build/docs/securing-builds/configure-user-specified-service-accounts
+#
+# Required IAM on the dedicated Cloud Build service account:
+#   - roles/agentregistry.editor
+#   - roles/logging.logWriter
+options:
+  logging: CLOUD_LOGGING_ONLY
+steps:
+  - args:
+      - -c
+      - |
+        if [[ -f "software-only/bare-metal/hybridcloud-agents/registry/sync-agent-registry.sh" ]]; then
+          exec bash "software-only/bare-metal/hybridcloud-agents/registry/sync-agent-registry.sh"
+        fi
+        exec bash "./sync-agent-registry.sh"
+    entrypoint: bash
+    env:
+      - CARDS_DIR=${_CARDS_DIR}
+      - GATEWAY_FQDN=${_GATEWAY_FQDN}
+      - PROJECT_ID=${PROJECT_ID}
+      - REGISTRY_LOCATION=${_REGISTRY_LOCATION}
+    id: sync-agent-registry
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+substitutions:
+  _CARDS_DIR: ""
+  _GATEWAY_FQDN: YOUR_GATEWAY_FQDN
+  _REGISTRY_LOCATION: us-central1

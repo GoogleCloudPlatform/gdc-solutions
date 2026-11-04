@@ -49,3 +49,248 @@ spec:
   podSelector: {}
   policyTypes:
     - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: allow-adk-agents
+  namespace: agent-workloads
+spec:
+  egress:
+    - ports:
+        - port: 15001
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agent-egress-proxy
+    - ports:
+        - port: 4317
+          protocol: TCP
+        - port: 4318
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: otel-collector
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agent-ingress-proxy
+      ports:
+        - port: 8080
+          protocol: TCP
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gmp-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              managed-by: stackdriver
+      ports:
+        - port: 8080
+          protocol: TCP
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: adk-agent
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: allow-adk-ops-orchestrator
+  namespace: agent-workloads
+spec:
+  egress:
+    - ports:
+        - port: 15001
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: ops-egress-proxy
+    - ports:
+        - port: 4317
+          protocol: TCP
+        - port: 4318
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: otel-collector
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agent-ingress-proxy
+      ports:
+        - port: 8080
+          protocol: TCP
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gmp-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              managed-by: stackdriver
+      ports:
+        - port: 8080
+          protocol: TCP
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: adk-ops-orchestrator
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: allow-envoy-ingress-proxy
+  namespace: agent-workloads
+spec:
+  egress:
+    - ports:
+        - port: 8080
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: adk-agent
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: adk-ops-orchestrator
+    - ports:
+        - port: 4317
+          protocol: TCP
+        - port: 4318
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: otel-collector
+  ingress:
+    - ports:
+        - port: 8443
+          protocol: TCP
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gmp-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              managed-by: stackdriver
+      ports:
+        - port: 19000
+          protocol: TCP
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agent-ingress-proxy
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: allow-ops-egress-proxy
+  namespace: agent-workloads
+spec:
+  egress:
+    - ports:
+        - port: 15001
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agent-egress-proxy
+    - ports:
+        - port: 4317
+          protocol: TCP
+        - port: 4318
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: otel-collector
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: adk-ops-orchestrator
+      ports:
+        - port: 15001
+          protocol: TCP
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gmp-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              managed-by: stackdriver
+      ports:
+        - port: 19000
+          protocol: TCP
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: ops-egress-proxy
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: allow-agent-egress-from-ops-proxy
+  namespace: agent-workloads
+spec:
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: ops-egress-proxy
+      ports:
+        - port: 15001
+          protocol: TCP
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agent-egress-proxy
+  policyTypes:
+    - Ingress

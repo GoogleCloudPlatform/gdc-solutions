@@ -1,0 +1,33 @@
+{
+  "capabilities": {
+    "pushNotifications": false,
+    "streaming": false
+  },
+  "defaultInputModes": ["text/plain", "application/json"],
+  "defaultOutputModes": ["text/plain", "application/json"],
+  "description": "Hardened Google ADK sovereign compliance and policy assistant on Distributed Cloud software only, mediated exclusively via Envoy mTLS and Apigee hybrid to on-premises Gemma 4 31B and MCP Toolbox.",
+  "name": "adk-sovereign-agent",
+  "skills": [
+    {
+      "description": "Evaluates enterprise workloads against sovereign data-residency, mTLS mediation, and prompt-redaction policies via Apigee-mediated Gemma 4 31B and MCP Toolbox.",
+      "id": "sovereign-policy-assessment",
+      "name": "Sovereign Policy Assessment",
+      "tags": [
+        "compliance",
+        "gdc-software-only",
+        "gemma-4",
+        "managed-by:hybridcloud-agents-registry",
+        "mcp",
+        "sovereign"
+      ]
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "HTTP+JSON",
+      "protocolVersion": "1.0",
+      "url": "https://YOUR_GATEWAY_FQDN/agents/sovereign"
+    }
+  ],
+  "version": "0.1.1"
+}

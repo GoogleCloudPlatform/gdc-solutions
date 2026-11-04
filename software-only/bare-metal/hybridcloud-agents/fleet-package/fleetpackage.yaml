@@ -31,7 +31,7 @@ resourceBundleSelector:
     name: projects/YOUR_PROJECT_ID/locations/us-central1/connections/YOUR_CONNECTION/repositories/YOUR_REPOSITORY
     path: software-only/bare-metal/hybridcloud-agents/fleet-package/environments
     serviceAccount: projects/YOUR_PROJECT_ID/serviceAccounts/YOUR_PUBLISHER_SA_NAME@YOUR_PROJECT_ID.iam.gserviceaccount.com
-    tag: v0.1.0
+    tag: v0.2.0
 rolloutStrategy:
   rolling:
     maxConcurrent: 1

@@ -1,0 +1,32 @@
+{
+  "capabilities": {
+    "pushNotifications": false,
+    "streaming": false
+  },
+  "defaultInputModes": ["text/plain", "application/json"],
+  "defaultOutputModes": ["text/plain", "application/json"],
+  "description": "Hardened Google ADK operations triage orchestrator on Distributed Cloud software only, delegating sovereign compliance assessments over Apigee-mediated A2A JSON-RPC to adk-sovereign-agent.",
+  "name": "adk-ops-orchestrator",
+  "skills": [
+    {
+      "description": "Triages hybrid-cloud infrastructure and operational requests, delegating sovereign compliance assessments over Apigee-mediated A2A to adk-sovereign-agent.",
+      "id": "ops-triage",
+      "name": "Operations Incident Triage",
+      "tags": [
+        "a2a",
+        "gdc-software-only",
+        "managed-by:hybridcloud-agents-registry",
+        "ops-triage",
+        "orchestrator"
+      ]
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "HTTP+JSON",
+      "protocolVersion": "1.0",
+      "url": "https://YOUR_GATEWAY_FQDN/agents/ops-orchestrator"
+    }
+  ],
+  "version": "0.1.0"
+}

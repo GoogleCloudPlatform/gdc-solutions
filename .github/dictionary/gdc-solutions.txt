@@ -2,6 +2,7 @@
 abmra
 addgroup
 adduser
+agentregistry
 allexport
 anthos
 anthosaudit
@@ -17,6 +18,8 @@ bfloat
 bmct
 bmctl
 bofa
+cafile
+certfile
 chdir
 cicd
 cloudbuild
@@ -48,6 +51,7 @@ dtype
 elif
 endfor
 endif
+envoyproxy
 envsubst
 errexit
 esbenp
@@ -64,6 +68,7 @@ gdcso
 gdcv
 gddr
 gecos
+genai
 gguf
 ghcr
 gitops
@@ -76,8 +81,10 @@ gsas
 gsutil
 healthcheck
 healthz
+httpx
 hybridcloud
 iamcredentials
+idempotently
 identitynamespace
 ingressgateway
 inotify
@@ -107,6 +114,7 @@ libsqlite
 libstdc
 libxmlsec
 lifecycles
+litellm
 localpv
 logwriter
 lstrip
@@ -129,6 +137,7 @@ ollama
 onprem
 opsconfigmonitoring
 passwordless
+pathlib
 peft
 perc
 persistentvolumeclaims
@@ -160,6 +169,7 @@ safetensors
 sched
 scrd
 seccomp
+secp
 secretmanager
 seqs
 serviceaccount
@@ -171,6 +181,7 @@ shfmt
 shtpl
 singleuser
 sourcerepo
+spiffe
 splitlines
 sqladmin
 sra
@@ -190,6 +201,7 @@ tfstate
 tfswitch
 tfvars
 theia
+timedelta
 timonwong
 toplevel
 toupper
