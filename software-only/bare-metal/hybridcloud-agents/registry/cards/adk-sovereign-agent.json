@@ -1,7 +1,7 @@
 {
   "capabilities": {
     "pushNotifications": false,
-    "streaming": false
+    "streaming": true
   },
   "defaultInputModes": ["text/plain", "application/json"],
   "defaultOutputModes": ["text/plain", "application/json"],
@@ -29,5 +29,5 @@
       "url": "https://YOUR_GATEWAY_FQDN/agents/sovereign"
     }
   ],
-  "version": "0.1.1"
+  "version": "0.1.2"
 }

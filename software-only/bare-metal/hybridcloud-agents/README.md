@@ -51,6 +51,7 @@ hybridcloud-agents/
 │       ├── base/
 │       │   ├── adk-ops-orchestrator.yaml
 │       │   ├── adk-sovereign-agent.yaml
+│       │   ├── agent-egress-envoy.yaml
 │       │   ├── envoy-mtls-ingress-config.yaml
 │       │   ├── kustomization.yaml
 │       │   ├── namespace.yaml

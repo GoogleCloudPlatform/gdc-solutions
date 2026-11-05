@@ -281,16 +281,46 @@ metadata:
   name: allow-agent-egress-from-ops-proxy
   namespace: agent-workloads
 spec:
+  egress:
+    - ports:
+        - port: 4317
+          protocol: TCP
+        - port: 4318
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: otel-collector
   ingress:
     - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: adk-agent
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: ops-egress-proxy
       ports:
         - port: 15001
           protocol: TCP
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gmp-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              managed-by: stackdriver
+      ports:
+        - port: 19000
+          protocol: TCP
   podSelector:
     matchLabels:
       app.kubernetes.io/component: agent-egress-proxy
   policyTypes:
     - Ingress
+    - Egress

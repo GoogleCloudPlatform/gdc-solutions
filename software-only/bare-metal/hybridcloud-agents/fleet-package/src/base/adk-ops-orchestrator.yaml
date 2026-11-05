@@ -92,6 +92,10 @@ spec:
         - env:
             - name: ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS
               value: "false"
+            - name: ADK_CLIENT_MODE
+              value: litellm_openai
+            - name: CLOUD_MODEL_ALIAS
+              value: enterprise-flash
             - name: EGRESS_PROXY_BASE
               value: http://ops-egress-envoy.agent-workloads.svc.cluster.local:15001
             - name: KSA_TOKEN_PATH
@@ -106,9 +110,11 @@ spec:
               value: "false"
             - name: PEER_CONFIG_PATH
               value: /etc/adk-config/peer-agents.json
+            - name: SOVEREIGN_MODEL_ALIAS
+              value: enterprise-sovereign
             - name: SOVEREIGN_MODEL_NAME
               value: google/gemma-4-31B-it
-          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:0.1.0@sha256:3f2ed1315766ee96f805df9cbe52c050c5b6cbd700da16b10252b5df333204dc
+          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:0.2.0@sha256:1f988895cd93e77402ab081ffde3d42e20ecc8ccfd275e948b24d6eb5216b6b2
           livenessProbe:
             httpGet:
               path: /healthz

@@ -64,6 +64,8 @@ spec:
         - env:
             - name: ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS
               value: "false"
+            - name: ADK_CLIENT_MODE
+              value: litellm_openai
             - name: EGRESS_PROXY_BASE
               value: http://agent-egress-envoy.agent-workloads.svc.cluster.local:15001
             - name: KSA_TOKEN_PATH
@@ -72,13 +74,15 @@ spec:
               value: "True"
             - name: LITELLM_TELEMETRY
               value: "False"
+            - name: MODEL_ALIAS
+              value: enterprise-sovereign
             - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
               value: http://otel-collector.otel-system.svc.cluster.local:4318/v1/traces
             - name: OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT
               value: "false"
             - name: SOVEREIGN_MODEL_NAME
               value: google/gemma-4-31B-it
-          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-sovereign-agent:0.1.1@sha256:15b70170c65ae337f37c12673200c62d261cd95fbf0e61df1f00af778d912613
+          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-sovereign-agent:0.1.2@sha256:9cbd8b4eac80a627542ca90fbdc5c133c477d18c51372fa9898f415d3c4395bf
           livenessProbe:
             httpGet:
               path: /healthz

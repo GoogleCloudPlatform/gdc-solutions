@@ -51,6 +51,17 @@ automountServiceAccountToken: false
 kind: ServiceAccount
 metadata:
   labels:
+    app.kubernetes.io/component: agent-egress-proxy
+    app.kubernetes.io/name: agent-egress-envoy
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: agent-egress-envoy
+  namespace: agent-workloads
+---
+apiVersion: v1
+automountServiceAccountToken: false
+kind: ServiceAccount
+metadata:
+  labels:
     app.kubernetes.io/component: agent-ingress-proxy
     app.kubernetes.io/name: agent-ingress-envoy
     app.kubernetes.io/part-of: hybrid-cloud-agents
@@ -90,6 +101,200 @@ metadata:
     app.kubernetes.io/name: adk-ops-orchestrator
     app.kubernetes.io/part-of: hybrid-cloud-agents
   name: adk-ops-orchestrator-config
+  namespace: agent-workloads
+---
+apiVersion: v1
+data:
+  envoy.yaml: |
+    admin:
+      address:
+        socket_address:
+          address: 127.0.0.1
+          port_value: 9901
+
+    static_resources:
+      secrets:
+        - name: apigee_sovereign_api_key
+          generic_secret:
+            secret:
+              filename: /etc/envoy/apigee-key/api-key
+              watched_directory:
+                path: /etc/envoy/apigee-key
+
+      listeners:
+        - name: agent_egress_15001
+          address:
+            socket_address:
+              address: 0.0.0.0
+              port_value: 15001
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: agent_apigee_egress
+                    codec_type: AUTO
+                    generate_request_id: true
+                    preserve_external_request_id: true
+                    stream_idle_timeout: 360s
+                    tracing:
+                      provider:
+                        name: envoy.tracers.opentelemetry
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.config.trace.v3.OpenTelemetryConfig
+                          grpc_service:
+                            envoy_grpc:
+                              cluster_name: otel_collector_grpc
+                            timeout: 2s
+                          service_name: agent-egress-envoy
+                      spawn_upstream_span: true
+                    route_config:
+                      name: apigee_egress_routes
+                      virtual_hosts:
+                        - name: apigee_gateway
+                          domains: ["*"]
+                          routes:
+                            - match:
+                                prefix: "/"
+                              route:
+                                cluster: apigee_hybrid_gateway
+                                host_rewrite_literal: api.hybrid-agents.internal
+                                timeout: 0s
+                                idle_timeout: 360s
+                                max_stream_duration:
+                                  max_stream_duration: 360s
+                    http_filters:
+                      - name: envoy.filters.http.credential_injector
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.credential_injector.v3.CredentialInjector
+                          overwrite: false
+                          allow_request_without_credential: false
+                          credential:
+                            name: envoy.http.injected_credentials.generic
+                            typed_config:
+                              "@type": type.googleapis.com/envoy.extensions.http.injected_credentials.generic.v3.Generic
+                              credential:
+                                name: apigee_sovereign_api_key
+                              header: x-api-key
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+        - name: observability_19000
+          address:
+            socket_address:
+              address: 0.0.0.0
+              port_value: 19000
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: envoy_observability
+                    route_config:
+                      name: readonly_admin_routes
+                      virtual_hosts:
+                        - name: local_observability
+                          domains: ["*"]
+                          routes:
+                            - match:
+                                path: "/ready"
+                              route:
+                                cluster: envoy_admin_loopback
+                            - match:
+                                prefix: "/stats/prometheus"
+                              route:
+                                cluster: envoy_admin_loopback
+                            - match:
+                                prefix: "/"
+                              direct_response:
+                                status: 403
+                                body:
+                                  inline_string: "forbidden\n"
+                    http_filters:
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+      clusters:
+        - name: apigee_hybrid_gateway
+          type: STRICT_DNS
+          dns_lookup_family: V4_ONLY
+          connect_timeout: 5s
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+            cluster_name: apigee_hybrid_gateway
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: api.hybrid-agents.internal
+                          port_value: 443
+          transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+              sni: api.hybrid-agents.internal
+              common_tls_context:
+                tls_params:
+                  tls_minimum_protocol_version: TLSv1_3
+                  tls_maximum_protocol_version: TLSv1_3
+                tls_certificates:
+                  - certificate_chain:
+                      filename: /etc/envoy/tls/tls.crt
+                    private_key:
+                      filename: /etc/envoy/tls/tls.key
+                    watched_directory:
+                      path: /etc/envoy/tls
+                validation_context:
+                  trusted_ca:
+                    filename: /etc/envoy/root-ca/ca.crt
+                  watched_directory:
+                    path: /etc/envoy/root-ca
+                  match_typed_subject_alt_names:
+                    - san_type: DNS
+                      matcher:
+                        exact: "api.hybrid-agents.internal"
+
+        - name: otel_collector_grpc
+          type: STRICT_DNS
+          connect_timeout: 2s
+          lb_policy: ROUND_ROBIN
+          typed_extension_protocol_options:
+            envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+              "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+              explicit_http_config:
+                http2_protocol_options: {}
+          load_assignment:
+            cluster_name: otel_collector_grpc
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: otel-collector.otel-system.svc.cluster.local
+                          port_value: 4317
+
+        - name: envoy_admin_loopback
+          type: STATIC
+          connect_timeout: 1s
+          load_assignment:
+            cluster_name: envoy_admin_loopback
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: 127.0.0.1
+                          port_value: 9901
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/component: agent-egress-proxy
+    app.kubernetes.io/name: agent-egress-envoy
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: agent-egress-envoy-config
   namespace: agent-workloads
 ---
 apiVersion: v1
@@ -506,6 +711,26 @@ apiVersion: v1
 kind: Service
 metadata:
   labels:
+    app.kubernetes.io/component: agent-egress-proxy
+    app.kubernetes.io/name: agent-egress-envoy
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: agent-egress-envoy
+  namespace: agent-workloads
+spec:
+  ports:
+    - name: http-egress
+      port: 15001
+      protocol: TCP
+      targetPort: 15001
+  selector:
+    app.kubernetes.io/component: agent-egress-proxy
+    app.kubernetes.io/name: agent-egress-envoy
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
     app.kubernetes.io/component: ops-egress-proxy
     app.kubernetes.io/name: ops-egress-envoy
     app.kubernetes.io/part-of: hybrid-cloud-agents
@@ -563,6 +788,10 @@ spec:
         - env:
             - name: ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS
               value: "false"
+            - name: ADK_CLIENT_MODE
+              value: litellm_openai
+            - name: CLOUD_MODEL_ALIAS
+              value: enterprise-flash
             - name: EGRESS_PROXY_BASE
               value: http://ops-egress-envoy.agent-workloads.svc.cluster.local:15001
             - name: KSA_TOKEN_PATH
@@ -577,9 +806,11 @@ spec:
               value: "false"
             - name: PEER_CONFIG_PATH
               value: /etc/adk-config/peer-agents.json
+            - name: SOVEREIGN_MODEL_ALIAS
+              value: enterprise-sovereign
             - name: SOVEREIGN_MODEL_NAME
               value: google/gemma-4-31B-it
-          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:0.1.0@sha256:3f2ed1315766ee96f805df9cbe52c050c5b6cbd700da16b10252b5df333204dc
+          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:0.2.0@sha256:1f988895cd93e77402ab081ffde3d42e20ecc8ccfd275e948b24d6eb5216b6b2
           livenessProbe:
             httpGet:
               path: /healthz
@@ -683,6 +914,8 @@ spec:
         - env:
             - name: ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS
               value: "false"
+            - name: ADK_CLIENT_MODE
+              value: litellm_openai
             - name: EGRESS_PROXY_BASE
               value: http://agent-egress-envoy.agent-workloads.svc.cluster.local:15001
             - name: KSA_TOKEN_PATH
@@ -691,13 +924,15 @@ spec:
               value: "True"
             - name: LITELLM_TELEMETRY
               value: "False"
+            - name: MODEL_ALIAS
+              value: enterprise-sovereign
             - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
               value: http://otel-collector.otel-system.svc.cluster.local:4318/v1/traces
             - name: OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT
               value: "false"
             - name: SOVEREIGN_MODEL_NAME
               value: google/gemma-4-31B-it
-          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-sovereign-agent:0.1.1@sha256:15b70170c65ae337f37c12673200c62d261cd95fbf0e61df1f00af778d912613
+          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-sovereign-agent:0.1.2@sha256:9cbd8b4eac80a627542ca90fbdc5c133c477d18c51372fa9898f415d3c4395bf
           livenessProbe:
             httpGet:
               path: /healthz
@@ -754,6 +989,119 @@ spec:
         - emptyDir:
             medium: Memory
             sizeLimit: 64Mi
+          name: tmp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: agent-egress-proxy
+    app.kubernetes.io/name: agent-egress-envoy
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: agent-egress-envoy
+  namespace: agent-workloads
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: agent-egress-proxy
+      app.kubernetes.io/name: agent-egress-envoy
+  template:
+    metadata:
+      annotations:
+        envoy.hybrid-agents.internal/config-version: v0.3.0-mcp-genai-otel
+      labels:
+        app.kubernetes.io/component: agent-egress-proxy
+        app.kubernetes.io/name: agent-egress-envoy
+        app.kubernetes.io/part-of: hybrid-cloud-agents
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: agent-egress-envoy
+                topologyKey: kubernetes.io/hostname
+              weight: 100
+      automountServiceAccountToken: false
+      containers:
+        - args:
+            - -c
+            - /etc/envoy/envoy.yaml
+            - --disable-hot-restart
+          image: docker.io/envoyproxy/envoy:v1.33.2@sha256:e2baf0b155d0f54881b54621fdd997e3ec81dc6454f299d4e590afe18256a176
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 19000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          name: envoy
+          ports:
+            - containerPort: 15001
+              name: http-egress
+              protocol: TCP
+            - containerPort: 19000
+              name: metrics
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 19000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /etc/envoy
+              name: config
+              readOnly: true
+            - mountPath: /etc/envoy/tls
+              name: tls
+              readOnly: true
+            - mountPath: /etc/envoy/root-ca
+              name: root-ca
+              readOnly: true
+            - mountPath: /etc/envoy/apigee-key
+              name: apigee-key
+              readOnly: true
+            - mountPath: /tmp
+              name: tmp
+      securityContext:
+        runAsGroup: 101
+        runAsNonRoot: true
+        runAsUser: 101
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: agent-egress-envoy
+      volumes:
+        - configMap:
+            name: agent-egress-envoy-config
+          name: config
+        - name: tls
+          secret:
+            secretName: agent-envoy-egress-client-tls
+        - name: root-ca
+          secret:
+            secretName: hybrid-agents-root-ca-bundle
+        - name: apigee-key
+          secret:
+            secretName: agent-egress-apigee-api-key
+        - emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
           name: tmp
 ---
 apiVersion: apps/v1
@@ -993,6 +1341,18 @@ spec:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
+  name: agent-egress-envoy-pdb
+  namespace: agent-workloads
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: agent-egress-proxy
+      app.kubernetes.io/name: agent-egress-envoy
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
   name: agent-ingress-envoy-pdb
   namespace: agent-workloads
 spec:
@@ -1197,19 +1557,49 @@ metadata:
   name: allow-agent-egress-from-ops-proxy
   namespace: agent-workloads
 spec:
+  egress:
+    - ports:
+        - port: 4317
+          protocol: TCP
+        - port: 4318
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: otel-collector
   ingress:
     - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: adk-agent
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: ops-egress-proxy
       ports:
         - port: 15001
           protocol: TCP
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gmp-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              managed-by: stackdriver
+      ports:
+        - port: 19000
+          protocol: TCP
   podSelector:
     matchLabels:
       app.kubernetes.io/component: agent-egress-proxy
   policyTypes:
     - Ingress
+    - Egress
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

@@ -18,6 +18,7 @@ resources:
   - namespace.yaml
   - network-policies.yaml
   - envoy-mtls-ingress-config.yaml
+  - agent-egress-envoy.yaml
   - ops-egress-envoy.yaml
   - adk-sovereign-agent.yaml
   - adk-ops-orchestrator.yaml

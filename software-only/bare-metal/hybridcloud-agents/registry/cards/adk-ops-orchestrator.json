@@ -1,7 +1,7 @@
 {
   "capabilities": {
     "pushNotifications": false,
-    "streaming": false
+    "streaming": true
   },
   "defaultInputModes": ["text/plain", "application/json"],
   "defaultOutputModes": ["text/plain", "application/json"],
@@ -28,5 +28,5 @@
       "url": "https://YOUR_GATEWAY_FQDN/agents/ops-orchestrator"
     }
   ],
-  "version": "0.1.0"
+  "version": "0.2.0"
 }
