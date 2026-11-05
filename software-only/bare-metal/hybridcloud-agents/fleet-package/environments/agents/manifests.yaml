@@ -174,7 +174,9 @@ data:
                                 sds_config:
                                   resource_api_version: V3
                                   path_config_source:
-                                    path: /etc/envoy/sds-apigee-key.yaml
+                                    path: /etc/envoy/apigee-key/sds-apigee-key.yaml
+                                    watched_directory:
+                                      path: /etc/envoy/apigee-key
                               header: x-api-key
                       - name: envoy.filters.http.router
                         typed_config:
@@ -288,13 +290,6 @@ data:
                         socket_address:
                           address: 127.0.0.1
                           port_value: 9901
-  sds-apigee-key.yaml: |
-    resources:
-      - "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
-        name: apigee_sovereign_api_key
-        generic_secret:
-          secret:
-            filename: /etc/envoy/apigee-key/api-key
 kind: ConfigMap
 metadata:
   labels:
@@ -577,7 +572,9 @@ data:
                                 sds_config:
                                   resource_api_version: V3
                                   path_config_source:
-                                    path: /etc/envoy/sds-apigee-key.yaml
+                                    path: /etc/envoy/apigee-key/sds-apigee-key.yaml
+                                    watched_directory:
+                                      path: /etc/envoy/apigee-key
                               header: x-api-key
                       - name: envoy.filters.http.router
                         typed_config:
@@ -665,13 +662,6 @@ data:
                         socket_address:
                           address: 127.0.0.1
                           port_value: 9901
-  sds-apigee-key.yaml: |
-    resources:
-      - "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
-        name: apigee_ops_orchestrator_api_key
-        generic_secret:
-          secret:
-            filename: /etc/envoy/apigee-key/api-key
 kind: ConfigMap
 metadata:
   labels:
@@ -803,17 +793,13 @@ spec:
             - name: ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS
               value: "false"
             - name: ADK_CLIENT_MODE
-              value: litellm_openai
+              value: apigee_openai
             - name: CLOUD_MODEL_ALIAS
               value: enterprise-flash
             - name: EGRESS_PROXY_BASE
               value: http://ops-egress-envoy.agent-workloads.svc.cluster.local:15001
             - name: KSA_TOKEN_PATH
               value: /var/run/secrets/tokens/apigee-ksa/token
-            - name: LITELLM_LOCAL_MODEL_COST_MAP
-              value: "True"
-            - name: LITELLM_TELEMETRY
-              value: "False"
             - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
               value: http://otel-collector.otel-system.svc.cluster.local:4318/v1/traces
             - name: OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT
@@ -824,7 +810,7 @@ spec:
               value: enterprise-sovereign
             - name: SOVEREIGN_MODEL_NAME
               value: google/gemma-4-31B-it
-          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:0.2.0@sha256:f37a8449d2f2aab9211d439e14aacffdd80abbaec472b353b184368659a546c3
+          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:0.3.0@sha256:54ea633d9acc08af4f9a4c4d951b65f2fd9cc0b6cd445a93db10a1d4669d158a
           livenessProbe:
             httpGet:
               path: /healthz
@@ -929,15 +915,11 @@ spec:
             - name: ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS
               value: "false"
             - name: ADK_CLIENT_MODE
-              value: litellm_openai
+              value: apigee_openai
             - name: EGRESS_PROXY_BASE
               value: http://agent-egress-envoy.agent-workloads.svc.cluster.local:15001
             - name: KSA_TOKEN_PATH
               value: /var/run/secrets/tokens/apigee-ksa/token
-            - name: LITELLM_LOCAL_MODEL_COST_MAP
-              value: "True"
-            - name: LITELLM_TELEMETRY
-              value: "False"
             - name: MODEL_ALIAS
               value: enterprise-sovereign
             - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
@@ -946,7 +928,7 @@ spec:
               value: "false"
             - name: SOVEREIGN_MODEL_NAME
               value: google/gemma-4-31B-it
-          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-sovereign-agent:0.1.2@sha256:501ef28c06fcf0dbf2f81a6f6915e4da46e84f3f626f4d7c11f01b0d2ecdf7f5
+          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-sovereign-agent:0.2.0@sha256:f4ee7fb21b7cc11bb62ad79b287ca259dfc444c427551291facd65e5f134e162
           livenessProbe:
             httpGet:
               path: /healthz
@@ -1023,7 +1005,7 @@ spec:
   template:
     metadata:
       annotations:
-        envoy.hybrid-agents.internal/config-version: v0.3.0-mcp-genai-otel
+        envoy.hybrid-agents.internal/config-version: v0.5.0-sds-hot-reload
       labels:
         app.kubernetes.io/component: agent-egress-proxy
         app.kubernetes.io/name: agent-egress-envoy
@@ -1242,6 +1224,8 @@ spec:
       app.kubernetes.io/name: ops-egress-envoy
   template:
     metadata:
+      annotations:
+        envoy.hybrid-agents.internal/config-version: v0.5.0-sds-hot-reload
       labels:
         app.kubernetes.io/component: ops-egress-proxy
         app.kubernetes.io/name: ops-egress-envoy
@@ -1401,7 +1385,7 @@ spec:
   data:
     - remoteRef:
         key: apigee-sovereign-agent-api-key
-      secretKey: api-key
+      secretKey: api_key
   refreshInterval: 15m
   secretStoreRef:
     kind: ClusterSecretStore
@@ -1409,6 +1393,17 @@ spec:
   target:
     creationPolicy: Owner
     name: agent-egress-apigee-api-key
+    template:
+      data:
+        api-key: "{{ .api_key }}"
+        sds-apigee-key.yaml: |
+          resources:
+            - "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
+              name: apigee_sovereign_api_key
+              generic_secret:
+                secret:
+                  inline_string: "{{ .api_key }}"
+      engineVersion: v2
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -1423,7 +1418,7 @@ spec:
   data:
     - remoteRef:
         key: apigee-ops-orchestrator-api-key
-      secretKey: api-key
+      secretKey: api_key
   refreshInterval: 15m
   secretStoreRef:
     kind: ClusterSecretStore
@@ -1431,6 +1426,17 @@ spec:
   target:
     creationPolicy: Owner
     name: ops-egress-apigee-api-key
+    template:
+      data:
+        api-key: "{{ .api_key }}"
+        sds-apigee-key.yaml: |
+          resources:
+            - "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
+              name: apigee_ops_orchestrator_api_key
+              generic_secret:
+                secret:
+                  inline_string: "{{ .api_key }}"
+      engineVersion: v2
 ---
 apiVersion: monitoring.googleapis.com/v1
 kind: PodMonitoring

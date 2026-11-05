@@ -154,7 +154,60 @@ def canonical_product(p):
           "timeUnit": str(oc["quota"].get("timeUnit", "")),
       }
     op_configs.append(cfg)
-  op_configs.sort(key=lambda x: x["apiSource"])
+  op_configs.sort(
+      key=lambda x: (x["apiSource"], json.dumps(x["operations"], sort_keys=True))
+  )
+
+  llm_configs = []
+  for lc in (p.get("llmOperationGroup") or {}).get("operationConfigs") or []:
+    lops = []
+    for lop in lc.get("llmOperations") or []:
+      lops.append({
+          "methods": sorted(lop.get("methods") or []),
+          "model": lop.get("model", ""),
+          "resource": lop.get("resource", ""),
+      })
+    lops.sort(key=lambda x: (x["resource"], x["model"], ",".join(x["methods"])))
+    lcfg = {
+        "apiSource": lc.get("apiSource", ""),
+        "attributes": dict_to_attrs(attrs_to_dict(lc.get("attributes"))),
+        "llmOperations": lops,
+    }
+    if lc.get("llmTokenQuota") and lc["llmTokenQuota"].get("limit"):
+      lcfg["llmTokenQuota"] = {
+          "interval": str(lc["llmTokenQuota"].get("interval", "")),
+          "limit": str(lc["llmTokenQuota"].get("limit", "")),
+          "timeUnit": str(lc["llmTokenQuota"].get("timeUnit", "")),
+      }
+    llm_configs.append(lcfg)
+  llm_configs.sort(
+      key=lambda x: (
+          x["apiSource"],
+          json.dumps(x["llmOperations"], sort_keys=True),
+      )
+  )
+
+  payload_configs = []
+  for pc in (p.get("payloadOperationGroup") or {}).get("operationConfigs") or []:
+    pops = []
+    for pop in pc.get("operations") or []:
+      pops.append({"operation": pop.get("operation", "")})
+    pops.sort(key=lambda x: x["operation"])
+    pcfg = {
+        "apiSource": pc.get("apiSource", ""),
+        "operations": pops,
+    }
+    if pc.get("quota") and pc["quota"].get("limit"):
+      pcfg["quota"] = {
+          "interval": str(pc["quota"].get("interval", "")),
+          "limit": str(pc["quota"].get("limit", "")),
+          "timeUnit": str(pc["quota"].get("timeUnit", "")),
+      }
+    payload_configs.append(pcfg)
+  payload_configs.sort(
+      key=lambda x: (x["apiSource"], json.dumps(x["operations"], sort_keys=True))
+  )
+
   out = {
       "approvalType": p.get("approvalType", "auto"),
       "attributes": dict_to_attrs(attrs_to_dict(p.get("attributes"))),
@@ -162,14 +215,19 @@ def canonical_product(p):
       "displayName": p.get("displayName", p.get("name", "")),
       "environments": sorted(p.get("environments") or []),
       "name": p.get("name", ""),
-      "operationGroup": {
-          "operationConfigType": (p.get("operationGroup") or {}).get(
-              "operationConfigType", "proxy"
-          ),
-          "operationConfigs": op_configs,
-      },
       "proxies": sorted(p.get("proxies") or []),
   }
+  if op_configs:
+    out["operationGroup"] = {
+        "operationConfigType": (p.get("operationGroup") or {}).get(
+            "operationConfigType", "proxy"
+        ),
+        "operationConfigs": op_configs,
+    }
+  if llm_configs:
+    out["llmOperationGroup"] = {"operationConfigs": llm_configs}
+  if payload_configs:
+    out["payloadOperationGroup"] = {"operationConfigs": payload_configs}
   if p.get("quota"):
     out["quota"] = str(p["quota"])
     out["quotaInterval"] = str(p.get("quotaInterval", ""))
@@ -223,15 +281,25 @@ for m in agent_manifests:
     if "promptTokenRate" in prod_override:
       attrs["prompt_token_rate"] = str(prod_override["promptTokenRate"])
     if "llmTokenQuotaLimit" in prod_override:
+      attrs["llm_token_quota"] = str(prod_override["llmTokenQuotaLimit"])
       attrs["llm_token_quota_limit"] = str(prod_override["llmTokenQuotaLimit"])
+      for lc in (desired_prod.get("llmOperationGroup") or {}).get("operationConfigs") or []:
+        if "llmTokenQuota" in lc:
+          lc["llmTokenQuota"]["limit"] = str(prod_override["llmTokenQuotaLimit"])
     if "llmTokenQuotaInterval" in prod_override:
       attrs["llm_token_quota_interval"] = str(
           prod_override["llmTokenQuotaInterval"]
       )
+      for lc in (desired_prod.get("llmOperationGroup") or {}).get("operationConfigs") or []:
+        if "llmTokenQuota" in lc:
+          lc["llmTokenQuota"]["interval"] = str(prod_override["llmTokenQuotaInterval"])
     if "llmTokenQuotaTimeUnit" in prod_override:
       attrs["llm_token_quota_time_unit"] = str(
           prod_override["llmTokenQuotaTimeUnit"]
       )
+      for lc in (desired_prod.get("llmOperationGroup") or {}).get("operationConfigs") or []:
+        if "llmTokenQuota" in lc:
+          lc["llmTokenQuota"]["timeUnit"] = str(prod_override["llmTokenQuotaTimeUnit"])
     if "spikeArrestRate" in prod_override:
       attrs["spike_arrest_rate"] = str(prod_override["spikeArrestRate"])
     if "toolQuotaLimit" in prod_override:

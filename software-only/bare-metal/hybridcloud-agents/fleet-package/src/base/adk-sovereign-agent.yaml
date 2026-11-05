@@ -65,15 +65,11 @@ spec:
             - name: ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS
               value: "false"
             - name: ADK_CLIENT_MODE
-              value: litellm_openai
+              value: apigee_openai
             - name: EGRESS_PROXY_BASE
               value: http://agent-egress-envoy.agent-workloads.svc.cluster.local:15001
             - name: KSA_TOKEN_PATH
               value: /var/run/secrets/tokens/apigee-ksa/token
-            - name: LITELLM_LOCAL_MODEL_COST_MAP
-              value: "True"
-            - name: LITELLM_TELEMETRY
-              value: "False"
             - name: MODEL_ALIAS
               value: enterprise-sovereign
             - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
@@ -82,7 +78,7 @@ spec:
               value: "false"
             - name: SOVEREIGN_MODEL_NAME
               value: google/gemma-4-31B-it
-          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-sovereign-agent:0.1.2@sha256:501ef28c06fcf0dbf2f81a6f6915e4da46e84f3f626f4d7c11f01b0d2ecdf7f5
+          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-sovereign-agent:0.2.0@sha256:f4ee7fb21b7cc11bb62ad79b287ca259dfc444c427551291facd65e5f134e162
           livenessProbe:
             httpGet:
               path: /healthz

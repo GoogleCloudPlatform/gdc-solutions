@@ -29,5 +29,5 @@
       "url": "https://YOUR_GATEWAY_FQDN/agents/sovereign"
     }
   ],
-  "version": "0.1.2"
+  "version": "0.2.0"
 }

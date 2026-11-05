@@ -36,7 +36,7 @@ spec:
   data:
     - remoteRef:
         key: apigee-ops-orchestrator-api-key
-      secretKey: api-key
+      secretKey: api_key
   refreshInterval: 15m
   secretStoreRef:
     kind: ClusterSecretStore
@@ -44,6 +44,17 @@ spec:
   target:
     creationPolicy: Owner
     name: ops-egress-apigee-api-key
+    template:
+      data:
+        api-key: "{{ .api_key }}"
+        sds-apigee-key.yaml: |
+          resources:
+            - "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
+              name: apigee_ops_orchestrator_api_key
+              generic_secret:
+                secret:
+                  inline_string: "{{ .api_key }}"
+      engineVersion: v2
 ---
 apiVersion: v1
 data:
@@ -115,7 +126,9 @@ data:
                                 sds_config:
                                   resource_api_version: V3
                                   path_config_source:
-                                    path: /etc/envoy/sds-apigee-key.yaml
+                                    path: /etc/envoy/apigee-key/sds-apigee-key.yaml
+                                    watched_directory:
+                                      path: /etc/envoy/apigee-key
                               header: x-api-key
                       - name: envoy.filters.http.router
                         typed_config:
@@ -203,13 +216,6 @@ data:
                         socket_address:
                           address: 127.0.0.1
                           port_value: 9901
-  sds-apigee-key.yaml: |
-    resources:
-      - "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
-        name: apigee_ops_orchestrator_api_key
-        generic_secret:
-          secret:
-            filename: /etc/envoy/apigee-key/api-key
 kind: ConfigMap
 metadata:
   labels:
@@ -236,6 +242,8 @@ spec:
       app.kubernetes.io/name: ops-egress-envoy
   template:
     metadata:
+      annotations:
+        envoy.hybrid-agents.internal/config-version: v0.5.0-sds-hot-reload
       labels:
         app.kubernetes.io/component: ops-egress-proxy
         app.kubernetes.io/name: ops-egress-envoy

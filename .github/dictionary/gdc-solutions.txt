@@ -124,6 +124,7 @@ kubelet
 kustomization
 kustomizations
 kustomize
+lcfg
 ledgerwriter
 lefthook
 libbz
@@ -162,6 +163,7 @@ parsepayload
 passwordless
 pathlib
 pathsuffix
+pcfg
 peft
 perc
 persistentvolumeclaims
