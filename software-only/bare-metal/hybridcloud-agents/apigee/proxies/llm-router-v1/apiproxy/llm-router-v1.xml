@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<APIProxy revision="5" name="llm-router-v1">
+  <DisplayName>Classification-Aware Hybrid LLM Router (Wave AGT)</DisplayName>
+  <Description>Enforces JSONThreatProtection, VerifyAPIKey, SpikeArrest, KVM-driven VerifyJWT subject pinning, KVM virtual model aliasing and canary routing, PromptTokenLimit, flexi LLMTokenQuota with quota response headers, SSE EventFlow streaming, DataCapture FinOps attribution, Model Armor on cloud-burst, TargetServer HealthMonitor on local vLLM, and automatic target/Model-Armor failover on 429/5xx.</Description>
+  <BasePaths>/v1</BasePaths>
+  <Policies>
+    <Policy>JSONThreatProtection-Guard</Policy>
+    <Policy>AssignMessage-JSONThreat400</Policy>
+    <Policy>VerifyAPIKey-1</Policy>
+    <Policy>SpikeArrest-Ingress</Policy>
+    <Policy>KeyValueMapOperations-ReadExpectedJwtSub</Policy>
+    <Policy>VerifyJWT-AgentKSA</Policy>
+    <Policy>RaiseFault-CloudBurstForbidden</Policy>
+    <Policy>KeyValueMapOperations-ReadAliases</Policy>
+    <Policy>JS-ResolveModelAlias</Policy>
+    <Policy>RaiseFault-ModelNotAuthorized</Policy>
+    <Policy>PromptTokenLimit-Burst</Policy>
+    <Policy>LLMTokenQuota-Enforce</Policy>
+    <Policy>LLMTokenQuota-Count</Policy>
+    <Policy>LLMTokenQuota-Count-SSE</Policy>
+    <Policy>JS-SetQuotaHeaders</Policy>
+    <Policy>DataCapture-FinOps</Policy>
+    <Policy>SanitizeUserPrompt-CloudBurst</Policy>
+    <Policy>SanitizeModelResponse-CloudBurst</Policy>
+    <Policy>SanitizeModelResponse-CloudBurstSSE</Policy>
+    <Policy>JS-PrepareCloudBurstPayload</Policy>
+    <Policy>JS-ExtractCloudBurstResponse</Policy>
+    <Policy>AssignMessage-StripAuthLocalVLLM</Policy>
+    <Policy>AssignMessage-SetLocalVLLMHeader</Policy>
+    <Policy>AssignMessage-SetCloudBurstHeader</Policy>
+    <Policy>ServiceCallout-FailoverLocalVLLM</Policy>
+    <Policy>AssignMessage-UseFailoverResponse</Policy>
+  </Policies>
+  <ProxyEndpoints>
+    <ProxyEndpoint>default</ProxyEndpoint>
+  </ProxyEndpoints>
+  <Resources>
+    <Resource>jsc://resolve_model_alias.js</Resource>
+    <Resource>jsc://set_quota_headers.js</Resource>
+    <Resource>jsc://prepare_cloud_burst.js</Resource>
+    <Resource>jsc://extract_cloud_burst_response.js</Resource>
+  </Resources>
+  <TargetEndpoints>
+    <TargetEndpoint>local-vllm</TargetEndpoint>
+    <TargetEndpoint>local-vllm-sse</TargetEndpoint>
+    <TargetEndpoint>vertex-gemini</TargetEndpoint>
+    <TargetEndpoint>vertex-gemini-sse</TargetEndpoint>
+  </TargetEndpoints>
+</APIProxy>

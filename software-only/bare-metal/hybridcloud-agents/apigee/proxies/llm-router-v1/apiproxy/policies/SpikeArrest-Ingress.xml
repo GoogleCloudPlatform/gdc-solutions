@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SpikeArrest continueOnError="false" enabled="true" name="SpikeArrest-Ingress">
+  <DisplayName>Per-Client LLM Request Burst Guard</DisplayName>
+  <Identifier ref="verifyapikey.VerifyAPIKey-1.client_id"/>
+  <Rate ref="verifyapikey.VerifyAPIKey-1.apiproduct.spike_arrest_rate">30ps</Rate>
+  <UseEffectiveCount>true</UseEffectiveCount>
+</SpikeArrest>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<APIProxy revision="1" name="agent-dispatch-v1">
+  <DisplayName>Northbound Sovereign Agent Dispatch Proxy</DisplayName>
+  <Description>Authenticates callers via VerifyAPIKey and KVM-driven VerifyJWT, enforces JSONThreatProtection and SpikeArrest, and dispatches over TLS 1.3 + client mTLS (SRA-C2) to TargetServer gdcso-agent-ingress.</Description>
+  <BasePaths>/agents/sovereign</BasePaths>
+  <Policies>
+    <Policy>JSONThreatProtection-Guard</Policy>
+    <Policy>AssignMessage-JSONThreat400</Policy>
+    <Policy>VerifyAPIKey-1</Policy>
+    <Policy>SpikeArrest-Ingress</Policy>
+    <Policy>KeyValueMapOperations-ReadExpectedJwtSub</Policy>
+    <Policy>VerifyJWT-AgentKSA</Policy>
+    <Policy>AssignMessage-StripGatewayKey</Policy>
+  </Policies>
+  <ProxyEndpoints>
+    <ProxyEndpoint>default</ProxyEndpoint>
+  </ProxyEndpoints>
+  <TargetEndpoints>
+    <TargetEndpoint>default</TargetEndpoint>
+    <TargetEndpoint>sse-stream</TargetEndpoint>
+  </TargetEndpoints>
+</APIProxy>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ProxyEndpoint name="default">
+  <PreFlow name="PreFlow">
+    <Request/>
+    <Response/>
+  </PreFlow>
+  <Flows>
+    <Flow name="GetStatus">
+      <Condition>(proxy.pathsuffix MatchesPath "/status") and (request.verb = "GET")</Condition>
+      <Request/>
+      <Response>
+        <Step><Name>AssignMessage-GatewayStatus</Name></Step>
+      </Response>
+    </Flow>
+    <Flow name="ListModels">
+      <Condition>(proxy.pathsuffix MatchesPath "/models") and (request.verb = "GET")</Condition>
+      <Request/>
+      <Response>
+        <Step><Name>AssignMessage-ApprovedModels</Name></Step>
+      </Response>
+    </Flow>
+  </Flows>
+  <HTTPProxyConnection>
+    <BasePath>/gateway-catalog</BasePath>
+  </HTTPProxyConnection>
+  <RouteRule name="no-target"/>
+</ProxyEndpoint>

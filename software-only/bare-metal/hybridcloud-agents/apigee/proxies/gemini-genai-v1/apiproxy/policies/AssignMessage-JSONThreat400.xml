@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AssignMessage-JSONThreat400">
+  <DisplayName>Map JSONThreatProtection Fault to HTTP 400</DisplayName>
+  <Set>
+    <StatusCode>400</StatusCode>
+    <ReasonPhrase>Bad Request</ReasonPhrase>
+    <Payload contentType="application/json">{"error":{"code":400,"status":"INVALID_ARGUMENT","reason":"json_threat_protection_violation","message":"JSON payload exceeded structural safety limits."}}</Payload>
+  </Set>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+  <AssignTo createNew="false" transport="http" type="response"/>
+</AssignMessage>

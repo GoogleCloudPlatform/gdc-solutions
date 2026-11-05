@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<APIProxy revision="1" name="mcp-toolbox-v1">
+  <DisplayName>Governed On-Premises MCP Toolbox Proxy</DisplayName>
+  <Description>Enforces JSONThreatProtection, ParsePayload MCP JSON-RPC inspection, VerifyAPIKey tool filtering, SpikeArrest, KVM-driven VerifyJWT subject pinning, and per-tool Quota before forwarding to TargetServer gdcso-mcp-toolbox.</Description>
+  <ProxyOperationMode>MCP</ProxyOperationMode>
+  <BasePaths>/mcp-toolbox</BasePaths>
+  <Policies>
+    <Policy>JSONThreatProtection-Guard</Policy>
+    <Policy>AssignMessage-JSONThreat400</Policy>
+    <Policy>ParsePayload-MCP</Policy>
+    <Policy>VerifyAPIKey-1</Policy>
+    <Policy>SpikeArrest-Ingress</Policy>
+    <Policy>KeyValueMapOperations-ReadExpectedJwtSub</Policy>
+    <Policy>VerifyJWT-AgentKSA</Policy>
+    <Policy>Quota-PerToolLimit</Policy>
+    <Policy>AssignMessage-StripAuthMCPToolbox</Policy>
+  </Policies>
+  <ProxyEndpoints>
+    <ProxyEndpoint>default</ProxyEndpoint>
+  </ProxyEndpoints>
+  <TargetEndpoints>
+    <TargetEndpoint>default</TargetEndpoint>
+  </TargetEndpoints>
+</APIProxy>

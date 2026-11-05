@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AssignMessage-SetA2AResponseHeaders">
+  <Set>
+    <Headers>
+      <Header name="X-A2A-Caller-App">{developer.app.name}</Header>
+      <Header name="X-A2A-Product">{apiproduct.name}</Header>
+      <Header name="X-A2A-Verified-Sub">{jwt.VerifyJWT-OrchestratorKSA.decoded.claim.sub}</Header>
+    </Headers>
+  </Set>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+  <AssignTo createNew="false" transport="http" type="response"/>
+</AssignMessage>

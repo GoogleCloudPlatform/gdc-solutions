@@ -1,0 +1,76 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+description: Governed pass-through MCP proxy (mcp-storage-v1) to Google Cloud Storage remote MCP server with mutating tool stripping.
+displayName: mcp-storage
+interface:
+  protocolBinding: JSONRPC
+  url: https://YOUR_GATEWAY_FQDN/mcp-storage
+name: mcp-storage
+tools:
+  - annotations:
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: true
+      readOnlyHint: true
+      title: List Cloud Storage Objects
+    description: Lists objects in a governed Cloud Storage bucket via Storage MCP.
+    inputSchema:
+      properties:
+        bucket:
+          description: Cloud Storage bucket name.
+          type: string
+        prefix:
+          description: Optional object key prefix filter.
+          type: string
+      required:
+        - bucket
+      type: object
+    name: list_objects
+  - annotations:
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: true
+      readOnlyHint: true
+      title: Get Cloud Storage Bucket Metadata
+    description: Retrieves metadata for a governed Cloud Storage bucket via Storage MCP.
+    inputSchema:
+      properties:
+        bucket:
+          description: Cloud Storage bucket name.
+          type: string
+      required:
+        - bucket
+      type: object
+    name: get_bucket_metadata
+  - annotations:
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: true
+      readOnlyHint: true
+      title: Get Cloud Storage Object Metadata
+    description: Retrieves metadata for a specific object in a governed Cloud Storage bucket.
+    inputSchema:
+      properties:
+        bucket:
+          description: Cloud Storage bucket name.
+          type: string
+        object:
+          description: Object name inside the bucket.
+          type: string
+      required:
+        - bucket
+        - object
+      type: object
+    name: get_object_metadata

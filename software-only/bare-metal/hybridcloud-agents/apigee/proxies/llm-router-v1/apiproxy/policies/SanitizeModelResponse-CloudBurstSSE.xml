@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SanitizeModelResponse async="false" continueOnError="false" enabled="true" name="SanitizeModelResponse-CloudBurstSSE">
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+  <DisplayName>Model Armor Continuous Scan on Cloud Burst SSE</DisplayName>
+  <ModelArmor>
+    <TemplateName>projects/{propertyset.hybrid_agents_env.project_id}/locations/{propertyset.hybrid_agents_env.model_armor_location}/templates/{propertyset.hybrid_agents_env.model_armor_template_id}</TemplateName>
+  </ModelArmor>
+  <UserPromptSource>{model_armor_user_prompt}</UserPromptSource>
+  <LLMResponseSource>{jsonPath('$.choices[-1].delta.content',response.event.current.data,true)}</LLMResponseSource>
+  <ContinuousScan>true</ContinuousScan>
+</SanitizeModelResponse>

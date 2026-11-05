@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<PromptTokenLimit continueOnError="false" enabled="true" name="PromptTokenLimit-Burst">
+  <DisplayName>Prompt Token Spike Limit</DisplayName>
+  <UserPromptSource>{jsonPath('$.messages',request.content,true)}</UserPromptSource>
+  <UseEffectiveCount>true</UseEffectiveCount>
+  <Identifier ref="verifyapikey.VerifyAPIKey-1.client_id"/>
+  <Rate ref="verifyapikey.VerifyAPIKey-1.apiproduct.prompt_token_rate">120000pm</Rate>
+</PromptTokenLimit>

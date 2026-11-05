@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AssignMessage-UseFailoverResponse">
+  <Set>
+    <StatusCode>200</StatusCode>
+    <Headers>
+      <Header name="Content-Type">application/json</Header>
+      <Header name="X-LLM-Backend">local-vllm-failover</Header>
+      <Header name="X-HCA-Resolved-Model">google/gemma-4-31B-it</Header>
+      <Header name="X-HCA-Routed-Tier">local-vllm-failover</Header>
+    </Headers>
+    <Payload contentType="application/json">{failoverVllmResp.content}</Payload>
+  </Set>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+  <AssignTo createNew="false" transport="http" type="response"/>
+</AssignMessage>

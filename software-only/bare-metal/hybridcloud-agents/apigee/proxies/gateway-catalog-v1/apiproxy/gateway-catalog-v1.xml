@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<APIProxy revision="1" name="gateway-catalog-v1">
+  <DisplayName>Hybrid Agents Gateway Catalog REST Backend</DisplayName>
+  <Description>Read-only synthetic topology and model-tier REST catalog backing Track A MCP OpenAPI discovery.</Description>
+  <BasePaths>/gateway-catalog</BasePaths>
+  <Policies>
+    <Policy>AssignMessage-GatewayStatus</Policy>
+    <Policy>AssignMessage-ApprovedModels</Policy>
+  </Policies>
+  <ProxyEndpoints>
+    <ProxyEndpoint>default</ProxyEndpoint>
+  </ProxyEndpoints>
+</APIProxy>

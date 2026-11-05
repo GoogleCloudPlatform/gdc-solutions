@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<KeyValueMapOperations async="false" continueOnError="false" enabled="true" name="KeyValueMapOperations-ReadExpectedJwtSub" mapIdentifier="agent-jwt-subjects">
+  <DisplayName>Read Expected KSA JWT Subject and OIDC JWKS</DisplayName>
+  <ExpiryTimeInSecs>5</ExpiryTimeInSecs>
+  <Scope>environment</Scope>
+  <Get assignTo="private.agents_cluster_oidc_jwks">
+    <Key>
+      <Parameter>agents_cluster_oidc_jwks</Parameter>
+    </Key>
+  </Get>
+  <Get assignTo="private.expected_ksa_jwt_sub">
+    <Key>
+      <Parameter ref="developer.app.name"/>
+    </Key>
+  </Get>
+</KeyValueMapOperations>

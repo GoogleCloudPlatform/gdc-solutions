@@ -1,0 +1,96 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+description: Governed pass-through MCP proxy (mcp-bigquery-v1) to Google Cloud BigQuery remote MCP server with mutating tool stripping.
+displayName: mcp-bigquery
+interface:
+  protocolBinding: JSONRPC
+  url: https://YOUR_GATEWAY_FQDN/mcp-bigquery
+name: mcp-bigquery
+tools:
+  - annotations:
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: true
+      readOnlyHint: true
+      title: List BigQuery Dataset IDs
+    description: Lists dataset IDs in the governed Google Cloud project via BigQuery MCP.
+    inputSchema:
+      properties:
+        projectId:
+          description: Google Cloud project ID.
+          type: string
+      type: object
+    name: list_dataset_ids
+  - annotations:
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: true
+      readOnlyHint: true
+      title: Get BigQuery Dataset Info
+    description: Retrieves metadata for a BigQuery dataset via BigQuery MCP.
+    inputSchema:
+      properties:
+        datasetId:
+          description: BigQuery dataset ID.
+          type: string
+        projectId:
+          description: Google Cloud project ID.
+          type: string
+      required:
+        - datasetId
+      type: object
+    name: get_dataset_info
+  - annotations:
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: true
+      readOnlyHint: true
+      title: List BigQuery Table IDs
+    description: Lists table IDs within a BigQuery dataset via BigQuery MCP.
+    inputSchema:
+      properties:
+        datasetId:
+          description: BigQuery dataset ID.
+          type: string
+        projectId:
+          description: Google Cloud project ID.
+          type: string
+      required:
+        - datasetId
+      type: object
+    name: list_table_ids
+  - annotations:
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: true
+      readOnlyHint: true
+      title: Get BigQuery Table Info
+    description: Retrieves schema and metadata for a BigQuery table via BigQuery MCP.
+    inputSchema:
+      properties:
+        datasetId:
+          description: BigQuery dataset ID.
+          type: string
+        projectId:
+          description: Google Cloud project ID.
+          type: string
+        tableId:
+          description: BigQuery table ID.
+          type: string
+      required:
+        - datasetId
+        - tableId
+      type: object
+    name: get_table_info

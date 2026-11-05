@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ParsePayload continueOnError="false" enabled="true" name="ParsePayload-MCP">
+  <DisplayName>Parse MCP JSON-RPC Payload</DisplayName>
+  <Source>request</Source>
+  <PayloadType>JSON-RPC-2.0</PayloadType>
+  <Protocol>MCP</Protocol>
+</ParsePayload>

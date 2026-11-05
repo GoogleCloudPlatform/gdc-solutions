@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RaiseFault-ModelNotAuthorized">
+  <DisplayName>Reject Unauthorized Model Alias or Cloud Burst</DisplayName>
+  <FaultResponse>
+    <Set>
+      <StatusCode>403</StatusCode>
+      <ReasonPhrase>Forbidden</ReasonPhrase>
+      <Payload contentType="application/json">{"error":{"code":403,"status":"PERMISSION_DENIED","reason":"model_or_cloud_burst_not_authorized","requested_model":"{requested_llm_model}"}}</Payload>
+    </Set>
+  </FaultResponse>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

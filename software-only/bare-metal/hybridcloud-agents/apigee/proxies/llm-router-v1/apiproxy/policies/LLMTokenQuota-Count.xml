@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<LLMTokenQuota continueOnError="true" enabled="true" name="LLMTokenQuota-Count" type="flexi">
+  <DisplayName>LLM Token Budget Count</DisplayName>
+  <SharedName>hybrid-agents-llm-budget</SharedName>
+  <CountOnly>true</CountOnly>
+  <Distributed>true</Distributed>
+  <Synchronous>true</Synchronous>
+  <Identifier ref="verifyapikey.VerifyAPIKey-1.client_id"/>
+  <Allow count="500000" countRef="verifyapikey.VerifyAPIKey-1.apiproduct.llm_token_quota"/>
+  <Interval>1</Interval>
+  <TimeUnit>hour</TimeUnit>
+  <LLMTokenUsageSource>{jsonPath('$.usage.total_tokens',response.content,true)}</LLMTokenUsageSource>
+  <LLMModelSource>{resolved_llm_model}</LLMModelSource>
+</LLMTokenQuota>

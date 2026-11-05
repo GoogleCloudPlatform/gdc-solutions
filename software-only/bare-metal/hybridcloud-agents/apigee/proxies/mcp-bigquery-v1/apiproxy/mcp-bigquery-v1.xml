@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<APIProxy revision="1" name="mcp-bigquery-v1">
+  <DisplayName>mcp-bigquery-v1</DisplayName>
+  <Description>Track B Cloud MCP proxy to Google Cloud BigQuery Managed MCP Server using keyless WIF GoogleAccessToken.</Description>
+  <BasePaths>/mcp-bigquery</BasePaths>
+  <Policies>
+    <Policy>ParsePayload-MCP</Policy>
+    <Policy>VerifyAPIKey-1</Policy>
+    <Policy>Quota-PerToolLimit</Policy>
+    <Policy>AssignMessage-SetGoogleUserProject</Policy>
+  </Policies>
+  <ProxyEndpoints>
+    <ProxyEndpoint>default</ProxyEndpoint>
+  </ProxyEndpoints>
+  <TargetEndpoints>
+    <TargetEndpoint>default</TargetEndpoint>
+  </TargetEndpoints>
+</APIProxy>

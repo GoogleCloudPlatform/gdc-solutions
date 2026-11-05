@@ -106,6 +106,10 @@ metadata:
 apiVersion: v1
 data:
   envoy.yaml: |
+    node:
+      id: agent-egress-envoy
+      cluster: agent-egress-envoy
+
     admin:
       address:
         socket_address:
@@ -113,14 +117,6 @@ data:
           port_value: 9901
 
     static_resources:
-      secrets:
-        - name: apigee_sovereign_api_key
-          generic_secret:
-            secret:
-              filename: /etc/envoy/apigee-key/api-key
-              watched_directory:
-                path: /etc/envoy/apigee-key
-
       listeners:
         - name: agent_egress_15001
           address:
@@ -175,6 +171,10 @@ data:
                               "@type": type.googleapis.com/envoy.extensions.http.injected_credentials.generic.v3.Generic
                               credential:
                                 name: apigee_sovereign_api_key
+                                sds_config:
+                                  resource_api_version: V3
+                                  path_config_source:
+                                    path: /etc/envoy/sds-apigee-key.yaml
                               header: x-api-key
                       - name: envoy.filters.http.router
                         typed_config:
@@ -288,6 +288,13 @@ data:
                         socket_address:
                           address: 127.0.0.1
                           port_value: 9901
+  sds-apigee-key.yaml: |
+    resources:
+      - "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
+        name: apigee_sovereign_api_key
+        generic_secret:
+          secret:
+            filename: /etc/envoy/apigee-key/api-key
 kind: ConfigMap
 metadata:
   labels:
@@ -503,6 +510,10 @@ metadata:
 apiVersion: v1
 data:
   envoy.yaml: |
+    node:
+      id: ops-egress-envoy
+      cluster: ops-egress-envoy
+
     admin:
       address:
         socket_address:
@@ -510,14 +521,6 @@ data:
           port_value: 9901
 
     static_resources:
-      secrets:
-        - name: apigee_ops_orchestrator_api_key
-          generic_secret:
-            secret:
-              filename: /etc/envoy/apigee-key/api-key
-              watched_directory:
-                path: /etc/envoy/apigee-key
-
       listeners:
         - name: ops_egress_15001
           address:
@@ -571,6 +574,10 @@ data:
                               "@type": type.googleapis.com/envoy.extensions.http.injected_credentials.generic.v3.Generic
                               credential:
                                 name: apigee_ops_orchestrator_api_key
+                                sds_config:
+                                  resource_api_version: V3
+                                  path_config_source:
+                                    path: /etc/envoy/sds-apigee-key.yaml
                               header: x-api-key
                       - name: envoy.filters.http.router
                         typed_config:
@@ -658,6 +665,13 @@ data:
                         socket_address:
                           address: 127.0.0.1
                           port_value: 9901
+  sds-apigee-key.yaml: |
+    resources:
+      - "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
+        name: apigee_ops_orchestrator_api_key
+        generic_secret:
+          secret:
+            filename: /etc/envoy/apigee-key/api-key
 kind: ConfigMap
 metadata:
   labels:
@@ -810,7 +824,7 @@ spec:
               value: enterprise-sovereign
             - name: SOVEREIGN_MODEL_NAME
               value: google/gemma-4-31B-it
-          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:0.2.0@sha256:1f988895cd93e77402ab081ffde3d42e20ecc8ccfd275e948b24d6eb5216b6b2
+          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:0.2.0@sha256:f37a8449d2f2aab9211d439e14aacffdd80abbaec472b353b184368659a546c3
           livenessProbe:
             httpGet:
               path: /healthz
@@ -932,7 +946,7 @@ spec:
               value: "false"
             - name: SOVEREIGN_MODEL_NAME
               value: google/gemma-4-31B-it
-          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-sovereign-agent:0.1.2@sha256:9cbd8b4eac80a627542ca90fbdc5c133c477d18c51372fa9898f415d3c4395bf
+          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-sovereign-agent:0.1.2@sha256:501ef28c06fcf0dbf2f81a6f6915e4da46e84f3f626f4d7c11f01b0d2ecdf7f5
           livenessProbe:
             httpGet:
               path: /healthz
@@ -1373,6 +1387,28 @@ spec:
     matchLabels:
       app.kubernetes.io/component: ops-egress-proxy
       app.kubernetes.io/name: ops-egress-envoy
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  labels:
+    app.kubernetes.io/component: agent-egress-proxy
+    app.kubernetes.io/name: agent-egress-envoy
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: agent-egress-apigee-api-key
+  namespace: agent-workloads
+spec:
+  data:
+    - remoteRef:
+        key: apigee-sovereign-agent-api-key
+      secretKey: api-key
+  refreshInterval: 15m
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: gcp-secret-manager
+  target:
+    creationPolicy: Owner
+    name: agent-egress-apigee-api-key
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret

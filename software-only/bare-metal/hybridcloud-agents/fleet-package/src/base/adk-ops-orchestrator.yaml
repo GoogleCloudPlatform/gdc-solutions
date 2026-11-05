@@ -114,7 +114,7 @@ spec:
               value: enterprise-sovereign
             - name: SOVEREIGN_MODEL_NAME
               value: google/gemma-4-31B-it
-          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:0.2.0@sha256:1f988895cd93e77402ab081ffde3d42e20ecc8ccfd275e948b24d6eb5216b6b2
+          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:0.2.0@sha256:f37a8449d2f2aab9211d439e14aacffdd80abbaec472b353b184368659a546c3
           livenessProbe:
             httpGet:
               path: /healthz

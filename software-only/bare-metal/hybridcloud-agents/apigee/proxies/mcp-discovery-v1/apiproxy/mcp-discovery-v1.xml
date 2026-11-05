@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<APIProxy revision="1" name="mcp-discovery-v1">
+  <DisplayName>Track A Native Apigee MCP Discovery Proxy</DisplayName>
+  <Description>Exposes OpenAPI 3.0.3 catalog operations as native MCP tools via apigee-mcp-server with ParsePayload, VerifyAPIKey tool filtering, and per-tool Quota.</Description>
+  <ProxyOperationMode>MCP</ProxyOperationMode>
+  <BasePaths>/mcp</BasePaths>
+  <Policies>
+    <Policy>ParsePayload-MCP</Policy>
+    <Policy>VerifyAPIKey-1</Policy>
+    <Policy>Quota-PerToolLimit</Policy>
+  </Policies>
+  <ProxyEndpoints>
+    <ProxyEndpoint>default</ProxyEndpoint>
+  </ProxyEndpoints>
+  <Resources>
+    <Resource>oas://hybrid-agents-catalog.yaml</Resource>
+  </Resources>
+  <TargetEndpoints>
+    <TargetEndpoint>default</TargetEndpoint>
+  </TargetEndpoints>
+</APIProxy>

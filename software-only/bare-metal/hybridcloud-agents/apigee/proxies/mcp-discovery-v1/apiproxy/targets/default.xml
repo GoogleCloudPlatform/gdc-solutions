@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<TargetEndpoint name="default">
+  <PreFlow name="PreFlow">
+    <Request/>
+    <Response/>
+  </PreFlow>
+  <Flows/>
+  <HTTPTargetConnection>
+    <LoadBalancer>
+      <Algorithm>RoundRobin</Algorithm>
+      <Server name="gdcso-apigee-mcp-internal"/>
+    </LoadBalancer>
+    <Path>/mcp</Path>
+  </HTTPTargetConnection>
+</TargetEndpoint>

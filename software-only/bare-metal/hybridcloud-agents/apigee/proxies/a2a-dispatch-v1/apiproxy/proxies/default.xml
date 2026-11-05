@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ProxyEndpoint name="default">
+  <PreFlow name="PreFlow">
+    <Request>
+      <Step><Name>VerifyAPIKey-1</Name></Step>
+      <Step><Name>KeyValueMapOperations-ReadExpectedJwtSub</Name></Step>
+      <Step><Name>VerifyJWT-OrchestratorKSA</Name></Step>
+      <Step>
+        <Name>Quota-PerCallerAgent</Name>
+        <Condition>request.verb = "POST"</Condition>
+      </Step>
+    </Request>
+    <Response>
+      <Step><Name>AssignMessage-SetA2AResponseHeaders</Name></Step>
+    </Response>
+  </PreFlow>
+  <Flows/>
+  <HTTPProxyConnection>
+    <BasePath>/a2a/sovereign</BasePath>
+  </HTTPProxyConnection>
+  <RouteRule name="default">
+    <TargetEndpoint>default</TargetEndpoint>
+  </RouteRule>
+</ProxyEndpoint>

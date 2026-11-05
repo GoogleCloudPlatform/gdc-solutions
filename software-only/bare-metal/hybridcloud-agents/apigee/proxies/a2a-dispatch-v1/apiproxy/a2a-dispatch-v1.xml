@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<APIProxy revision="1" name="a2a-dispatch-v1">
+  <DisplayName>East-West A2A Sovereign Agent Dispatch Proxy</DisplayName>
+  <Description>Enforces per-caller API Product authorization (VerifyAPIKey), KVM-driven caller KSA JWT subject pinning (KeyValueMapOperations + VerifyJWT), and per-caller A2A rate limits (Quota) before dispatching A2A JSON-RPC over TLS 1.3 + client mTLS to TargetServer gdcso-agent-ingress.</Description>
+  <BasePaths>/a2a/sovereign</BasePaths>
+  <Policies>
+    <Policy>VerifyAPIKey-1</Policy>
+    <Policy>KeyValueMapOperations-ReadExpectedJwtSub</Policy>
+    <Policy>VerifyJWT-OrchestratorKSA</Policy>
+    <Policy>Quota-PerCallerAgent</Policy>
+    <Policy>AssignMessage-StripA2ACredentials</Policy>
+    <Policy>AssignMessage-SetA2AResponseHeaders</Policy>
+  </Policies>
+  <ProxyEndpoints>
+    <ProxyEndpoint>default</ProxyEndpoint>
+  </ProxyEndpoints>
+  <TargetEndpoints>
+    <TargetEndpoint>default</TargetEndpoint>
+  </TargetEndpoints>
+</APIProxy>

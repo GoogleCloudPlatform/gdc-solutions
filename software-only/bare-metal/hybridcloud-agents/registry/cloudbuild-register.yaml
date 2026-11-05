@@ -12,34 +12,93 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Cloud Build pipeline for automated Agent Registry reconciliation on Git tags.
-# Documentation references:
-#   - https://docs.cloud.google.com/agent-registry/manual-registration
-#   - https://docs.cloud.google.com/agent-registry/roles-permissions
-#   - https://docs.cloud.google.com/build/docs/securing-builds/configure-user-specified-service-accounts
+# Cloud Build pipeline for automated Apigee proxy bundle deployment, Apigee
+# agent identity + KVM + Secret Manager synchronization, and Agent Registry
+# reconciliation (A2A Agent Cards + local MCP servers) on Git tags.
 #
-# Required IAM on the dedicated Cloud Build service account:
-#   - roles/agentregistry.editor
-#   - roles/logging.logWriter
+# Required least-privilege IAM on the dedicated Cloud Build service account:
+#   - roles/agentregistry.editor (project)
+#   - roles/apigee.apiAdminV2 (project)
+#   - roles/apigee.developerAdmin (project)
+#   - roles/apigee.environmentAdmin (project)
+#   - roles/logging.logWriter (project)
+#   - roles/iam.serviceAccountUser (on the Apigee runtime service account only)
+#   - roles/secretmanager.secretVersionAdder (on per-agent API key secrets only)
 options:
   logging: CLOUD_LOGGING_ONLY
 steps:
   - args:
       - -c
       - |
+        if [[ -f "software-only/bare-metal/hybridcloud-agents/registry/sync-apigee-identity.sh" ]]; then
+          exec bash "software-only/bare-metal/hybridcloud-agents/registry/sync-apigee-identity.sh"
+        elif [[ -f "registry/sync-apigee-identity.sh" ]]; then
+          exec bash "registry/sync-apigee-identity.sh"
+        fi
+        exec bash "./sync-apigee-identity.sh"
+    entrypoint: bash
+    env:
+      - AGENTS_CLUSTER_OIDC_JWKS=${_AGENTS_CLUSTER_OIDC_JWKS}
+      - AGENTS_CLUSTER_OIDC_JWKS_B64=${_AGENTS_CLUSTER_OIDC_JWKS_B64}
+      - APIGEE_ENV=${_APIGEE_ENV}
+      - PROJECT_ID=${PROJECT_ID}
+    id: sync-apigee-identity
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+  - args:
+      - -c
+      - |
+        if [[ -f "software-only/bare-metal/hybridcloud-agents/registry/sync-apigee-proxies.sh" ]]; then
+          exec bash "software-only/bare-metal/hybridcloud-agents/registry/sync-apigee-proxies.sh"
+        elif [[ -f "registry/sync-apigee-proxies.sh" ]]; then
+          exec bash "registry/sync-apigee-proxies.sh"
+        fi
+        exec bash "./sync-apigee-proxies.sh"
+    entrypoint: bash
+    env:
+      - AGENTS_CLUSTER_NAME=${_AGENTS_CLUSTER_NAME}
+      - AGENTS_INGRESS_HOST=${_AGENTS_INGRESS_HOST}
+      - APIGEE_ENV=${_APIGEE_ENV}
+      - APIGEE_RUNTIME_SA=${_APIGEE_RUNTIME_SA}
+      - GATEWAY_CLUSTER_NAME=${_GATEWAY_CLUSTER_NAME}
+      - GATEWAY_FQDN=${_GATEWAY_FQDN}
+      - MCP_TOOLBOX_HOST=${_MCP_TOOLBOX_HOST}
+      - MODEL_ARMOR_LOCATION=${_MODEL_ARMOR_LOCATION}
+      - MODEL_CLUSTER_NAME=${_MODEL_CLUSTER_NAME}
+      - PROJECT_ID=${PROJECT_ID}
+      - VLLM_INGRESS_HOST=${_VLLM_INGRESS_HOST}
+    id: sync-apigee-proxies
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+  - args:
+      - -c
+      - |
         if [[ -f "software-only/bare-metal/hybridcloud-agents/registry/sync-agent-registry.sh" ]]; then
           exec bash "software-only/bare-metal/hybridcloud-agents/registry/sync-agent-registry.sh"
+        elif [[ -f "registry/sync-agent-registry.sh" ]]; then
+          exec bash "registry/sync-agent-registry.sh"
         fi
         exec bash "./sync-agent-registry.sh"
     entrypoint: bash
     env:
       - CARDS_DIR=${_CARDS_DIR}
       - GATEWAY_FQDN=${_GATEWAY_FQDN}
+      - MCP_SERVERS_DIR=${_MCP_SERVERS_DIR}
       - PROJECT_ID=${PROJECT_ID}
       - REGISTRY_LOCATION=${_REGISTRY_LOCATION}
     id: sync-agent-registry
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
 substitutions:
+  _AGENTS_CLUSTER_NAME: YOUR_AGENTS_CLUSTER_NAME
+  _AGENTS_CLUSTER_OIDC_JWKS: ""
+  _AGENTS_CLUSTER_OIDC_JWKS_B64: ""
+  _AGENTS_INGRESS_HOST: YOUR_AGENTS_INGRESS_HOST
+  _APIGEE_ENV: hybrid-agents-env
+  _APIGEE_RUNTIME_SA: ""
   _CARDS_DIR: ""
+  _GATEWAY_CLUSTER_NAME: YOUR_GATEWAY_CLUSTER_NAME
   _GATEWAY_FQDN: YOUR_GATEWAY_FQDN
+  _MCP_SERVERS_DIR: ""
+  _MCP_TOOLBOX_HOST: mcp-toolbox.mcp-tools.svc.cluster.local
+  _MODEL_ARMOR_LOCATION: us-central1
+  _MODEL_CLUSTER_NAME: YOUR_MODEL_CLUSTER_NAME
   _REGISTRY_LOCATION: us-central1
+  _VLLM_INGRESS_HOST: YOUR_VLLM_INGRESS_HOST

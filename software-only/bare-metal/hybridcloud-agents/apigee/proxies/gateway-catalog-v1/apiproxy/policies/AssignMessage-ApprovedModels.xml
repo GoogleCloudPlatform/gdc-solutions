@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AssignMessage-ApprovedModels">
+  <Set>
+    <StatusCode>200</StatusCode>
+    <Payload contentType="application/json">{"models":[{"alias":"enterprise-sovereign","id":"google/gemma-4-31B-it","tier":"sovereign","runtime":"local-vllm-{propertyset.hybrid_agents_env.model_cluster_name}","endpoints":["/v1/chat/completions","/v1beta/models/enterprise-sovereign:generateContent"]},{"alias":"enterprise-flash","id":"google/gemini-3.5-flash","tier":"cloud-eligible","runtime":"vertex-ai-model-armor","endpoints":["/v1/chat/completions","/v1beta/models/enterprise-flash:generateContent"]}]}</Payload>
+  </Set>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+  <AssignTo createNew="false" transport="http" type="response"/>
+</AssignMessage>

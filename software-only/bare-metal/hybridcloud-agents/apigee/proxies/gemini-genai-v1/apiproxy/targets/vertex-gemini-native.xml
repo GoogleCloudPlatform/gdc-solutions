@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<TargetEndpoint name="vertex-gemini-native">
+  <PreFlow name="PreFlow">
+    <Request>
+      <Step><Name>JS-SetGenAITargetPath</Name></Step>
+      <Step><Name>SanitizeUserPrompt-CloudBurst</Name></Step>
+    </Request>
+    <Response/>
+  </PreFlow>
+  <PostFlow name="PostFlow">
+    <Request/>
+    <Response>
+      <Step><Name>JS-ExtractGeminiResponse</Name></Step>
+      <Step><Name>SanitizeModelResponse-CloudBurst</Name></Step>
+    </Response>
+  </PostFlow>
+  <Flows/>
+  <HTTPTargetConnection>
+    <Authentication>
+      <GoogleAccessToken>
+        <Scopes>
+          <Scope>https://www.googleapis.com/auth/cloud-platform</Scope>
+        </Scopes>
+      </GoogleAccessToken>
+    </Authentication>
+    <Properties>
+      <Property name="success.codes">2XX</Property>
+      <Property name="io.timeout.millis">120000</Property>
+      <Property name="connect.timeout.millis">10000</Property>
+    </Properties>
+    <LoadBalancer>
+      <Algorithm>RoundRobin</Algorithm>
+      <Server name="gdcso-vertex-ai"/>
+    </LoadBalancer>
+    <Path>/v1/projects/{propertyset.hybrid_agents_env.project_id}/locations/{propertyset.hybrid_agents_env.vertex_location}/publishers/google/models/{vertex_model_action}</Path>
+  </HTTPTargetConnection>
+</TargetEndpoint>

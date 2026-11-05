@@ -1,0 +1,49 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+agentCard: cards/adk-ops-orchestrator.json
+allowedModelAliases:
+  - enterprise-sovereign
+  - enterprise-flash
+  - google/gemma-4-31B-it
+  - google/gemini-3.5-flash
+apiProducts:
+  - allowCloudBurst: "true"
+    llmTokenQuotaInterval: "1"
+    llmTokenQuotaLimit: "500000"
+    llmTokenQuotaTimeUnit: hour
+    name: cloud-eligible-agents
+    promptTokenRate: 2400pm
+    spikeArrestRate: 30ps
+  - name: cloud-eligible-agents-mcp
+    spikeArrestRate: 30ps
+    toolQuotaInterval: "1"
+    toolQuotaLimit: "60"
+    toolQuotaTimeUnit: minute
+  - name: a2a-sovereign-callers
+    spikeArrestRate: 30ps
+apigeeApp:
+  businessUnit: corp-it
+  costCenter: CC-OPS-205
+  developerEmail: hybrid-agents-platform@example.com
+  name: ops-orchestrator-app
+exposedMcpServers:
+  - mcp-bigquery
+  - mcp-storage
+kubernetesIdentity:
+  expectedJwtSubject: system:serviceaccount:agent-workloads:adk-ops-orchestrator
+  namespace: agent-workloads
+  serviceAccount: adk-ops-orchestrator
+name: adk-ops-orchestrator
+secretManagerSecret: apigee-ops-orchestrator-api-key

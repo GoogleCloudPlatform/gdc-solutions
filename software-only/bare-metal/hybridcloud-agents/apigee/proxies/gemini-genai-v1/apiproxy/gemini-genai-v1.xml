@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<APIProxy revision="2" name="gemini-genai-v1">
+  <DisplayName>Google GenAI SDK Native Gemini Protocol Adapter (Wave AGT)</DisplayName>
+  <Description>Exposes Google GenAI SDK native v1beta generateContent/streamGenerateContent routes, enforcing JSONThreatProtection, VerifyAPIKey, SpikeArrest, KVM-driven VerifyJWT subject pinning, KVM model alias resolution, Model Armor on cloud-burst, and bidirectional Gemini-to-OpenAI translation for sovereign local vLLM.</Description>
+  <BasePaths>/v1beta</BasePaths>
+  <Policies>
+    <Policy>JSONThreatProtection-Guard</Policy>
+    <Policy>AssignMessage-JSONThreat400</Policy>
+    <Policy>VerifyAPIKey-1</Policy>
+    <Policy>SpikeArrest-Ingress</Policy>
+    <Policy>KeyValueMapOperations-ReadExpectedJwtSub</Policy>
+    <Policy>VerifyJWT-AgentKSA</Policy>
+    <Policy>KeyValueMapOperations-ReadAliases</Policy>
+    <Policy>JS-PrepareGeminiGenAI</Policy>
+    <Policy>RaiseFault-ModelNotAuthorized</Policy>
+    <Policy>JS-SetGenAITargetPath</Policy>
+    <Policy>JS-TranslateVLLMToGemini</Policy>
+    <Policy>JS-ExtractGeminiResponse</Policy>
+    <Policy>SanitizeUserPrompt-CloudBurst</Policy>
+    <Policy>SanitizeModelResponse-CloudBurst</Policy>
+  </Policies>
+  <ProxyEndpoints>
+    <ProxyEndpoint>default</ProxyEndpoint>
+  </ProxyEndpoints>
+  <Resources>
+    <Resource>jsc://prepare_gemini_genai.js</Resource>
+    <Resource>jsc://set_genai_target_path.js</Resource>
+    <Resource>jsc://translate_vllm_to_gemini.js</Resource>
+    <Resource>jsc://extract_gemini_response.js</Resource>
+  </Resources>
+  <TargetEndpoints>
+    <TargetEndpoint>local-vllm-translated</TargetEndpoint>
+    <TargetEndpoint>vertex-gemini-native</TargetEndpoint>
+  </TargetEndpoints>
+</APIProxy>

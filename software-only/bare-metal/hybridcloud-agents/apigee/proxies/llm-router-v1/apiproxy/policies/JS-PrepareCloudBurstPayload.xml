@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="false" enabled="true" timeLimit="200" name="JS-PrepareCloudBurstPayload">
+  <DisplayName>Prepare Cloud Burst &amp; Local Failover Payloads</DisplayName>
+  <ResourceURL>jsc://prepare_cloud_burst.js</ResourceURL>
+</Javascript>

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ProxyEndpoint name="default">
+  <FaultRules>
+    <FaultRule name="JSONThreatProtectionViolation">
+      <Condition>(jsonattack.JSONThreatProtection-Guard.failed = true) or (fault.name = "ExecutionFailed")</Condition>
+      <Step><Name>AssignMessage-JSONThreat400</Name></Step>
+    </FaultRule>
+  </FaultRules>
+  <PreFlow name="PreFlow">
+    <Request>
+      <Step>
+        <Name>JSONThreatProtection-Guard</Name>
+        <Condition>(request.verb = "POST") and (request.content != null) and (request.content != "")</Condition>
+      </Step>
+      <Step><Name>VerifyAPIKey-1</Name></Step>
+      <Step><Name>SpikeArrest-Ingress</Name></Step>
+      <Step>
+        <Name>KeyValueMapOperations-ReadExpectedJwtSub</Name>
+        <Condition>(request.header.x-agent-ksa-token != null) and (request.header.x-agent-ksa-token != "")</Condition>
+      </Step>
+      <Step>
+        <Name>VerifyJWT-AgentKSA</Name>
+        <Condition>(request.header.x-agent-ksa-token != null) and (request.header.x-agent-ksa-token != "")</Condition>
+      </Step>
+    </Request>
+    <Response/>
+  </PreFlow>
+  <Flows/>
+  <HTTPProxyConnection>
+    <BasePath>/agents/ops-orchestrator</BasePath>
+  </HTTPProxyConnection>
+  <RouteRule name="sse-stream">
+    <Condition>proxy.pathsuffix MatchesPath "/invoke-stream"</Condition>
+    <TargetEndpoint>sse-stream</TargetEndpoint>
+  </RouteRule>
+  <RouteRule name="default">
+    <TargetEndpoint>default</TargetEndpoint>
+  </RouteRule>
+</ProxyEndpoint>

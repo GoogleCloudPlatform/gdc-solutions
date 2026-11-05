@@ -16,9 +16,10 @@ limitations under the License.
 
 # Hybrid Cloud AI Agents on Distributed Cloud software only
 
-Reference GitOps fleet packages and Agent Registry synchronization pipeline for
-running Apigee-mediated Google Agent Development Kit (ADK) multi-agent workloads
-on Distributed Cloud software only.
+Reference GitOps fleet packages, portable Apigee hybrid proxy bundles, per-agent
+identity manifests, and Agent Registry synchronization pipeline for running
+Apigee-mediated Google Agent Development Kit (ADK) multi-agent workloads on
+Distributed Cloud software only.
 
 ## Disclaimer
 
@@ -40,6 +41,22 @@ environment.
 ```text
 hybridcloud-agents/
 ├── README.md
+├── apigee/
+│   ├── environments/
+│   │   └── env-config.json
+│   ├── products/
+│   │   └── api-products.json
+│   └── proxies/
+│       ├── a2a-dispatch-v1/
+│       ├── agent-dispatch-v1/
+│       ├── gateway-catalog-v1/
+│       ├── gemini-genai-v1/
+│       ├── llm-router-v1/
+│       ├── mcp-bigquery-v1/
+│       ├── mcp-discovery-v1/
+│       ├── mcp-storage-v1/
+│       ├── mcp-toolbox-v1/
+│       └── ops-agent-dispatch-v1/
 ├── fleet-package/
 │   ├── configdelivery-rbac.yaml
 │   ├── environments/
@@ -62,11 +79,22 @@ hybridcloud-agents/
 │           └── agents/
 │               └── kustomization.yaml
 ├── registry/
+│   ├── agents/
+│   │   ├── adk-ops-orchestrator/
+│   │   │   └── agent.yaml
+│   │   └── adk-sovereign-agent/
+│   │       └── agent.yaml
 │   ├── cards/
 │   │   ├── adk-ops-orchestrator.json
 │   │   └── adk-sovereign-agent.json
 │   ├── cloudbuild-register.yaml
-│   └── sync-agent-registry.sh
+│   ├── mcp-servers/
+│   │   ├── mcp-bigquery.yaml
+│   │   ├── mcp-storage.yaml
+│   │   └── mcp-toolbox.yaml
+│   ├── sync-agent-registry.sh
+│   ├── sync-apigee-identity.sh
+│   └── sync-apigee-proxies.sh
 └── tests/
     └── a2a/
         ├── environments/
@@ -84,19 +112,24 @@ hybridcloud-agents/
                     └── kustomization.yaml
 ```
 
+- `apigee/` contains portable, config-as-code Apigee hybrid 1.17 proxy bundles
+  (`proxies/`), base API product specifications (`products/api-products.json`),
+  and environment configuration templates (`environments/env-config.json` for
+  `TargetServers`, environment property sets, and KVM maps). All proxy bundles
+  resolve backend hosts through `TargetServers`, environment settings through
+  `propertyset.hybrid_agents_env.*`, and expected Kubernetes service account JWT
+  subjects plus OIDC JWKS dynamically from the `agent-jwt-subjects` KVM.
 - `fleet-package/` contains the Google Cloud Config Delivery (`FleetPackage`)
   specification, least-privilege `RootSync` RBAC manifest, DRY Kustomize sources
   (`src/`), render script (`render.sh`), and rendered plain-KRM variant bundle
   (`environments/agents/manifests.yaml`) for clusters labeled
-  `cluster-role=agents`. It deploys `Namespace/agent-workloads` (`restricted`
-  Pod Security Standards), default-deny and proxy-enforcing `NetworkPolicy`
-  resources, Envoy mTLS ingress and egress mediation proxies with OpenTelemetry
-  tracing, `adk-sovereign-agent`, `adk-ops-orchestrator`, and Managed Service
-  for Prometheus `PodMonitoring` resources.
-- `registry/` contains generic A2A Agent Card definitions (`cards/*.json`), an
-  idempotent synchronization script (`sync-agent-registry.sh`), and a Cloud
-  Build configuration (`cloudbuild-register.yaml`) that reconciles custom Agent
-  Registry `Service` resources using `gcloud agent-registry services`.
+  `cluster-role=agents`.
+- `registry/` contains per-agent identity and quota manifests
+  (`agents/<agent>/agent.yaml`), generic A2A Agent Card definitions
+  (`cards/*.json`), local MCP server tool specifications (`mcp-servers/*.yaml`),
+  and the three idempotent Cloud Build reconciliation scripts
+  (`sync-apigee-proxies.sh`, `sync-apigee-identity.sh`, and
+  `sync-agent-registry.sh`) orchestrated by `cloudbuild-register.yaml`.
 - `tests/a2a/` contains an optional, self-pruning `FleetPackage`
   (`hybridcloud-agents-a2a-tests` with `deletionPropagationPolicy: FOREGROUND`)
   that runs negative-security verification `Job` workloads for rogue caller
@@ -110,13 +143,19 @@ trigger substitutions before you deploy:
 
 <!-- mdformat off -->
 
-| Placeholder              | Description                                                                              |
-| :----------------------- | :--------------------------------------------------------------------------------------- |
-| `YOUR_PROJECT_ID`        | Google Cloud fleet host project ID                                                       |
-| `YOUR_PROJECT_NUMBER`    | Numeric Google Cloud fleet host project number (for the Config Delivery service agent)   |
-| `YOUR_CONNECTION`        | Cloud Build 2nd-gen Git repository connection name in `us-central1`                      |
-| `YOUR_REPOSITORY`        | Linked repository resource name inside `YOUR_CONNECTION`                                 |
-| `YOUR_PUBLISHER_SA_NAME` | Service account name used by Config Delivery / Cloud Build to package releases           |
-| `YOUR_GATEWAY_FQDN`      | Internal FQDN of the Apigee hybrid ingress gateway substituted into Agent Registry cards |
+| Placeholder                     | Description                                                                              |
+| :------------------------------ | :--------------------------------------------------------------------------------------- |
+| `YOUR_PROJECT_ID`               | Google Cloud fleet host and Apigee organization project ID                               |
+| `YOUR_PROJECT_NUMBER`           | Numeric Google Cloud fleet host project number (for the Config Delivery service agent)   |
+| `YOUR_CONNECTION`               | Cloud Build 2nd-gen Git repository connection name in `us-central1`                      |
+| `YOUR_REPOSITORY`               | Linked repository resource name inside `YOUR_CONNECTION`                                 |
+| `YOUR_PUBLISHER_SA_NAME`        | Service account name used by Config Delivery / Cloud Build to package releases           |
+| `YOUR_GATEWAY_FQDN`             | Internal FQDN of the Apigee hybrid ingress gateway substituted into Agent Registry cards |
+| `YOUR_AGENTS_INGRESS_HOST`      | IP or hostname of the Agents cluster Envoy mTLS ingress gateway (`gdcso-agent-ingress`)  |
+| `YOUR_VLLM_INGRESS_HOST`        | IP or hostname of the Model cluster sovereign vLLM ingress gateway (`gdcso-local-vllm`)  |
+| `YOUR_AGENTS_CLUSTER_NAME`      | Fleet membership name of the Agents cluster (`agents.cluster.name` in property set)      |
+| `YOUR_GATEWAY_CLUSTER_NAME`     | Fleet membership name of the Gateway cluster (`gateway.cluster.name` in property set)    |
+| `YOUR_MODEL_CLUSTER_NAME`       | Fleet membership name of the Model cluster (`model.cluster.name` in property set)        |
+| `_AGENTS_CLUSTER_OIDC_JWKS_B64` | Base64-encoded OIDC JWKS (`kubectl get --raw /openid/v1/jwks`) of the Agents cluster     |
 
 <!-- mdformat on -->

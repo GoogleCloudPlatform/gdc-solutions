@@ -1,0 +1,53 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+description: Governed on-premises MCP Toolbox for Databases (PostgreSQL and pgvector) behind Apigee hybrid mcp-toolbox-v1.
+displayName: mcp-toolbox
+interface:
+  protocolBinding: JSONRPC
+  url: https://YOUR_GATEWAY_FQDN/mcp-toolbox
+name: mcp-toolbox
+tools:
+  - annotations:
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: false
+      readOnlyHint: true
+      title: Search Sovereign Policies by Category
+    description: Queries on-premises PostgreSQL sovereign_policies rows filtered by policy category.
+    inputSchema:
+      properties:
+        category:
+          description: Policy category filter (for example data-residency or model-governance).
+          type: string
+      required:
+        - category
+      type: object
+    name: search_sovereign_policies_by_category
+  - annotations:
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: false
+      readOnlyHint: true
+      title: Semantic Search Sovereign Policies
+    description: Performs pgvector cosine-distance similarity search over on-premises sovereign policy embeddings.
+    inputSchema:
+      properties:
+        query_embedding:
+          description: Bracketed 768-dimensional float vector string.
+          type: string
+      required:
+        - query_embedding
+      type: object
+    name: semantic_search_sovereign_policies

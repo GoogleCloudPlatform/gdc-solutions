@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Quota continueOnError="false" enabled="true" name="Quota-PerCallerAgent">
+  <DisplayName>Per-Caller-Agent A2A Invocation Quota</DisplayName>
+  <Allow count="4"/>
+  <Interval>2</Interval>
+  <TimeUnit>minute</TimeUnit>
+  <Identifier ref="developer.app.name"/>
+  <Distributed>true</Distributed>
+  <Synchronous>true</Synchronous>
+</Quota>

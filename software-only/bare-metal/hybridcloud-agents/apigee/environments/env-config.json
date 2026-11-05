@@ -1,0 +1,139 @@
+{
+  "environment": "hybrid-agents-env",
+  "keyValueMaps": {
+    "agent-jwt-subjects": {
+      "encrypted": true,
+      "staticEntries": {
+        "agt7-runaway-sandbox-app": "system:serviceaccount:agent-workloads:adk-sovereign-agent",
+        "cloud-eligible-agents-app": "system:serviceaccount:agent-workloads:adk-sovereign-agent",
+        "prompt-limit-test-agents-app": "system:serviceaccount:agent-workloads:adk-sovereign-agent",
+        "quota-test-agents-app": "system:serviceaccount:agent-workloads:adk-sovereign-agent"
+      }
+    },
+    "ai-model-aliases": {
+      "encrypted": true,
+      "entries": {
+        "canary_target": "google/gemma-4-31B-it",
+        "canary_weight": "0",
+        "enterprise-flash": "google/gemini-3.5-flash",
+        "enterprise-sovereign": "google/gemma-4-31B-it"
+      }
+    }
+  },
+  "propertySets": {
+    "hybrid_agents_env": {
+      "agents_cluster_name": "YOUR_AGENTS_CLUSTER_NAME",
+      "apigee_mcp_internal_host": "YOUR_PROJECT_ID.mcp.apigee.internal",
+      "gateway_cluster_name": "YOUR_GATEWAY_CLUSTER_NAME",
+      "gateway_jwt_audience": "YOUR_GATEWAY_FQDN",
+      "k8s_jwt_issuer": "https://kubernetes.default.svc.cluster.local",
+      "model_armor_location": "YOUR_GCP_REGION",
+      "model_armor_template_id": "hybrid-agents-cloud-burst-armor",
+      "model_cluster_name": "YOUR_MODEL_CLUSTER_NAME",
+      "project_id": "YOUR_PROJECT_ID",
+      "vertex_location": "global"
+    }
+  },
+  "runtimeServiceAccountProxies": [
+    "gemini-genai-v1",
+    "llm-router-v1",
+    "mcp-bigquery-v1",
+    "mcp-storage-v1"
+  ],
+  "targetServers": [
+    {
+      "host": "YOUR_AGENTS_INGRESS_HOST",
+      "isEnabled": true,
+      "name": "gdcso-agent-ingress",
+      "port": 8443,
+      "sSLInfo": {
+        "clientAuthEnabled": true,
+        "enabled": true,
+        "ignoreValidationErrors": false,
+        "keyAlias": "envoy-client",
+        "keyStore": "ref://apigee-envoy-client-keystore-ref",
+        "trustStore": "ref://hybrid-agents-truststore-ref"
+      }
+    },
+    {
+      "host": "YOUR_MCP_TOOLBOX_HOST",
+      "isEnabled": true,
+      "name": "gdcso-mcp-toolbox",
+      "port": 8443,
+      "sSLInfo": {
+        "clientAuthEnabled": false,
+        "enabled": true,
+        "ignoreValidationErrors": false,
+        "trustStore": "ref://hybrid-agents-truststore-ref"
+      }
+    },
+    {
+      "host": "YOUR_VLLM_INGRESS_HOST",
+      "isEnabled": true,
+      "name": "gdcso-local-vllm",
+      "port": 443,
+      "sSLInfo": {
+        "clientAuthEnabled": false,
+        "enabled": true,
+        "ignoreValidationErrors": false,
+        "trustStore": "ref://hybrid-agents-truststore-ref"
+      }
+    },
+    {
+      "host": "YOUR_VLLM_INGRESS_HOST",
+      "isEnabled": true,
+      "name": "gdcso-local-vllm-down",
+      "port": 9443,
+      "sSLInfo": {
+        "clientAuthEnabled": false,
+        "enabled": true,
+        "ignoreValidationErrors": false,
+        "trustStore": "ref://hybrid-agents-truststore-ref"
+      }
+    },
+    {
+      "host": "aiplatform.googleapis.com",
+      "isEnabled": true,
+      "name": "gdcso-vertex-ai",
+      "port": 443,
+      "sSLInfo": {
+        "clientAuthEnabled": false,
+        "enabled": true,
+        "ignoreValidationErrors": false
+      }
+    },
+    {
+      "host": "bigquery.googleapis.com",
+      "isEnabled": true,
+      "name": "gdcso-bigquery-mcp",
+      "port": 443,
+      "sSLInfo": {
+        "clientAuthEnabled": false,
+        "enabled": true,
+        "ignoreValidationErrors": false
+      }
+    },
+    {
+      "host": "storage.googleapis.com",
+      "isEnabled": true,
+      "name": "gdcso-storage-mcp",
+      "port": 443,
+      "sSLInfo": {
+        "clientAuthEnabled": false,
+        "enabled": true,
+        "ignoreValidationErrors": false
+      }
+    },
+    {
+      "host": "YOUR_PROJECT_ID.mcp.apigee.internal",
+      "isEnabled": true,
+      "name": "gdcso-apigee-mcp-internal",
+      "port": 443,
+      "sSLInfo": {
+        "clientAuthEnabled": false,
+        "enabled": true,
+        "ignoreValidationErrors": false
+      }
+    }
+  ]
+}

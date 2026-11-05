@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ProxyEndpoint name="default">
+  <FaultRules>
+    <FaultRule name="JSONThreatProtectionViolation">
+      <Condition>(jsonattack.JSONThreatProtection-Guard.failed = true) or (fault.name = "ExecutionFailed")</Condition>
+      <Step><Name>AssignMessage-JSONThreat400</Name></Step>
+    </FaultRule>
+    <FaultRule name="RateOrTokenQuotaViolationHeaders">
+      <Condition>(fault.name = "QuotaViolation") or (fault.name = "SpikeArrestViolation") or (fault.name = "PromptTokenLimitExceeded") or (error.status.code = 429)</Condition>
+      <Step><Name>JS-SetQuotaHeaders</Name></Step>
+    </FaultRule>
+  </FaultRules>
+  <PreFlow name="PreFlow">
+    <Request>
+      <Step>
+        <Name>JSONThreatProtection-Guard</Name>
+        <Condition>(request.verb = "POST") and (request.content != null) and (request.content != "")</Condition>
+      </Step>
+      <Step><Name>VerifyAPIKey-1</Name></Step>
+      <Step><Name>SpikeArrest-Ingress</Name></Step>
+      <Step><Name>KeyValueMapOperations-ReadExpectedJwtSub</Name></Step>
+      <Step><Name>VerifyJWT-AgentKSA</Name></Step>
+      <Step>
+        <Name>RaiseFault-CloudBurstForbidden</Name>
+        <Condition>((request.header.x-data-classification = "cloud-eligible") or (request.header.x-data-classification = "public")) and (verifyapikey.VerifyAPIKey-1.apiproduct.allow_cloud_burst != "true")</Condition>
+      </Step>
+      <Step>
+        <Name>KeyValueMapOperations-ReadAliases</Name>
+        <Condition>proxy.pathsuffix MatchesPath "/chat/completions"</Condition>
+      </Step>
+      <Step>
+        <Name>JS-ResolveModelAlias</Name>
+        <Condition>proxy.pathsuffix MatchesPath "/chat/completions"</Condition>
+      </Step>
+      <Step>
+        <Name>RaiseFault-ModelNotAuthorized</Name>
+        <Condition>model_not_authorized = "true"</Condition>
+      </Step>
+      <Step>
+        <Name>PromptTokenLimit-Burst</Name>
+        <Condition>proxy.pathsuffix MatchesPath "/chat/completions"</Condition>
+      </Step>
+      <Step>
+        <Name>LLMTokenQuota-Enforce</Name>
+        <Condition>proxy.pathsuffix MatchesPath "/chat/completions"</Condition>
+      </Step>
+      <!-- Preserved backward-compatible SM-2e synthetic failover trigger alongside real TargetEndpoint FaultRules -->
+      <Step>
+        <Name>JS-PrepareCloudBurstPayload</Name>
+        <Condition>((request.header.x-data-classification = "cloud-eligible") or (request.header.x-data-classification = "public")) and (request.header.x-simulate-cloud-burst-status = "503") and (proxy.pathsuffix MatchesPath "/chat/completions")</Condition>
+      </Step>
+      <Step>
+        <Name>SanitizeUserPrompt-CloudBurst</Name>
+        <Condition>((request.header.x-data-classification = "cloud-eligible") or (request.header.x-data-classification = "public")) and (request.header.x-simulate-cloud-burst-status = "503") and (proxy.pathsuffix MatchesPath "/chat/completions")</Condition>
+      </Step>
+      <Step>
+        <Name>ServiceCallout-FailoverLocalVLLM</Name>
+        <Condition>((request.header.x-data-classification = "cloud-eligible") or (request.header.x-data-classification = "public")) and (request.header.x-simulate-cloud-burst-status = "503") and (proxy.pathsuffix MatchesPath "/chat/completions")</Condition>
+      </Step>
+    </Request>
+    <Response>
+      <Step>
+        <Name>AssignMessage-UseFailoverResponse</Name>
+        <Condition>(request.header.x-simulate-cloud-burst-status = "503") and (failoverVllmResp.content != null)</Condition>
+      </Step>
+    </Response>
+  </PreFlow>
+  <PostFlow name="PostFlow">
+    <Request/>
+    <Response>
+      <Step>
+        <Name>LLMTokenQuota-Count</Name>
+        <Condition>(proxy.pathsuffix MatchesPath "/chat/completions") and (is_sse_stream != "true") and (quota_already_counted != "true")</Condition>
+      </Step>
+      <Step>
+        <Name>JS-SetQuotaHeaders</Name>
+        <Condition>(proxy.pathsuffix MatchesPath "/chat/completions") and (is_sse_stream != "true") and (quota_already_counted != "true")</Condition>
+      </Step>
+      <Step>
+        <Name>DataCapture-FinOps</Name>
+        <Condition>(proxy.pathsuffix MatchesPath "/chat/completions") and (is_sse_stream != "true")</Condition>
+      </Step>
+    </Response>
+  </PostFlow>
+  <Flows/>
+  <HTTPProxyConnection>
+    <BasePath>/v1</BasePath>
+  </HTTPProxyConnection>
+  <RouteRule name="SimulatedCloudBurstFailover">
+    <Condition>((request.header.x-data-classification = "cloud-eligible") or (request.header.x-data-classification = "public")) and (request.header.x-simulate-cloud-burst-status = "503")</Condition>
+  </RouteRule>
+  <RouteRule name="CloudBurstVertexGeminiSSE">
+    <Condition>(llm_target_tier = "vertex-gemini") and (is_sse_stream = "true")</Condition>
+    <TargetEndpoint>vertex-gemini-sse</TargetEndpoint>
+  </RouteRule>
+  <RouteRule name="CloudBurstVertexGemini">
+    <Condition>llm_target_tier = "vertex-gemini"</Condition>
+    <TargetEndpoint>vertex-gemini</TargetEndpoint>
+  </RouteRule>
+  <RouteRule name="SovereignLocalVLLMSSE">
+    <Condition>is_sse_stream = "true"</Condition>
+    <TargetEndpoint>local-vllm-sse</TargetEndpoint>
+  </RouteRule>
+  <RouteRule name="SovereignLocalVLLM">
+    <TargetEndpoint>local-vllm</TargetEndpoint>
+  </RouteRule>
+</ProxyEndpoint>

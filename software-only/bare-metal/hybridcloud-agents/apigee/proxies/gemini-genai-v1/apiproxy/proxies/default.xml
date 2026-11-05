@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ProxyEndpoint name="default">
+  <FaultRules>
+    <FaultRule name="JSONThreatProtectionViolation">
+      <Condition>(jsonattack.JSONThreatProtection-Guard.failed = true) or (fault.name = "ExecutionFailed")</Condition>
+      <Step><Name>AssignMessage-JSONThreat400</Name></Step>
+    </FaultRule>
+  </FaultRules>
+  <PreFlow name="PreFlow">
+    <Request>
+      <Step>
+        <Name>JSONThreatProtection-Guard</Name>
+        <Condition>(request.verb = "POST") and (request.content != null) and (request.content != "")</Condition>
+      </Step>
+      <Step><Name>VerifyAPIKey-1</Name></Step>
+      <Step><Name>SpikeArrest-Ingress</Name></Step>
+      <Step><Name>KeyValueMapOperations-ReadExpectedJwtSub</Name></Step>
+      <Step><Name>VerifyJWT-AgentKSA</Name></Step>
+      <Step><Name>KeyValueMapOperations-ReadAliases</Name></Step>
+      <Step><Name>JS-PrepareGeminiGenAI</Name></Step>
+      <Step>
+        <Name>RaiseFault-ModelNotAuthorized</Name>
+        <Condition>model_not_authorized = "true"</Condition>
+      </Step>
+    </Request>
+    <Response/>
+  </PreFlow>
+  <PostFlow name="PostFlow">
+    <Request/>
+    <Response/>
+  </PostFlow>
+  <Flows/>
+  <HTTPProxyConnection>
+    <BasePath>/v1beta</BasePath>
+  </HTTPProxyConnection>
+  <RouteRule name="CloudBurstVertexNative">
+    <Condition>genai_target_tier = "vertex-gemini"</Condition>
+    <TargetEndpoint>vertex-gemini-native</TargetEndpoint>
+  </RouteRule>
+  <RouteRule name="SovereignLocalVLLMTranslated">
+    <TargetEndpoint>local-vllm-translated</TargetEndpoint>
+  </RouteRule>
+</ProxyEndpoint>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SanitizeModelResponse continueOnError="false" enabled="true" name="SanitizeModelResponse-CloudBurst">
+  <DisplayName>Model Armor Sanitize Model Response (GenAI Facade)</DisplayName>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+  <ModelArmor>
+    <TemplateName>projects/{propertyset.hybrid_agents_env.project_id}/locations/{propertyset.hybrid_agents_env.model_armor_location}/templates/{propertyset.hybrid_agents_env.model_armor_template_id}</TemplateName>
+  </ModelArmor>
+  <UserPromptSource>{model_armor_user_prompt}</UserPromptSource>
+  <LLMResponseSource>{model_armor_llm_response}</LLMResponseSource>
+</SanitizeModelResponse>

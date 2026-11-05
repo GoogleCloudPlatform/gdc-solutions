@@ -48,6 +48,10 @@ spec:
 apiVersion: v1
 data:
   envoy.yaml: |
+    node:
+      id: ops-egress-envoy
+      cluster: ops-egress-envoy
+
     admin:
       address:
         socket_address:
@@ -55,14 +59,6 @@ data:
           port_value: 9901
 
     static_resources:
-      secrets:
-        - name: apigee_ops_orchestrator_api_key
-          generic_secret:
-            secret:
-              filename: /etc/envoy/apigee-key/api-key
-              watched_directory:
-                path: /etc/envoy/apigee-key
-
       listeners:
         - name: ops_egress_15001
           address:
@@ -116,6 +112,10 @@ data:
                               "@type": type.googleapis.com/envoy.extensions.http.injected_credentials.generic.v3.Generic
                               credential:
                                 name: apigee_ops_orchestrator_api_key
+                                sds_config:
+                                  resource_api_version: V3
+                                  path_config_source:
+                                    path: /etc/envoy/sds-apigee-key.yaml
                               header: x-api-key
                       - name: envoy.filters.http.router
                         typed_config:
@@ -203,6 +203,13 @@ data:
                         socket_address:
                           address: 127.0.0.1
                           port_value: 9901
+  sds-apigee-key.yaml: |
+    resources:
+      - "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
+        name: apigee_ops_orchestrator_api_key
+        generic_secret:
+          secret:
+            filename: /etc/envoy/apigee-key/api-key
 kind: ConfigMap
 metadata:
   labels:

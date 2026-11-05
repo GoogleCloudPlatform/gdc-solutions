@@ -1,0 +1,44 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+agentCard: cards/adk-sovereign-agent.json
+allowedModelAliases:
+  - enterprise-sovereign
+  - google/gemma-4-31B-it
+apiProducts:
+  - allowCloudBurst: "false"
+    llmTokenQuotaInterval: "1"
+    llmTokenQuotaLimit: "500000"
+    llmTokenQuotaTimeUnit: hour
+    name: sovereign-agents
+    promptTokenRate: 120000pm
+    spikeArrestRate: 30ps
+  - name: sovereign-agents-mcp
+    spikeArrestRate: 30ps
+    toolQuotaInterval: "1"
+    toolQuotaLimit: "60"
+    toolQuotaTimeUnit: minute
+apigeeApp:
+  businessUnit: fab-etch
+  costCenter: CC-FAB-410
+  developerEmail: hybrid-agents-platform@example.com
+  name: sovereign-agents-app
+exposedMcpServers:
+  - mcp-toolbox
+kubernetesIdentity:
+  expectedJwtSubject: system:serviceaccount:agent-workloads:adk-sovereign-agent
+  namespace: agent-workloads
+  serviceAccount: adk-sovereign-agent
+name: adk-sovereign-agent
+secretManagerSecret: apigee-sovereign-agent-api-key

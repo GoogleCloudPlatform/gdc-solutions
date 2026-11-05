@@ -1,0 +1,1060 @@
+[
+  {
+    "name": "sovereign-agents",
+    "displayName": "Sovereign Agents REST & LLM Product",
+    "approvalType": "auto",
+    "environments": [
+      "hybrid-agents-env"
+    ],
+    "attributes": [
+      {
+        "name": "allow_cloud_burst",
+        "value": "false"
+      },
+      {
+        "name": "llm_token_quota",
+        "value": "500000"
+      },
+      {
+        "name": "prompt_token_rate",
+        "value": "120000pm"
+      },
+      {
+        "name": "spike_arrest_rate",
+        "value": "30ps"
+      },
+      {
+        "name": "allowed_models",
+        "value": "enterprise-sovereign,google/gemma-4-31B-it"
+      }
+    ],
+    "operationGroup": {
+      "operationConfigType": "proxy",
+      "operationConfigs": [
+        {
+          "apiSource": "agent-dispatch-v1",
+          "operations": [
+            {
+              "resource": "/",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        },
+        {
+          "apiSource": "agent-dispatch-v1",
+          "operations": [
+            {
+              "resource": "/**",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        },
+        {
+          "apiSource": "ops-agent-dispatch-v1",
+          "operations": [
+            {
+              "resource": "/",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        },
+        {
+          "apiSource": "ops-agent-dispatch-v1",
+          "operations": [
+            {
+              "resource": "/**",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        },
+        {
+          "apiSource": "llm-router-v1",
+          "operations": [
+            {
+              "resource": "/**",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        },
+        {
+          "apiSource": "gemini-genai-v1",
+          "operations": [
+            {
+              "resource": "/**",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        },
+        {
+          "apiSource": "gateway-catalog-v1",
+          "operations": [
+            {
+              "resource": "/**",
+              "methods": [
+                "GET"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "llmOperationGroup": {
+      "operationConfigs": [
+        {
+          "apiSource": "llm-router-v1",
+          "llmOperations": [
+            {
+              "resource": "/chat/completions",
+              "methods": [
+                "POST"
+              ],
+              "model": "enterprise-sovereign"
+            }
+          ],
+          "llmTokenQuota": {
+            "limit": "500000",
+            "interval": "1",
+            "timeUnit": "hour"
+          }
+        },
+        {
+          "apiSource": "llm-router-v1",
+          "llmOperations": [
+            {
+              "resource": "/chat/completions",
+              "methods": [
+                "POST"
+              ],
+              "model": "google/gemma-4-31B-it"
+            }
+          ],
+          "llmTokenQuota": {
+            "limit": "500000",
+            "interval": "1",
+            "timeUnit": "hour"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "sovereign-agents-mcp",
+    "displayName": "Sovereign Agents Scoped MCP Product",
+    "approvalType": "auto",
+    "environments": [
+      "hybrid-agents-env"
+    ],
+    "attributes": [
+      {
+        "name": "spike_arrest_rate",
+        "value": "30ps"
+      }
+    ],
+    "payloadOperationGroup": {
+      "operationConfigs": [
+        {
+          "apiSource": "mcp-toolbox-v1",
+          "operations": [
+            {
+              "operation": "initialize"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-toolbox-v1",
+          "operations": [
+            {
+              "operation": "notifications/initialized"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-toolbox-v1",
+          "operations": [
+            {
+              "operation": "tools/list"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-toolbox-v1",
+          "operations": [
+            {
+              "operation": "tools/call/search_sovereign_policies_by_category"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-discovery-v1",
+          "operations": [
+            {
+              "operation": "initialize"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-discovery-v1",
+          "operations": [
+            {
+              "operation": "notifications/initialized"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-discovery-v1",
+          "operations": [
+            {
+              "operation": "tools/list"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-discovery-v1",
+          "operations": [
+            {
+              "operation": "tools/call/getGatewayTopologyStatus"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-discovery-v1",
+          "operations": [
+            {
+              "operation": "tools/call/listApprovedModelTiers"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "cloud-eligible-agents",
+    "displayName": "Cloud-Eligible Agents REST & Burst LLM Product",
+    "approvalType": "auto",
+    "environments": [
+      "hybrid-agents-env"
+    ],
+    "attributes": [
+      {
+        "name": "allow_cloud_burst",
+        "value": "true"
+      },
+      {
+        "name": "llm_token_quota",
+        "value": "500000"
+      },
+      {
+        "name": "prompt_token_rate",
+        "value": "2400pm"
+      },
+      {
+        "name": "spike_arrest_rate",
+        "value": "30ps"
+      },
+      {
+        "name": "allowed_models",
+        "value": "enterprise-sovereign,enterprise-flash,google/gemma-4-31B-it,google/gemini-3.5-flash"
+      }
+    ],
+    "operationGroup": {
+      "operationConfigType": "proxy",
+      "operationConfigs": [
+        {
+          "apiSource": "agent-dispatch-v1",
+          "operations": [
+            {
+              "resource": "/",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        },
+        {
+          "apiSource": "agent-dispatch-v1",
+          "operations": [
+            {
+              "resource": "/**",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        },
+        {
+          "apiSource": "ops-agent-dispatch-v1",
+          "operations": [
+            {
+              "resource": "/",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        },
+        {
+          "apiSource": "ops-agent-dispatch-v1",
+          "operations": [
+            {
+              "resource": "/**",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        },
+        {
+          "apiSource": "llm-router-v1",
+          "operations": [
+            {
+              "resource": "/**",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        },
+        {
+          "apiSource": "gemini-genai-v1",
+          "operations": [
+            {
+              "resource": "/**",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        },
+        {
+          "apiSource": "gateway-catalog-v1",
+          "operations": [
+            {
+              "resource": "/**",
+              "methods": [
+                "GET"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "llmOperationGroup": {
+      "operationConfigs": [
+        {
+          "apiSource": "llm-router-v1",
+          "llmOperations": [
+            {
+              "resource": "/chat/completions",
+              "methods": [
+                "POST"
+              ],
+              "model": "enterprise-sovereign"
+            }
+          ],
+          "llmTokenQuota": {
+            "limit": "500000",
+            "interval": "1",
+            "timeUnit": "hour"
+          }
+        },
+        {
+          "apiSource": "llm-router-v1",
+          "llmOperations": [
+            {
+              "resource": "/chat/completions",
+              "methods": [
+                "POST"
+              ],
+              "model": "enterprise-flash"
+            }
+          ],
+          "llmTokenQuota": {
+            "limit": "500000",
+            "interval": "1",
+            "timeUnit": "hour"
+          }
+        },
+        {
+          "apiSource": "llm-router-v1",
+          "llmOperations": [
+            {
+              "resource": "/chat/completions",
+              "methods": [
+                "POST"
+              ],
+              "model": "google/gemma-4-31B-it"
+            }
+          ],
+          "llmTokenQuota": {
+            "limit": "500000",
+            "interval": "1",
+            "timeUnit": "hour"
+          }
+        },
+        {
+          "apiSource": "llm-router-v1",
+          "llmOperations": [
+            {
+              "resource": "/chat/completions",
+              "methods": [
+                "POST"
+              ],
+              "model": "google/gemini-3.5-flash"
+            }
+          ],
+          "llmTokenQuota": {
+            "limit": "500000",
+            "interval": "1",
+            "timeUnit": "hour"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "cloud-eligible-agents-mcp",
+    "displayName": "Cloud-Eligible Agents Full Read-Only MCP Product",
+    "approvalType": "auto",
+    "environments": [
+      "hybrid-agents-env"
+    ],
+    "attributes": [
+      {
+        "name": "spike_arrest_rate",
+        "value": "30ps"
+      }
+    ],
+    "payloadOperationGroup": {
+      "operationConfigs": [
+        {
+          "apiSource": "mcp-toolbox-v1",
+          "operations": [
+            {
+              "operation": "initialize"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-toolbox-v1",
+          "operations": [
+            {
+              "operation": "notifications/initialized"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-toolbox-v1",
+          "operations": [
+            {
+              "operation": "tools/list"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-toolbox-v1",
+          "operations": [
+            {
+              "operation": "tools/call/search_sovereign_policies_by_category"
+            }
+          ],
+          "quota": {
+            "limit": "120",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-toolbox-v1",
+          "operations": [
+            {
+              "operation": "tools/call/semantic_search_sovereign_policies"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-discovery-v1",
+          "operations": [
+            {
+              "operation": "initialize"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-discovery-v1",
+          "operations": [
+            {
+              "operation": "notifications/initialized"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-discovery-v1",
+          "operations": [
+            {
+              "operation": "tools/list"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-discovery-v1",
+          "operations": [
+            {
+              "operation": "tools/call/getGatewayTopologyStatus"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-discovery-v1",
+          "operations": [
+            {
+              "operation": "tools/call/listApprovedModelTiers"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-bigquery-v1",
+          "operations": [
+            {
+              "operation": "initialize"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-bigquery-v1",
+          "operations": [
+            {
+              "operation": "notifications/initialized"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-bigquery-v1",
+          "operations": [
+            {
+              "operation": "tools/list"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-bigquery-v1",
+          "operations": [
+            {
+              "operation": "tools/call/list_dataset_ids"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-bigquery-v1",
+          "operations": [
+            {
+              "operation": "tools/call/get_dataset_info"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-bigquery-v1",
+          "operations": [
+            {
+              "operation": "tools/call/list_table_ids"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-bigquery-v1",
+          "operations": [
+            {
+              "operation": "tools/call/get_table_info"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-bigquery-v1",
+          "operations": [
+            {
+              "operation": "tools/call/execute_sql_readonly"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-bigquery-v1",
+          "operations": [
+            {
+              "operation": "tools/call/get_query_results"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-storage-v1",
+          "operations": [
+            {
+              "operation": "initialize"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-storage-v1",
+          "operations": [
+            {
+              "operation": "notifications/initialized"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-storage-v1",
+          "operations": [
+            {
+              "operation": "tools/list"
+            }
+          ],
+          "quota": {
+            "limit": "300",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-storage-v1",
+          "operations": [
+            {
+              "operation": "tools/call/list_objects"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-storage-v1",
+          "operations": [
+            {
+              "operation": "tools/call/get_bucket_metadata"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-storage-v1",
+          "operations": [
+            {
+              "operation": "tools/call/read_text"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-storage-v1",
+          "operations": [
+            {
+              "operation": "tools/call/read_object"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        },
+        {
+          "apiSource": "mcp-storage-v1",
+          "operations": [
+            {
+              "operation": "tools/call/get_object_metadata"
+            }
+          ],
+          "quota": {
+            "limit": "60",
+            "interval": "1",
+            "timeUnit": "minute"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "quota-test-agents",
+    "displayName": "LAB-ONLY Low Token Budget Product (30 tokens/hour)",
+    "approvalType": "auto",
+    "environments": [
+      "hybrid-agents-env"
+    ],
+    "attributes": [
+      {
+        "name": "allow_cloud_burst",
+        "value": "false"
+      },
+      {
+        "name": "llm_token_quota",
+        "value": "30"
+      },
+      {
+        "name": "prompt_token_rate",
+        "value": "120000pm"
+      },
+      {
+        "name": "spike_arrest_rate",
+        "value": "30ps"
+      },
+      {
+        "name": "allowed_models",
+        "value": "enterprise-sovereign,google/gemma-4-31B-it"
+      }
+    ],
+    "operationGroup": {
+      "operationConfigType": "proxy",
+      "operationConfigs": [
+        {
+          "apiSource": "llm-router-v1",
+          "operations": [
+            {
+              "resource": "/**",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "prompt-limit-test-agents",
+    "displayName": "LAB-ONLY Low Prompt Rate Product (5 tokens/min)",
+    "approvalType": "auto",
+    "environments": [
+      "hybrid-agents-env"
+    ],
+    "attributes": [
+      {
+        "name": "allow_cloud_burst",
+        "value": "false"
+      },
+      {
+        "name": "llm_token_quota",
+        "value": "500000"
+      },
+      {
+        "name": "prompt_token_rate",
+        "value": "5pm"
+      },
+      {
+        "name": "spike_arrest_rate",
+        "value": "30ps"
+      },
+      {
+        "name": "allowed_models",
+        "value": "enterprise-sovereign,google/gemma-4-31B-it"
+      }
+    ],
+    "operationGroup": {
+      "operationConfigType": "proxy",
+      "operationConfigs": [
+        {
+          "apiSource": "llm-router-v1",
+          "operations": [
+            {
+              "resource": "/**",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "a2a-sovereign-callers",
+    "displayName": "East-West A2A Sovereign Policy Callers Product",
+    "approvalType": "auto",
+    "environments": [
+      "hybrid-agents-env"
+    ],
+    "attributes": [
+      {
+        "name": "spike_arrest_rate",
+        "value": "30ps"
+      }
+    ],
+    "operationGroup": {
+      "operationConfigType": "proxy",
+      "operationConfigs": [
+        {
+          "apiSource": "a2a-dispatch-v1",
+          "operations": [
+            {
+              "resource": "/",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        },
+        {
+          "apiSource": "a2a-dispatch-v1",
+          "operations": [
+            {
+              "resource": "/**",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "agt7-runaway-sandbox",
+    "displayName": "Wave AGT-7 Runaway Loop Sandbox Product (500 tokens/hr, 5ps)",
+    "approvalType": "auto",
+    "environments": [
+      "hybrid-agents-env"
+    ],
+    "attributes": [
+      {
+        "name": "allow_cloud_burst",
+        "value": "false"
+      },
+      {
+        "name": "llm_token_quota",
+        "value": "500"
+      },
+      {
+        "name": "prompt_token_rate",
+        "value": "2000pm"
+      },
+      {
+        "name": "spike_arrest_rate",
+        "value": "5ps"
+      },
+      {
+        "name": "allowed_models",
+        "value": "enterprise-sovereign,google/gemma-4-31B-it"
+      }
+    ],
+    "operationGroup": {
+      "operationConfigType": "proxy",
+      "operationConfigs": [
+        {
+          "apiSource": "llm-router-v1",
+          "operations": [
+            {
+              "resource": "/**",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        },
+        {
+          "apiSource": "agent-dispatch-v1",
+          "operations": [
+            {
+              "resource": "/",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        },
+        {
+          "apiSource": "agent-dispatch-v1",
+          "operations": [
+            {
+              "resource": "/**",
+              "methods": [
+                "GET",
+                "POST"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

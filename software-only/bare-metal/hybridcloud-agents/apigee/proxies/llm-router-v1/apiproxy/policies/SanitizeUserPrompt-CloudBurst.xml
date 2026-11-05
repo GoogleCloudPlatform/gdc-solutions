@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SanitizeUserPrompt continueOnError="false" enabled="true" name="SanitizeUserPrompt-CloudBurst">
+  <DisplayName>Model Armor Sanitize User Prompt (Cloud Burst Only)</DisplayName>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+  <ModelArmor>
+    <TemplateName>projects/{propertyset.hybrid_agents_env.project_id}/locations/{propertyset.hybrid_agents_env.model_armor_location}/templates/{propertyset.hybrid_agents_env.model_armor_template_id}</TemplateName>
+  </ModelArmor>
+  <UserPromptSource>{model_armor_user_prompt}</UserPromptSource>
+</SanitizeUserPrompt>
