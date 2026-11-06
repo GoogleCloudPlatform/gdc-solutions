@@ -15,8 +15,10 @@
 
 # Idempotently reconciles per-agent Apigee identity, API products/quotas,
 # Secret Manager API key versions (only when the consumer key hash changes,
-# never printing keys), and the environment KVM `agent-jwt-subjects` from
-# `registry/agents/*/agent.yaml` (Wave ID-SYNC: I1, I2, I5).
+# never printing keys; destroys all enabled/disabled key versions when a
+# pipeline-managed agent manifest is removed), and the environment KVM
+# `agent-jwt-subjects` from `registry/agents/*/agent.yaml`
+# (Wave ID-SYNC: I1, I2, I5 + Wave SECRET-CLEANUP).
 
 set -o errexit
 set -o nounset
@@ -67,6 +69,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -75,7 +78,7 @@ import urllib.request
 def load_yaml(text: str):
   try:
     import yaml as pyyaml
-    return pyload_yaml(text)
+    return pyyaml.safe_load(text)
   except Exception:
     for p in (
         os.environ.get("CLOUDSDK_THIRD_PARTY", ""),
@@ -243,6 +246,60 @@ def add_secret_version(secret_name: str, secret_val: str) -> None:
   print(f"SECRET_VERSION_ADDED secret={secret_name} version={ver_name}")
 
 
+def destroy_secret_versions(secret_name: str, app_name: str):
+  destroyed = 0
+  errors = 0
+  try:
+    st, resp = api_req(
+        "GET",
+        f"{SM_BASE}/secrets/{urllib.parse.quote(secret_name, safe='')}/versions?pageSize=200",
+        allow_404=True,
+    )
+    if st == 404:
+      print(
+          f"INFO: Secret for removed pipeline-managed DeveloperApp {app_name} already absent (404); 0 versions to destroy."
+      )
+      return 0, 0
+    for v in resp.get("versions", []):
+      state = v.get("state", "")
+      if state not in ("ENABLED", "DISABLED"):
+        continue
+      ver_id = v.get("name", "").rsplit("/", 1)[-1]
+      if not ver_id:
+        continue
+      res = subprocess.run(
+          [
+              "gcloud",
+              "secrets",
+              "versions",
+              "destroy",
+              ver_id,
+              f"--secret={secret_name}",
+              f"--project={project_id}",
+              "--quiet",
+          ],
+          capture_output=True,
+          text=True,
+          check=False,
+      )
+      if res.returncode == 0:
+        print(
+            f"DESTROY secret version projects/{project_id}/secrets/{secret_name}/versions/{ver_id} (app={app_name}, prior_state={state})"
+        )
+        destroyed += 1
+      else:
+        print(
+            f"WARN: Failed to destroy secret version {secret_name}/versions/{ver_id} for removed app {app_name}: {res.stderr.strip()}"
+        )
+        errors += 1
+  except Exception as exc:
+    print(
+        f"WARN: Failed to list/destroy secret versions for removed pipeline-managed app {app_name}: {exc}"
+    )
+    errors += 1
+  return destroyed, errors
+
+
 # Load base API products and env config
 raw_products = json.loads(products_file.read_text(encoding="utf-8"))
 base_products_list = (
@@ -263,6 +320,8 @@ created_count = 0
 updated_count = 0
 noop_count = 0
 deleted_count = 0
+secret_versions_destroyed = 0
+secret_version_destroy_errors = 0
 
 # 1. Reconcile API Products referenced in agent manifests
 product_updates = set()
@@ -434,6 +493,7 @@ for m in agent_manifests:
       "business_unit": str(app_cfg.get("businessUnit", "hybrid-agents")),
       "cost_center": str(app_cfg.get("costCenter", "CC-HYBRID-001")),
       "expected_jwt_sub": expected_sub,
+      "keySecret": secret_name,
       "managed_agent": agent_name,
       "managed_by": MANAGED_BY_VALUE,
   }
@@ -579,7 +639,8 @@ for m in agent_manifests:
     print(f"UNCHANGED Agent identity {agent_name} (app={app_name})")
     noop_count += 1
 
-# 4. Delete pipeline-managed Developer Apps and KVM entries for removed manifests
+# 4. Delete pipeline-managed Developer Apps, KVM entries, and Secret Manager key versions for removed manifests
+active_secret_names = {m["secretManagerSecret"] for m in agent_manifests}
 for dev_email in sorted(developers_checked):
   _, apps_resp = api_req(
       "GET",
@@ -590,28 +651,52 @@ for dev_email in sorted(developers_checked):
     if (dev_email, aname) in desired_app_names:
       continue
     a_attrs = attrs_to_dict(app_obj.get("attributes"))
-    if a_attrs.get("managed_by") == MANAGED_BY_VALUE:
-      print(f"DELETE removed pipeline-managed DeveloperApp {aname}")
-      api_req(
-          "DELETE",
-          f"{APIGEE_BASE}/developers/{urllib.parse.quote(dev_email, safe='@.')}/apps/{urllib.parse.quote(aname, safe='')}",
-      )
-      if aname in live_kvm_entries:
-        print(f"DELETE KVM entry {kvm_name}/{aname}")
+    if a_attrs.get("managed_by") != MANAGED_BY_VALUE:
+      # Never touch or print secret names for apps that are not pipeline-managed
+      continue
+    # Step 4a: Read keySecret attribute from pipeline-managed DeveloperApp before deleting it
+    secret_to_destroy = a_attrs.get("keySecret", "").strip()
+    if not secret_to_destroy and ":" in a_attrs.get("secret_key_sha256", ""):
+      secret_to_destroy = a_attrs["secret_key_sha256"].split(":", 1)[1].strip()
+    # Step 4b: Delete DeveloperApp (revokes Apigee consumer keys; exits non-zero if this fails)
+    print(f"DELETE removed pipeline-managed DeveloperApp {aname}")
+    api_req(
+        "DELETE",
+        f"{APIGEE_BASE}/developers/{urllib.parse.quote(dev_email, safe='@.')}/apps/{urllib.parse.quote(aname, safe='')}",
+    )
+    deleted_count += 1
+    # Step 4c: Delete KVM entry in agent-jwt-subjects
+    if aname in live_kvm_entries:
+      print(f"DELETE KVM entry {kvm_name}/{aname}")
+      try:
         api_req(
             "DELETE",
             f"{kvm_base}/{kvm_name}/entries/{urllib.parse.quote(aname, safe='')}",
         )
-      deleted_count += 1
+      except Exception as exc:
+        print(f"WARN: Failed to delete KVM entry {kvm_name}/{aname}: {exc}")
+    # Step 4d: Destroy all ENABLED/DISABLED versions of the agent's Secret Manager key secret
+    if secret_to_destroy and secret_to_destroy not in active_secret_names:
+      d_cnt, err_cnt = destroy_secret_versions(secret_to_destroy, aname)
+      secret_versions_destroyed += d_cnt
+      secret_version_destroy_errors += err_cnt
+    elif not secret_to_destroy:
+      print(
+          f"WARN: Removed pipeline-managed DeveloperApp {aname} had no keySecret attribute; skipping secret version destruction."
+      )
 
+summary_obj = {
+    "created": created_count,
+    "deleted": deleted_count,
+    "secret_versions_destroyed": secret_versions_destroyed,
+    "unchanged": noop_count,
+    "updated": updated_count,
+}
+if secret_version_destroy_errors > 0:
+  summary_obj["secret_version_destroy_errors"] = secret_version_destroy_errors
 print(
     json.dumps(
-        {
-            "created": created_count,
-            "deleted": deleted_count,
-            "unchanged": noop_count,
-            "updated": updated_count,
-        },
+        summary_obj,
         sort_keys=True,
         separators=(",", ":"),
     )

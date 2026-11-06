@@ -159,3 +159,24 @@ trigger substitutions before you deploy:
 | `_AGENTS_CLUSTER_OIDC_JWKS_B64` | Base64-encoded OIDC JWKS (`kubectl get --raw /openid/v1/jwks`) of the Agents cluster     |
 
 <!-- mdformat on -->
+
+## Least-privilege IAM for Cloud Build synchronization
+
+Grant the dedicated Cloud Build trigger service account only the following
+project- and resource-scoped IAM roles (no `roles/apigee.admin`, no
+`roles/secretmanager.admin`, and no `roles/secretmanager.secretAccessor`):
+
+<!-- mdformat off -->
+
+| Role                                       | Scope                                                | Purpose                                                                                                                                                                            |
+| :----------------------------------------- | :--------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `roles/agentregistry.editor`               | Project (`YOUR_PROJECT_ID`)                          | Create, update, and prune pipeline-managed A2A Agent Cards and local MCP Server registrations in Agent Registry                                                                    |
+| `roles/apigee.apiAdminV2`                  | Project (`YOUR_PROJECT_ID`)                          | Import and deploy Apigee proxy bundles and reconcile `APIProduct` definitions                                                                                                      |
+| `roles/apigee.developerAdmin`              | Project (`YOUR_PROJECT_ID`)                          | Create, update, rotate, and delete pipeline-managed `Developer` and `DeveloperApp` credentials                                                                                     |
+| `roles/apigee.environmentAdmin`            | Project (`YOUR_PROJECT_ID`)                          | Reconcile environment `TargetServer`, `PropertySet`, and `agent-jwt-subjects` KVM entries                                                                                          |
+| `roles/logging.logWriter`                  | Project (`YOUR_PROJECT_ID`)                          | Emit Cloud Build step logs to Cloud Logging                                                                                                                                        |
+| `roles/iam.serviceAccountUser`             | Resource (`_APIGEE_RUNTIME_SA` service account only) | Attach the Apigee runtime Google service account when deploying Cloud MCP proxy revisions                                                                                          |
+| `roles/secretmanager.secretVersionAdder`   | Resource (each per-agent API key secret only)        | Add a new Secret Manager version when an agent consumer key is created or rotated                                                                                                  |
+| `roles/secretmanager.secretVersionManager` | Resource (each per-agent API key secret only)        | List and destroy `ENABLED`/`DISABLED` Secret Manager versions when a pipeline-managed agent manifest is removed (without granting `secretAccessor` read access to secret payloads) |
+
+<!-- mdformat on -->

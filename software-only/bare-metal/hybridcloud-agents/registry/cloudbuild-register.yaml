@@ -24,6 +24,8 @@
 #   - roles/logging.logWriter (project)
 #   - roles/iam.serviceAccountUser (on the Apigee runtime service account only)
 #   - roles/secretmanager.secretVersionAdder (on per-agent API key secrets only)
+#   - roles/secretmanager.secretVersionManager (on per-agent API key secrets only;
+#     destroys enabled/disabled key versions when an agent manifest is removed)
 options:
   logging: CLOUD_LOGGING_ONLY
 steps:

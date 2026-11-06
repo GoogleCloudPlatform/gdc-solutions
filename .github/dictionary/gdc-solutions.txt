@@ -193,10 +193,12 @@ readyz
 resourcegroup
 resourcegroups
 resourcemanager
+returncode
 rglob
 rollouts
 rootsync
 rootsyncs
+rsplit
 ruamel
 ruleset
 ryaml
