@@ -344,3 +344,24 @@ spec:
     matchLabels:
       app.kubernetes.io/component: agent-ingress-proxy
       app.kubernetes.io/name: agent-ingress-envoy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: agent-ingress-proxy
+    app.kubernetes.io/name: agent-ingress-envoy
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: agent-ingress-envoy
+  namespace: agent-workloads
+spec:
+  loadBalancerIP: YOUR_AGENTS_INGRESS_VIP
+  ports:
+    - name: https-mtls
+      port: 8443
+      protocol: TCP
+      targetPort: 8443
+  selector:
+    app.kubernetes.io/component: agent-ingress-proxy
+    app.kubernetes.io/name: agent-ingress-envoy
+  type: LoadBalancer

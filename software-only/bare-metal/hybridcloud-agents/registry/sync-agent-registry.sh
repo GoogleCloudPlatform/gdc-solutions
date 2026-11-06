@@ -77,7 +77,7 @@ import os
 def load_yaml(text: str):
   try:
     import yaml as pyyaml
-    return pyload_yaml(text)
+    return pyyaml.safe_load(text)
   except Exception:
     for p in (
         os.environ.get("CLOUDSDK_THIRD_PARTY", ""),

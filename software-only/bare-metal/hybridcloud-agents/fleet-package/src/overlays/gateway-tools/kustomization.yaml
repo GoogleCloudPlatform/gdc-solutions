@@ -1,0 +1,134 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+components:
+  - ../../components/otel-collector
+kind: Kustomization
+patches:
+  - patch: |-
+      apiVersion: v1
+      data:
+        config.yaml: |
+          receivers:
+            otlp:
+              protocols:
+                grpc:
+                  endpoint: 0.0.0.0:4317
+                http:
+                  endpoint: 0.0.0.0:4318
+          processors:
+            memory_limiter:
+              check_interval: 1s
+              limit_percentage: 75
+              spike_limit_percentage: 20
+            resource:
+              attributes:
+                - key: gcp.project_id
+                  value: YOUR_PROJECT_ID
+                  action: upsert
+                - key: cloud.region
+                  value: us-central1
+                  action: upsert
+                - key: k8s.cluster.name
+                  value: YOUR_GATEWAY_CLUSTER_NAME
+                  action: upsert
+                - key: service.namespace
+                  value: hybrid-cloud-agents
+                  action: insert
+                - key: service.instance.id
+                  value: ${env:POD_NAME}
+                  action: insert
+            transform/sovereign_redaction:
+              error_mode: ignore
+              trace_statements:
+                - context: span
+                  statements:
+                    - delete_key(span.attributes, "gen_ai.prompt") where span.attributes["data_classification"] == "sovereign" or resource.attributes["data_classification"] == "sovereign"
+                    - delete_key(span.attributes, "gen_ai.completion") where span.attributes["data_classification"] == "sovereign" or resource.attributes["data_classification"] == "sovereign"
+                    - delete_key(span.attributes, "gen_ai.input.messages") where span.attributes["data_classification"] == "sovereign" or resource.attributes["data_classification"] == "sovereign"
+                    - delete_key(span.attributes, "gen_ai.output.messages") where span.attributes["data_classification"] == "sovereign" or resource.attributes["data_classification"] == "sovereign"
+              log_statements:
+                - context: log
+                  statements:
+                    - set(log.body, "[REDACTED_SOVEREIGN_CONTENT]") where log.attributes["data_classification"] == "sovereign" and log.attributes["gen_ai.content"] != nil
+                    - delete_key(log.attributes, "gen_ai.content") where log.attributes["data_classification"] == "sovereign"
+            batch:
+              send_batch_max_size: 200
+              send_batch_size: 100
+              timeout: 2s
+          exporters:
+            googlecloud:
+              project: YOUR_PROJECT_ID
+              log:
+                default_log_name: hybrid-agents-otel
+          service:
+            telemetry:
+              metrics:
+                level: basic
+            pipelines:
+              traces:
+                receivers: [otlp]
+                processors: [memory_limiter, resource, transform/sovereign_redaction, batch]
+                exporters: [googlecloud]
+              metrics:
+                receivers: [otlp]
+                processors: [memory_limiter, resource, batch]
+                exporters: [googlecloud]
+              logs:
+                receivers: [otlp]
+                processors: [memory_limiter, resource, transform/sovereign_redaction, batch]
+                exporters: [googlecloud]
+      kind: ConfigMap
+      metadata:
+        name: otel-collector-config
+        namespace: otel-system
+  - patch: |-
+      apiVersion: v1
+      data:
+        federated-credentials.json: |
+          {
+            "type": "external_account",
+            "audience": "identitynamespace:YOUR_PROJECT_ID.svc.id.goog:https://gkehub.googleapis.com/projects/YOUR_PROJECT_ID/locations/global/memberships/YOUR_GATEWAY_CLUSTER_NAME",
+            "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+            "token_url": "https://sts.googleapis.com/v1/token",
+            "credential_source": {
+              "file": "/var/run/secrets/tokens/gcp-ksa/token"
+            }
+          }
+      kind: ConfigMap
+      metadata:
+        name: otel-fleet-wif-config
+        namespace: otel-system
+  - patch: |-
+      - op: replace
+        path: /spec/ingress/0/from
+        value:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: mcp-tools
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: apigee
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: otel-system
+    target:
+      group: networking.k8s.io
+      kind: NetworkPolicy
+      name: allow-otel-collector
+      namespace: otel-system
+      version: v1
+resources:
+  - mcp-toolbox.yaml

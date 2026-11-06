@@ -12,6 +12,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+cspell:words agentregistry creds genai hybridcloud pgvector propertyset
 -->
 
 # Hybrid Cloud AI Agents on Distributed Cloud software only
@@ -60,8 +62,11 @@ hybridcloud-agents/
 ├── fleet-package/
 │   ├── configdelivery-rbac.yaml
 │   ├── environments/
-│   │   └── agents/
+│   │   ├── agents/
+│   │   │   └── manifests.yaml
+│   │   └── gateway-tools/
 │   │       └── manifests.yaml
+│   ├── fleetpackage-gateway-tools.yaml
 │   ├── fleetpackage.yaml
 │   ├── render.sh
 │   └── src/
@@ -75,9 +80,16 @@ hybridcloud-agents/
 │       │   ├── network-policies.yaml
 │       │   ├── ops-egress-envoy.yaml
 │       │   └── pod-monitoring.yaml
+│       ├── components/
+│       │   └── otel-collector/
+│       │       ├── kustomization.yaml
+│       │       └── otel-collector.yaml
 │       └── overlays/
-│           └── agents/
-│               └── kustomization.yaml
+│           ├── agents/
+│           │   └── kustomization.yaml
+│           └── gateway-tools/
+│               ├── kustomization.yaml
+│               └── mcp-toolbox.yaml
 ├── registry/
 │   ├── agents/
 │   │   ├── adk-ops-orchestrator/
@@ -94,7 +106,8 @@ hybridcloud-agents/
 │   │   └── mcp-toolbox.yaml
 │   ├── sync-agent-registry.sh
 │   ├── sync-apigee-identity.sh
-│   └── sync-apigee-proxies.sh
+│   ├── sync-apigee-proxies.sh
+│   └── validate-manifests.sh
 └── tests/
     └── a2a/
         ├── environments/
@@ -120,15 +133,21 @@ hybridcloud-agents/
   `propertyset.hybrid_agents_env.*`, and expected Kubernetes service account JWT
   subjects plus OIDC JWKS dynamically from the `agent-jwt-subjects` KVM.
 - `fleet-package/` contains the Google Cloud Config Delivery (`FleetPackage`)
-  specification, least-privilege `RootSync` RBAC manifest, DRY Kustomize sources
-  (`src/`), render script (`render.sh`), and rendered plain-KRM variant bundle
-  (`environments/agents/manifests.yaml`) for clusters labeled
-  `cluster-role=agents`.
+  specifications (`fleetpackage.yaml` for `cluster-role=agents` and
+  `fleetpackage-gateway-tools.yaml` for `cluster-role=gateway-tools`; two
+  specifications are provided because Config Delivery's `LabelSelector` schema
+  supports `matchLabels` only and rejects `matchExpressions`), least-privilege
+  `RootSync` RBAC manifest, DRY Kustomize sources (`src/base/`, shared
+  `src/components/otel-collector/`, and `src/overlays/`), render script
+  (`render.sh`), and rendered plain-KRM variant bundles
+  (`environments/agents/manifests.yaml` and
+  `environments/gateway-tools/manifests.yaml`).
 - `registry/` contains per-agent identity and quota manifests
   (`agents/<agent>/agent.yaml`), generic A2A Agent Card definitions
   (`cards/*.json`), local MCP server tool specifications (`mcp-servers/*.yaml`),
-  and the three idempotent Cloud Build reconciliation scripts
-  (`sync-apigee-proxies.sh`, `sync-apigee-identity.sh`, and
+  the preflight manifest validator (`validate-manifests.sh`, run as `Step #0`
+  before any API mutation), and the three idempotent Cloud Build reconciliation
+  scripts (`sync-apigee-identity.sh`, `sync-apigee-proxies.sh`, and
   `sync-agent-registry.sh`) orchestrated by `cloudbuild-register.yaml`.
 - `tests/a2a/` contains an optional, self-pruning `FleetPackage`
   (`hybridcloud-agents-a2a-tests` with `deletionPropagationPolicy: FOREGROUND`)
@@ -143,20 +162,21 @@ trigger substitutions before you deploy:
 
 <!-- mdformat off -->
 
-| Placeholder                     | Description                                                                              |
-| :------------------------------ | :--------------------------------------------------------------------------------------- |
-| `YOUR_PROJECT_ID`               | Google Cloud fleet host and Apigee organization project ID                               |
-| `YOUR_PROJECT_NUMBER`           | Numeric Google Cloud fleet host project number (for the Config Delivery service agent)   |
-| `YOUR_CONNECTION`               | Cloud Build 2nd-gen Git repository connection name in `us-central1`                      |
-| `YOUR_REPOSITORY`               | Linked repository resource name inside `YOUR_CONNECTION`                                 |
-| `YOUR_PUBLISHER_SA_NAME`        | Service account name used by Config Delivery / Cloud Build to package releases           |
-| `YOUR_GATEWAY_FQDN`             | Internal FQDN of the Apigee hybrid ingress gateway substituted into Agent Registry cards |
-| `YOUR_AGENTS_INGRESS_HOST`      | IP or hostname of the Agents cluster Envoy mTLS ingress gateway (`gdcso-agent-ingress`)  |
-| `YOUR_VLLM_INGRESS_HOST`        | IP or hostname of the Model cluster sovereign vLLM ingress gateway (`gdcso-local-vllm`)  |
-| `YOUR_AGENTS_CLUSTER_NAME`      | Fleet membership name of the Agents cluster (`agents.cluster.name` in property set)      |
-| `YOUR_GATEWAY_CLUSTER_NAME`     | Fleet membership name of the Gateway cluster (`gateway.cluster.name` in property set)    |
-| `YOUR_MODEL_CLUSTER_NAME`       | Fleet membership name of the Model cluster (`model.cluster.name` in property set)        |
-| `_AGENTS_CLUSTER_OIDC_JWKS_B64` | Base64-encoded OIDC JWKS (`kubectl get --raw /openid/v1/jwks`) of the Agents cluster     |
+| Placeholder                     | Description                                                                               |
+| :------------------------------ | :---------------------------------------------------------------------------------------- |
+| `YOUR_PROJECT_ID`               | Google Cloud fleet host and Apigee organization project ID                                |
+| `YOUR_PROJECT_NUMBER`           | Numeric Google Cloud fleet host project number (for the Config Delivery service agent)    |
+| `YOUR_CONNECTION`               | Cloud Build 2nd-gen Git repository connection name in `us-central1`                       |
+| `YOUR_REPOSITORY`               | Linked repository resource name inside `YOUR_CONNECTION`                                  |
+| `YOUR_PUBLISHER_SA_NAME`        | Service account name used by Config Delivery / Cloud Build to package releases            |
+| `YOUR_GATEWAY_FQDN`             | Internal FQDN of the Apigee hybrid ingress gateway substituted into Agent Registry cards  |
+| `YOUR_AGENTS_INGRESS_VIP`       | MetalLB `LoadBalancer` IP (`spec.loadBalancerIP`) pinned on `Service/agent-ingress-envoy` |
+| `YOUR_AGENTS_INGRESS_HOST`      | IP or hostname of the Agents cluster Envoy mTLS ingress gateway (`gdcso-agent-ingress`)   |
+| `YOUR_VLLM_INGRESS_HOST`        | IP or hostname of the Model cluster sovereign vLLM ingress gateway (`gdcso-local-vllm`)   |
+| `YOUR_AGENTS_CLUSTER_NAME`      | Fleet membership name of the Agents cluster (`agents.cluster.name` in property set)       |
+| `YOUR_GATEWAY_CLUSTER_NAME`     | Fleet membership name of the Gateway cluster (`gateway.cluster.name` in property set)     |
+| `YOUR_MODEL_CLUSTER_NAME`       | Fleet membership name of the Model cluster (`model.cluster.name` in property set)         |
+| `_AGENTS_CLUSTER_OIDC_JWKS_B64` | Base64-encoded OIDC JWKS (`kubectl get --raw /openid/v1/jwks`) of the Agents cluster      |
 
 <!-- mdformat on -->
 
@@ -180,3 +200,49 @@ project- and resource-scoped IAM roles (no `roles/apigee.admin`, no
 | `roles/secretmanager.secretVersionManager` | Resource (each per-agent API key secret only)        | List and destroy `ENABLED`/`DISABLED` Secret Manager versions when a pipeline-managed agent manifest is removed (without granting `secretAccessor` read access to secret payloads) |
 
 <!-- mdformat on -->
+
+## Bring your own database for the MCP Toolbox sample
+
+The `gateway-tools` overlay
+(`fleet-package/src/overlays/gateway-tools/mcp-toolbox.yaml`) ships a sample
+`sovereign-pgvector` PostgreSQL source
+(`host: pgvector-db.mcp-tools.svc.cluster.local`),
+`ExternalSecret/pgvector-db-creds` (referencing Secret Manager key
+`hybrid-agents-pgvector-creds` with JSON properties `PG_DATABASE`, `PG_USER`,
+`PG_PASSWORD`, and `POSTGRES_SUPER_PASSWORD`), and a `:5432` egress rule
+(`app.kubernetes.io/name: pgvector-db`) in `NetworkPolicy/allow-mcp-toolbox`.
+The package does **not** deploy a PostgreSQL database.
+
+Before deploying `fleet-package/fleetpackage-gateway-tools.yaml`, choose one of
+the following options:
+
+1. **Point at your own PostgreSQL + `pgvector` instance:** Create the
+   `hybrid-agents-pgvector-creds` secret in Secret Manager with JSON keys
+   `PG_DATABASE`, `PG_USER`, `PG_PASSWORD`, and `POSTGRES_SUPER_PASSWORD`
+   (`PG_DATABASE`, `PG_USER`, and `PG_PASSWORD` are used by
+   `Deployment/mcp-toolbox`; `POSTGRES_SUPER_PASSWORD` is required by
+   `ExternalSecret/pgvector-db-creds` and used only by the lab's optional
+   in-cluster sample database), and update the `sovereign-pgvector` `host` in
+   `ConfigMap/mcp-toolbox-config` plus the `:5432` egress peer in
+   `NetworkPolicy/allow-mcp-toolbox` to match your database endpoint, then
+   re-run `fleet-package/render.sh`.
+2. **Remove the sample PostgreSQL source:** Remove the `sovereign-pgvector`
+   source and its tools from `ConfigMap/mcp-toolbox-config`, remove
+   `ExternalSecret/pgvector-db-creds` and the `PG_DATABASE`, `PG_USER`, and
+   `PG_PASSWORD` `secretKeyRef` environment variables from
+   `Deployment/mcp-toolbox`, and remove the `:5432` egress rule from
+   `NetworkPolicy/allow-mcp-toolbox`, then re-run `fleet-package/render.sh`.
+
+If neither step is taken:
+
+- When the `hybrid-agents-pgvector-creds` secret does not exist in Secret
+  Manager, `ExternalSecret/pgvector-db-creds` remains in `SecretSyncedError`
+  (`Secret/pgvector-db-creds` is not created) and `Deployment/mcp-toolbox` pods
+  stay in `CreateContainerConfigError` (`secret "pgvector-db-creds" not found`).
+- When `Secret/pgvector-db-creds` exists but the configured PostgreSQL host
+  (`pgvector-db.mcp-tools.svc.cluster.local:5432`) is unreachable, `mcp-toolbox`
+  (`v1.15.0`) synchronously pings the connection pool during source
+  initialization at startup (`pool.Ping(ctx)`), exits with
+  `unable to initialize source "sovereign-pgvector": unable to connect successfully`,
+  and enters `CrashLoopBackOff`—causing calls to `/mcp-toolbox` to fail while
+  other Apigee proxies continue serving normally.

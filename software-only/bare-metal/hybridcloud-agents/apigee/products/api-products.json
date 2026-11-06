@@ -3,9 +3,7 @@
     "name": "sovereign-agents",
     "displayName": "Sovereign Agents REST & LLM Product",
     "approvalType": "auto",
-    "environments": [
-      "hybrid-agents-env"
-    ],
+    "environments": ["hybrid-agents-env"],
     "attributes": [
       {
         "name": "allow_cloud_burst",
@@ -36,10 +34,7 @@
           "operations": [
             {
               "resource": "/",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         },
@@ -48,10 +43,7 @@
           "operations": [
             {
               "resource": "/**",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         },
@@ -60,10 +52,7 @@
           "operations": [
             {
               "resource": "/",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         },
@@ -72,10 +61,7 @@
           "operations": [
             {
               "resource": "/**",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         },
@@ -84,10 +70,7 @@
           "operations": [
             {
               "resource": "/**",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         },
@@ -96,10 +79,7 @@
           "operations": [
             {
               "resource": "/**",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         },
@@ -108,9 +88,7 @@
           "operations": [
             {
               "resource": "/**",
-              "methods": [
-                "GET"
-              ]
+              "methods": ["GET"]
             }
           ]
         }
@@ -123,9 +101,7 @@
           "llmOperations": [
             {
               "resource": "/chat/completions",
-              "methods": [
-                "POST"
-              ],
+              "methods": ["POST"],
               "model": "enterprise-sovereign"
             }
           ],
@@ -140,9 +116,7 @@
           "llmOperations": [
             {
               "resource": "/chat/completions",
-              "methods": [
-                "POST"
-              ],
+              "methods": ["POST"],
               "model": "google/gemma-4-31B-it"
             }
           ],
@@ -159,9 +133,7 @@
     "name": "sovereign-agents-mcp",
     "displayName": "Sovereign Agents Scoped MCP Product",
     "approvalType": "auto",
-    "environments": [
-      "hybrid-agents-env"
-    ],
+    "environments": ["hybrid-agents-env"],
     "attributes": [
       {
         "name": "spike_arrest_rate",
@@ -294,9 +266,7 @@
     "name": "cloud-eligible-agents",
     "displayName": "Cloud-Eligible Agents REST & Burst LLM Product",
     "approvalType": "auto",
-    "environments": [
-      "hybrid-agents-env"
-    ],
+    "environments": ["hybrid-agents-env"],
     "attributes": [
       {
         "name": "allow_cloud_burst",
@@ -327,10 +297,7 @@
           "operations": [
             {
               "resource": "/",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         },
@@ -339,10 +306,7 @@
           "operations": [
             {
               "resource": "/**",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         },
@@ -351,10 +315,7 @@
           "operations": [
             {
               "resource": "/",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         },
@@ -363,10 +324,7 @@
           "operations": [
             {
               "resource": "/**",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         },
@@ -375,10 +333,7 @@
           "operations": [
             {
               "resource": "/**",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         },
@@ -387,10 +342,7 @@
           "operations": [
             {
               "resource": "/**",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         },
@@ -399,9 +351,7 @@
           "operations": [
             {
               "resource": "/**",
-              "methods": [
-                "GET"
-              ]
+              "methods": ["GET"]
             }
           ]
         }
@@ -414,9 +364,7 @@
           "llmOperations": [
             {
               "resource": "/chat/completions",
-              "methods": [
-                "POST"
-              ],
+              "methods": ["POST"],
               "model": "enterprise-sovereign"
             }
           ],
@@ -431,9 +379,7 @@
           "llmOperations": [
             {
               "resource": "/chat/completions",
-              "methods": [
-                "POST"
-              ],
+              "methods": ["POST"],
               "model": "enterprise-flash"
             }
           ],
@@ -448,9 +394,7 @@
           "llmOperations": [
             {
               "resource": "/chat/completions",
-              "methods": [
-                "POST"
-              ],
+              "methods": ["POST"],
               "model": "google/gemma-4-31B-it"
             }
           ],
@@ -465,9 +409,7 @@
           "llmOperations": [
             {
               "resource": "/chat/completions",
-              "methods": [
-                "POST"
-              ],
+              "methods": ["POST"],
               "model": "google/gemini-3.5-flash"
             }
           ],
@@ -484,9 +426,7 @@
     "name": "cloud-eligible-agents-mcp",
     "displayName": "Cloud-Eligible Agents Full Read-Only MCP Product",
     "approvalType": "auto",
-    "environments": [
-      "hybrid-agents-env"
-    ],
+    "environments": ["hybrid-agents-env"],
     "attributes": [
       {
         "name": "spike_arrest_rate",
@@ -853,9 +793,7 @@
     "name": "quota-test-agents",
     "displayName": "LAB-ONLY Low Token Budget Product (30 tokens/hour)",
     "approvalType": "auto",
-    "environments": [
-      "hybrid-agents-env"
-    ],
+    "environments": ["hybrid-agents-env"],
     "attributes": [
       {
         "name": "allow_cloud_burst",
@@ -886,10 +824,7 @@
           "operations": [
             {
               "resource": "/**",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         }
@@ -900,9 +835,7 @@
     "name": "prompt-limit-test-agents",
     "displayName": "LAB-ONLY Low Prompt Rate Product (5 tokens/min)",
     "approvalType": "auto",
-    "environments": [
-      "hybrid-agents-env"
-    ],
+    "environments": ["hybrid-agents-env"],
     "attributes": [
       {
         "name": "allow_cloud_burst",
@@ -933,10 +866,7 @@
           "operations": [
             {
               "resource": "/**",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         }
@@ -947,9 +877,7 @@
     "name": "a2a-sovereign-callers",
     "displayName": "East-West A2A Sovereign Policy Callers Product",
     "approvalType": "auto",
-    "environments": [
-      "hybrid-agents-env"
-    ],
+    "environments": ["hybrid-agents-env"],
     "attributes": [
       {
         "name": "spike_arrest_rate",
@@ -964,10 +892,7 @@
           "operations": [
             {
               "resource": "/",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         },
@@ -976,10 +901,7 @@
           "operations": [
             {
               "resource": "/**",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         }
@@ -990,9 +912,7 @@
     "name": "agt7-runaway-sandbox",
     "displayName": "Wave AGT-7 Runaway Loop Sandbox Product (500 tokens/hr, 5ps)",
     "approvalType": "auto",
-    "environments": [
-      "hybrid-agents-env"
-    ],
+    "environments": ["hybrid-agents-env"],
     "attributes": [
       {
         "name": "allow_cloud_burst",
@@ -1023,10 +943,7 @@
           "operations": [
             {
               "resource": "/**",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         },
@@ -1035,10 +952,7 @@
           "operations": [
             {
               "resource": "/",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         },
@@ -1047,10 +961,7 @@
           "operations": [
             {
               "resource": "/**",
-              "methods": [
-                "GET",
-                "POST"
-              ]
+              "methods": ["GET", "POST"]
             }
           ]
         }

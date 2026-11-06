@@ -12,17 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# FleetPackage specification for Config Delivery.
+# FleetPackage specification for the Agents cluster tier (cluster-role=agents).
+# Note: Google Cloud Config Delivery's LabelSelector protobuf
+# (configdelivery_v1_messages.LabelSelector) only supports matchLabels and
+# rejects matchExpressions, so each distinct cluster-role value uses its own
+# FleetPackage resource pointing at the shared fleet-package/environments/
+# directory with variantNameTemplate: "${membership.labels['cluster-role']}".
 # Create it with:
 #   gcloud container fleet packages create hybridcloud-agents \
 #     --source=fleet-package/fleetpackage.yaml --location=us-central1
 # Update it after changing the tag or specification with:
 #   gcloud container fleet packages update hybridcloud-agents \
 #     --source=fleet-package/fleetpackage.yaml --location=us-central1
-# The publisher service account packages each variant directory under
-# fleet-package/environments/ (for example environments/agents/) of the tag
-# below as plain KRM, and variantNameTemplate selects the folder matching each
-# cluster membership's cluster-role label.
 deletionPropagationPolicy: FOREGROUND
 labels:
   configdelivery-skip-bmctl-clusters: "true"
@@ -31,7 +32,7 @@ resourceBundleSelector:
     name: projects/YOUR_PROJECT_ID/locations/us-central1/connections/YOUR_CONNECTION/repositories/YOUR_REPOSITORY
     path: software-only/bare-metal/hybridcloud-agents/fleet-package/environments
     serviceAccount: projects/YOUR_PROJECT_ID/serviceAccounts/YOUR_PUBLISHER_SA_NAME@YOUR_PROJECT_ID.iam.gserviceaccount.com
-    tag: v0.5.0
+    tag: v0.5.2
 rolloutStrategy:
   rolling:
     maxConcurrent: 1

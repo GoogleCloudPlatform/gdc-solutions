@@ -32,6 +32,20 @@ steps:
   - args:
       - -c
       - |
+        if [[ -f "software-only/bare-metal/hybridcloud-agents/registry/validate-manifests.sh" ]]; then
+          exec bash "software-only/bare-metal/hybridcloud-agents/registry/validate-manifests.sh"
+        elif [[ -f "registry/validate-manifests.sh" ]]; then
+          exec bash "registry/validate-manifests.sh"
+        fi
+        exec bash "./validate-manifests.sh"
+    entrypoint: bash
+    env:
+      - TAG_NAME=${TAG_NAME}
+    id: validate-registry-manifests
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+  - args:
+      - -c
+      - |
         if [[ -f "software-only/bare-metal/hybridcloud-agents/registry/sync-apigee-identity.sh" ]]; then
           exec bash "software-only/bare-metal/hybridcloud-agents/registry/sync-apigee-identity.sh"
         elif [[ -f "registry/sync-apigee-identity.sh" ]]; then
