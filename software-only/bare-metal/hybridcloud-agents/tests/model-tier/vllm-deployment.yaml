@@ -1,0 +1,100 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    ai.gke.io/inference-server: vllm
+    ai.gke.io/model: google-gemma-4-31B-it
+    app: vllm
+  name: vllm-deployment
+  namespace: gemma-serving
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        ai.gke.io/inference-server: vllm
+        ai.gke.io/model: google-gemma-4-31B-it
+        app: vllm
+        examples.ai.gke.io/source: user-guide
+    spec:
+      containers:
+        - args:
+            - --model=$(MODEL_ID)
+            - --host=0.0.0.0
+            - --port=8000
+            - --tensor-parallel-size=1
+            - --enable-log-requests
+            - --max-model-len=8192
+            - --gpu-memory-utilization=0.95
+            - --max-num-seqs=512
+            - --max-num-batched-tokens=4096
+            - --dtype=bfloat16
+            - --trust-remote-code
+            - --enable-prefix-caching
+            - --enable-chunked-prefill
+            - --quantization=fp8
+            # Enable OpenAI-compatible ADK function/tool calling (tool_choice="auto"):
+            - --enable-auto-tool-choice
+            - --tool-call-parser=gemma4
+          command:
+            - python3
+            - -m
+            - vllm.entrypoints.openai.api_server
+          env:
+            - name: MODEL_ID
+              value: google/gemma-4-31B-it
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  key: token
+                  name: hf-token-secret
+            - name: LD_LIBRARY_PATH
+              value: /usr/local/nvidia/lib64
+          image: us-docker.pkg.dev/vertex-ai/vertex-vision-model-garden-dockers/pytorch-vllm-serve:gemma4
+          imagePullPolicy: IfNotPresent
+          name: vllm-container
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            limits:
+              cpu: "4"
+              memory: 80Gi
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: "4"
+              memory: 80Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - mountPath: /root/.cache/huggingface
+              name: cache-volume
+            - mountPath: /dev/shm
+              name: dshm
+      runtimeClassName: nvidia
+      volumes:
+        - name: cache-volume
+          persistentVolumeClaim:
+            claimName: model-cache-pvc
+        - emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi
+          name: dshm

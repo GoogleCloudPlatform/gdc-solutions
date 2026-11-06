@@ -61,7 +61,7 @@ data:
     kind: source
     name: sovereign-pgvector
     type: postgres
-    host: pgvector-db.mcp-tools.svc.cluster.local
+    host: YOUR_PGVECTOR_HOST
     port: "5432"
     database: ${PG_DATABASE}
     user: ${PG_USER}
@@ -306,6 +306,8 @@ spec:
             - --logging-format
             - JSON
           env:
+            - name: PG_HOST
+              value: YOUR_PGVECTOR_HOST
             - name: PG_DATABASE
               valueFrom:
                 secretKeyRef:
@@ -546,10 +548,6 @@ spec:
         key: hybrid-agents-pgvector-creds
         property: PG_PASSWORD
       secretKey: PG_PASSWORD
-    - remoteRef:
-        key: hybrid-agents-pgvector-creds
-        property: POSTGRES_SUPER_PASSWORD
-      secretKey: POSTGRES_SUPER_PASSWORD
   refreshInterval: 1h
   secretStoreRef:
     kind: ClusterSecretStore
@@ -596,10 +594,8 @@ spec:
         - port: 5432
           protocol: TCP
       to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/component: tool-backing-db
-              app.kubernetes.io/name: pgvector-db
+        - ipBlock:
+            cidr: YOUR_DATA_SYSTEMS_CIDR
     - ports:
         - port: 4317
           protocol: TCP

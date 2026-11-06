@@ -1,0 +1,317 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Sample PostgreSQL 16 + pgvector StatefulSet and LoadBalancer Service for a
+# Kubernetes Test Cluster (namespace: data-systems).
+# Replace YOUR_PGVECTOR_HOST before applying with kubectl.
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+  name: data-systems
+---
+apiVersion: v1
+data:
+  01-seed-synthetic.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    cat > "${PGDATA}/pg_hba.conf" <<'EOF'
+    # TYPE  DATABASE        USER            ADDRESS                 METHOD
+    local   all             all                                     trust
+    hostssl all             all             127.0.0.1/32            scram-sha-256
+    hostssl all             all             ::1/128                 scram-sha-256
+    hostssl all             all             0.0.0.0/0               scram-sha-256
+    hostssl all             all             ::/0                    scram-sha-256
+    hostnossl all           all             0.0.0.0/0               reject
+    hostnossl all           all             ::/0                    reject
+    EOF
+
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+      SET password_encryption = 'scram-sha-256';
+      CREATE EXTENSION IF NOT EXISTS vector;
+
+      CREATE TABLE IF NOT EXISTS sovereign_compliance_policies (
+        policy_id TEXT PRIMARY KEY,
+        category TEXT NOT NULL,
+        data_classification TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        embedding vector(8) NOT NULL
+      );
+
+      INSERT INTO sovereign_compliance_policies (policy_id, category, data_classification, title, summary, embedding) VALUES
+        ('SYN-POL-001', 'residency', 'sovereign',
+         'Synthetic Policy 001: Sovereign Prompt Residency',
+         'SYNTHETIC RECORD: Prompts classified as sovereign remain strictly on-premises and route exclusively to the local Distributed Cloud software only model tier.',
+         '[0.92, 0.14, 0.05, 0.08, 0.11, 0.03, 0.04, 0.19]'),
+        ('SYN-POL-002', 'network', 'sovereign',
+         'Synthetic Policy 002: Zero-Bypass Egress Mediation',
+         'SYNTHETIC RECORD: Agent pods run under default-deny eBPF NetworkPolicies and mediate 100% of LLM, MCP, and A2A calls through Envoy and Apigee hybrid.',
+         '[0.15, 0.91, 0.12, 0.07, 0.09, 0.18, 0.05, 0.06]'),
+        ('SYN-POL-003', 'identity', 'confidential',
+         'Synthetic Policy 003: Keyless Workload Identity Federation',
+         'SYNTHETIC RECORD: Static service account JSON keys are prohibited; workloads authenticate via short-lived projected Kubernetes tokens and STS exchange.',
+         '[0.11, 0.18, 0.89, 0.14, 0.06, 0.09, 0.12, 0.05]'),
+        ('SYN-POL-004', 'observability', 'sovereign',
+         'Synthetic Policy 004: Sovereign Telemetry Content Redaction',
+         'SYNTHETIC RECORD: OpenTelemetry GenAI message content capture is disabled for sovereign workloads and redacted at the collector as defense in depth.',
+         '[0.24, 0.10, 0.09, 0.88, 0.15, 0.04, 0.08, 0.11]'),
+        ('SYN-POL-005', 'burst', 'public-burst',
+         'Synthetic Policy 005: Sanitized Cloud Burst Screening',
+         'SYNTHETIC RECORD: Only non-sovereign sanitized workloads holding a cloud-burst API product may route to Vertex AI Gemini through Model Armor.',
+         '[0.09, 0.12, 0.10, 0.16, 0.90, 0.14, 0.07, 0.08]')
+      ON CONFLICT (policy_id) DO NOTHING;
+
+      CREATE OR REPLACE VIEW sovereign_policies AS
+        SELECT policy_id, category, data_classification, title, summary, embedding
+        FROM sovereign_compliance_policies;
+
+      DO \$\$
+      BEGIN
+        IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}') THEN
+          CREATE ROLE "${PG_USER}" LOGIN PASSWORD '${PG_PASSWORD}';
+        ELSE
+          ALTER ROLE "${PG_USER}" WITH LOGIN PASSWORD '${PG_PASSWORD}';
+        END IF;
+      END
+      \$\$;
+
+      ALTER ROLE "${PG_USER}" SET statement_timeout = '10s';
+      GRANT CONNECT ON DATABASE "${POSTGRES_DB}" TO "${PG_USER}";
+      GRANT USAGE ON SCHEMA public TO "${PG_USER}";
+      GRANT SELECT ON TABLE sovereign_compliance_policies TO "${PG_USER}";
+      GRANT SELECT ON TABLE sovereign_policies TO "${PG_USER}";
+      SELECT pg_reload_conf();
+    EOSQL
+
+    if [ "${POSTGRES_DB}" != "agent_policies" ]; then
+      psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+        -c "CREATE DATABASE agent_policies TEMPLATE \"${POSTGRES_DB}\";" \
+        -c "GRANT CONNECT ON DATABASE agent_policies TO \"${PG_USER}\";"
+    fi
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: pgvector-synthetic-seed
+  namespace: data-systems
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: pgvector-data-pvc
+  namespace: data-systems
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: local-shared
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/component: tool-backing-db
+    app.kubernetes.io/name: pgvector-db
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: pgvector-db
+  namespace: data-systems
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: tool-backing-db
+      app.kubernetes.io/name: pgvector-db
+  serviceName: pgvector-db
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: tool-backing-db
+        app.kubernetes.io/name: pgvector-db
+        app.kubernetes.io/part-of: hybrid-cloud-agents
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - command:
+            - /bin/sh
+            - -ec
+            - |
+              cp /etc/pg-tls-src/tls.crt /tmp/pg-tls/server.crt
+              cp /etc/pg-tls-src/tls.key /tmp/pg-tls/server.key
+              chmod 0600 /tmp/pg-tls/server.key
+              exec docker-entrypoint.sh postgres \
+                -c ssl=on \
+                -c ssl_min_protocol_version=TLSv1.3 \
+                -c password_encryption=scram-sha-256 \
+                -c ssl_cert_file=/tmp/pg-tls/server.crt \
+                -c ssl_key_file=/tmp/pg-tls/server.key
+          env:
+            - name: POSTGRES_INITDB_ARGS
+              value: --auth-host=scram-sha-256 --auth-local=trust
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  key: PG_DATABASE
+                  name: pgvector-db-creds
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: POSTGRES_SUPER_PASSWORD
+                  name: pgvector-db-creds
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  key: PG_USER
+                  name: pgvector-db-creds
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: PG_PASSWORD
+                  name: pgvector-db-creds
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          image: pgvector/pgvector:pg16@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U postgres -d "$POSTGRES_DB" -h 127.0.0.1
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          name: postgres
+          ports:
+            - containerPort: 5432
+              name: postgres
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U postgres -d "$POSTGRES_DB" -h 127.0.0.1
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+            requests:
+              cpu: 250m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data
+              name: data
+            - mountPath: /docker-entrypoint-initdb.d
+              name: init-sql
+              readOnly: true
+            - mountPath: /etc/pg-tls-src
+              name: pg-tls-src
+              readOnly: true
+            - mountPath: /tmp/pg-tls
+              name: pg-tls
+            - mountPath: /var/run/postgresql
+              name: run-postgresql
+            - mountPath: /tmp
+              name: tmp
+      securityContext:
+        fsGroup: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        runAsUser: 999
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: pgvector-data-pvc
+        - configMap:
+            defaultMode: 365
+            name: pgvector-synthetic-seed
+          name: init-sql
+        - name: pg-tls-src
+          secret:
+            defaultMode: 288
+            secretName: pgvector-server-tls
+        - emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+          name: pg-tls
+        - emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+          name: run-postgresql
+        - emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+          name: tmp
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: tool-backing-db
+    app.kubernetes.io/name: pgvector-db
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: pgvector-db
+  namespace: data-systems
+spec:
+  ports:
+    - name: postgres-tls
+      port: 5432
+      protocol: TCP
+      targetPort: postgres
+  selector:
+    app.kubernetes.io/component: tool-backing-db
+    app.kubernetes.io/name: pgvector-db
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: tool-backing-db
+    app.kubernetes.io/name: pgvector-db
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: pgvector-db-external
+  namespace: data-systems
+spec:
+  externalTrafficPolicy: Local
+  loadBalancerIP: YOUR_PGVECTOR_HOST
+  ports:
+    - name: postgres-tls
+      port: 5432
+      protocol: TCP
+      targetPort: postgres
+  selector:
+    app.kubernetes.io/component: tool-backing-db
+    app.kubernetes.io/name: pgvector-db
+  type: LoadBalancer

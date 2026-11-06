@@ -1,0 +1,57 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Sample Data-Tier Namespace and TLS Server Certificate for a Kubernetes Test Cluster.
+# Replace YOUR_PGVECTOR_HOST and YOUR_DATA_INGRESS_VIP before applying with kubectl.
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+  name: data-systems
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: pgvector-server-tls
+  namespace: data-systems
+spec:
+  commonName: pgvector.hybrid-agents.internal
+  dnsNames:
+    - pgvector.hybrid-agents.internal
+    - pgvector-db.data-systems.svc.cluster.local
+    - pgvector-db
+  duration: 2160h
+  ipAddresses:
+    - YOUR_PGVECTOR_HOST
+    - YOUR_DATA_INGRESS_VIP
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: hybrid-agents-ca
+  privateKey:
+    algorithm: ECDSA
+    rotationPolicy: Always
+    size: 256
+  renewBefore: 360h
+  secretName: pgvector-server-tls
+  usages:
+    - server auth
+    - digital signature
+    - key encipherment

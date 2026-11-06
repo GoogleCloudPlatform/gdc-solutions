@@ -1,0 +1,35 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Bundled HTTPS Ingress fronting vllm-service:8000 on the sample gdc-so-model test cluster.
+# Uses the bundled istio-ingress gateway in gke-system and references Secret/vllm-ingress-tls
+# in gke-system signed by hybrid-agents-ca.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vllm-https-ingress
+  namespace: gemma-serving
+spec:
+  rules:
+    - http:
+        paths:
+          - backend:
+              service:
+                name: vllm-service
+                port:
+                  number: 8000
+            path: /
+            pathType: Prefix
+  tls:
+    - secretName: vllm-ingress-tls

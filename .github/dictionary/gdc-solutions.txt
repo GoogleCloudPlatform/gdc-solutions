@@ -1,4 +1,3 @@
-
 abmra
 addgroup
 adduser
@@ -9,6 +8,7 @@ aname
 anthos
 anthosaudit
 anthosconfigmanagement
+apigee
 apiproduct
 apiproducts
 apiproxy
@@ -25,6 +25,7 @@ bmctl
 bofa
 bytearray
 cafile
+callout
 certfile
 chdir
 cicd
@@ -46,6 +47,7 @@ containerscanning
 coreutils
 creds
 cuda
+dbname
 dcgm
 dearmor
 depl
@@ -62,6 +64,7 @@ endfor
 endif
 envoyproxy
 envsubst
+eosql
 errexit
 esbenp
 finditer
@@ -97,7 +100,10 @@ hashlib
 healthcheck
 healthz
 hexdigest
+hostnossl
+hostssl
 httpx
+huggingface
 hybridcloud
 iamcredentials
 idempotently
@@ -105,10 +111,12 @@ identitynamespace
 iface
 ifaces
 ingressgateway
+initdb
 inotify
 isdir
 isinstance
 isort
+isready
 iterdir
 jdbc
 jinja
@@ -160,6 +168,7 @@ oauthtoken
 ollama
 onprem
 opsconfigmonitoring
+otelcol
 parsepayload
 passwordless
 pathlib
@@ -168,6 +177,7 @@ pcfg
 peft
 perc
 persistentvolumeclaims
+pgdata
 pgdatabase
 pghost
 pgpassword
@@ -182,7 +192,9 @@ portforward
 preconfigured
 prettier
 propertyset
+protobuf
 pset
+psql
 psycopg
 publickey
 pycache
@@ -190,13 +202,16 @@ pyenv
 pyload
 pyyaml
 qwen
+ratelimit
 readyz
+resourcefiles
 resourcegroup
 resourcegroups
 resourcemanager
 returncode
 rglob
 rollouts
+rolname
 rootsync
 rootsyncs
 rsplit
@@ -244,6 +259,7 @@ tfvars
 theia
 timedelta
 timonwong
+toolset
 toplevel
 toupper
 transactionhistory
@@ -251,6 +267,8 @@ truststore
 ttft
 unenroll
 unquantized
+unrendered
+upsert
 urllib
 urlmap
 urlopen
@@ -264,3 +282,4 @@ vllmsse
 vxlan
 writestr
 xtrace
+zipfile

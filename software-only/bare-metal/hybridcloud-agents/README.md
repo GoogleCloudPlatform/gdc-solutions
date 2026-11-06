@@ -13,7 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-cspell:words agentregistry creds genai hybridcloud pgvector propertyset
+cspell:words agentregistry creds genai hybridcloud pgvector propertyset sslmode
 -->
 
 # Hybrid Cloud AI Agents on Distributed Cloud software only
@@ -109,20 +109,33 @@ hybridcloud-agents/
 │   ├── sync-apigee-proxies.sh
 │   └── validate-manifests.sh
 └── tests/
-    └── a2a/
-        ├── environments/
-        │   └── agents/
-        │       └── manifests.yaml
-        ├── fleetpackage.yaml
-        ├── render.sh
-        └── src/
-            ├── base/
-            │   ├── a2a-bypass-probes.yaml
-            │   ├── a2a-rogue-caller.yaml
-            │   └── kustomization.yaml
-            └── overlays/
-                └── agents/
-                    └── kustomization.yaml
+    ├── a2a/
+    │   ├── environments/
+    │   │   └── agents/
+    │   │       └── manifests.yaml
+    │   ├── fleetpackage.yaml
+    │   ├── render.sh
+    │   └── src/
+    │       ├── base/
+    │       │   ├── a2a-bypass-probes.yaml
+    │       │   ├── a2a-rogue-caller.yaml
+    │       │   └── kustomization.yaml
+    │       └── overlays/
+    │           └── agents/
+    │               └── kustomization.yaml
+    ├── data-tier/
+    │   ├── 00-namespace-and-pki.yaml
+    │   ├── 01-postgres-pgvector.yaml
+    │   ├── 02-network-policies.yaml
+    │   └── README.md
+    └── model-tier/
+        ├── README.md
+        ├── gpu-pod-monitoring.yaml
+        ├── vllm-deployment.yaml
+        ├── vllm-https-ingress.yaml
+        ├── vllm-pod-monitoring.yaml
+        ├── vllm-pvc.yaml
+        └── vllm-service.yaml
 ```
 
 - `apigee/` contains portable, config-as-code Apigee hybrid 1.17 proxy bundles
@@ -154,6 +167,12 @@ hybridcloud-agents/
   that runs negative-security verification `Job` workloads for rogue caller
   rejection and east-west bypass prevention, then removes all test fixtures when
   deleted.
+- `tests/data-tier/` and `tests/model-tier/` contain optional, self-contained
+  Kubernetes manifests (applied directly with `kubectl`, not managed by Config
+  Delivery) for standing up a sample PostgreSQL 16 + `pgvector` backing database
+  (`tests/data-tier/`) and a sample `vLLM` (`google/gemma-4-31B-it`) model tier
+  with bundled HTTPS `Ingress` on a `gdc-so-model` GPU test cluster
+  (`tests/model-tier/`) for end-to-end evaluation.
 
 ## Configuration
 
@@ -162,23 +181,30 @@ trigger substitutions before you deploy:
 
 <!-- mdformat off -->
 
-| Placeholder                     | Description                                                                               |
-| :------------------------------ | :---------------------------------------------------------------------------------------- |
-| `YOUR_PROJECT_ID`               | Google Cloud fleet host and Apigee organization project ID                                |
-| `YOUR_PROJECT_NUMBER`           | Numeric Google Cloud fleet host project number (for the Config Delivery service agent)    |
-| `YOUR_CONNECTION`               | Cloud Build 2nd-gen Git repository connection name in `us-central1`                       |
-| `YOUR_REPOSITORY`               | Linked repository resource name inside `YOUR_CONNECTION`                                  |
-| `YOUR_PUBLISHER_SA_NAME`        | Service account name used by Config Delivery / Cloud Build to package releases            |
-| `YOUR_GATEWAY_FQDN`             | Internal FQDN of the Apigee hybrid ingress gateway substituted into Agent Registry cards  |
-| `YOUR_AGENTS_INGRESS_VIP`       | MetalLB `LoadBalancer` IP (`spec.loadBalancerIP`) pinned on `Service/agent-ingress-envoy` |
-| `YOUR_AGENTS_INGRESS_HOST`      | IP or hostname of the Agents cluster Envoy mTLS ingress gateway (`gdcso-agent-ingress`)   |
-| `YOUR_VLLM_INGRESS_HOST`        | IP or hostname of the Model cluster sovereign vLLM ingress gateway (`gdcso-local-vllm`)   |
-| `YOUR_AGENTS_CLUSTER_NAME`      | Fleet membership name of the Agents cluster (`agents.cluster.name` in property set)       |
-| `YOUR_GATEWAY_CLUSTER_NAME`     | Fleet membership name of the Gateway cluster (`gateway.cluster.name` in property set)     |
-| `YOUR_MODEL_CLUSTER_NAME`       | Fleet membership name of the Model cluster (`model.cluster.name` in property set)         |
-| `_AGENTS_CLUSTER_OIDC_JWKS_B64` | Base64-encoded OIDC JWKS (`kubectl get --raw /openid/v1/jwks`) of the Agents cluster      |
+| Placeholder                     | Description                                                                                      |
+| :------------------------------ | :----------------------------------------------------------------------------------------------- |
+| `YOUR_PROJECT_ID`               | Google Cloud fleet host and Apigee organization project ID                                       |
+| `YOUR_PROJECT_NUMBER`           | Numeric Google Cloud fleet host project number (for the Config Delivery service agent)           |
+| `YOUR_CONNECTION`               | Cloud Build 2nd-gen Git repository connection name in `us-central1`                              |
+| `YOUR_REPOSITORY`               | Linked repository resource name inside `YOUR_CONNECTION`                                         |
+| `YOUR_PUBLISHER_SA_NAME`        | Service account name used by Config Delivery / Cloud Build to package releases                   |
+| `YOUR_GATEWAY_FQDN`             | Internal FQDN of the Apigee hybrid ingress gateway substituted into Agent Registry cards         |
+| `YOUR_AGENTS_INGRESS_VIP`       | MetalLB `LoadBalancer` IP (`spec.loadBalancerIP`) pinned on `Service/agent-ingress-envoy`        |
+| `YOUR_AGENTS_INGRESS_HOST`      | IP or hostname of the Agents cluster Envoy mTLS ingress gateway (`gdcso-agent-ingress`)          |
+| `YOUR_VLLM_INGRESS_HOST`        | IP or hostname of the Model cluster sovereign vLLM ingress gateway (`gdcso-local-vllm`)          |
+| `YOUR_PGVECTOR_HOST`            | IP or hostname of your external PostgreSQL + `pgvector` endpoint (`sovereign-pgvector` source)   |
+| `YOUR_DATA_SYSTEMS_CIDR`        | CIDR block (for example `<IP>/32`) of your external PostgreSQL + `pgvector` endpoint for `:5432` |
+| `YOUR_AGENTS_CLUSTER_NAME`      | Fleet membership name of the Agents cluster (`agents.cluster.name` in property set)              |
+| `YOUR_GATEWAY_CLUSTER_NAME`     | Fleet membership name of the Gateway cluster (`gateway.cluster.name` in property set)            |
+| `YOUR_MODEL_CLUSTER_NAME`       | Fleet membership name of the Model cluster (`model.cluster.name` in property set)                |
+| `_AGENTS_CLUSTER_OIDC_JWKS_B64` | Base64-encoded OIDC JWKS (`kubectl get --raw /openid/v1/jwks`) of the Agents cluster             |
 
 <!-- mdformat on -->
+
+Always substitute your environment-specific values in a private repository copy
+(never a public fork) or a rendered release bundle, and verify that no
+unrendered `YOUR_*` placeholders remain in `fleet-package/environments/` before
+creating a release tag.
 
 ## Least-privilege IAM for Cloud Build synchronization
 
@@ -205,27 +231,29 @@ project- and resource-scoped IAM roles (no `roles/apigee.admin`, no
 
 The `gateway-tools` overlay
 (`fleet-package/src/overlays/gateway-tools/mcp-toolbox.yaml`) ships a sample
-`sovereign-pgvector` PostgreSQL source
-(`host: pgvector-db.mcp-tools.svc.cluster.local`),
-`ExternalSecret/pgvector-db-creds` (referencing Secret Manager key
-`hybrid-agents-pgvector-creds` with JSON properties `PG_DATABASE`, `PG_USER`,
-`PG_PASSWORD`, and `POSTGRES_SUPER_PASSWORD`), and a `:5432` egress rule
-(`app.kubernetes.io/name: pgvector-db`) in `NetworkPolicy/allow-mcp-toolbox`.
-The package does **not** deploy a PostgreSQL database.
+`sovereign-pgvector` PostgreSQL source (`host: YOUR_PGVECTOR_HOST` with
+`sslmode: verify-full`), `ExternalSecret/pgvector-db-creds` (referencing Secret
+Manager key `hybrid-agents-pgvector-creds` with JSON properties `PG_DATABASE`,
+`PG_USER`, and `PG_PASSWORD`), and a `:5432` egress rule
+(`cidr: YOUR_DATA_SYSTEMS_CIDR`) in `NetworkPolicy/allow-mcp-toolbox`. The
+package does **not** deploy a PostgreSQL database.
 
 Before deploying `fleet-package/fleetpackage-gateway-tools.yaml`, choose one of
 the following options:
 
-1. **Point at your own PostgreSQL + `pgvector` instance:** Create the
+1. **Point at your own external PostgreSQL + `pgvector` instance:** Create the
    `hybrid-agents-pgvector-creds` secret in Secret Manager with JSON keys
-   `PG_DATABASE`, `PG_USER`, `PG_PASSWORD`, and `POSTGRES_SUPER_PASSWORD`
-   (`PG_DATABASE`, `PG_USER`, and `PG_PASSWORD` are used by
-   `Deployment/mcp-toolbox`; `POSTGRES_SUPER_PASSWORD` is required by
-   `ExternalSecret/pgvector-db-creds` and used only by the lab's optional
-   in-cluster sample database), and update the `sovereign-pgvector` `host` in
-   `ConfigMap/mcp-toolbox-config` plus the `:5432` egress peer in
-   `NetworkPolicy/allow-mcp-toolbox` to match your database endpoint, then
-   re-run `fleet-package/render.sh`.
+   `PG_DATABASE`, `PG_USER`, and `PG_PASSWORD`, configure your PostgreSQL +
+   `pgvector` endpoint with a server TLS certificate signed by the shared
+   internal CA (`ClusterIssuer/hybrid-agents-ca`, including `YOUR_PGVECTOR_HOST`
+   in its Subject Alternative Names so `sslmode=verify-full` validation
+   succeeds), replace `YOUR_PGVECTOR_HOST` in `ConfigMap/mcp-toolbox-config` and
+   `YOUR_DATA_SYSTEMS_CIDR` in `NetworkPolicy/allow-mcp-toolbox` with your
+   database endpoint address and CIDR block, and re-run
+   `fleet-package/render.sh`. For testing purposes when you do not already have
+   an external PostgreSQL + `pgvector` instance, see `tests/data-tier/README.md`
+   for sample `kubectl` manifests that deploy a seeded PostgreSQL 16 +
+   `pgvector` test database on a sample Kubernetes cluster.
 2. **Remove the sample PostgreSQL source:** Remove the `sovereign-pgvector`
    source and its tools from `ConfigMap/mcp-toolbox-config`, remove
    `ExternalSecret/pgvector-db-creds` and the `PG_DATABASE`, `PG_USER`, and
@@ -240,7 +268,7 @@ If neither step is taken:
   (`Secret/pgvector-db-creds` is not created) and `Deployment/mcp-toolbox` pods
   stay in `CreateContainerConfigError` (`secret "pgvector-db-creds" not found`).
 - When `Secret/pgvector-db-creds` exists but the configured PostgreSQL host
-  (`pgvector-db.mcp-tools.svc.cluster.local:5432`) is unreachable, `mcp-toolbox`
+  (`YOUR_PGVECTOR_HOST:5432`) is unreplaced or unreachable, `mcp-toolbox`
   (`v1.15.0`) synchronously pings the connection pool during source
   initialization at startup (`pool.Ping(ctx)`), exits with
   `unable to initialize source "sovereign-pgvector": unable to connect successfully`,
