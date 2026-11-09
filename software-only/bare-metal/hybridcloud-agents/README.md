@@ -13,7 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-cspell:words agentregistry creds genai hybridcloud pgvector propertyset sslmode
+cspell:words agentregistry cloudbuild configdelivery creds fleetpackage gdcso genai hybridcloud kustomization pgvector propertyset secretmanager sslmode vllm
 -->
 
 # Hybrid Cloud AI Agents on Distributed Cloud software only

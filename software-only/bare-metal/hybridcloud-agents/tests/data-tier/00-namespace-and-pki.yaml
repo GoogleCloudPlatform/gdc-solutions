@@ -12,25 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Sample Data-Tier Namespace and TLS Server Certificate for a Kubernetes Test Cluster.
+# Apply on the Gateway and Tools cluster (namespace: cert-manager) to issue
+# the TLS server certificate from ClusterIssuer/hybrid-agents-ca, then copy
+# the resulting kubernetes.io/tls Secret into namespace: data-systems on the
+# data-tier test cluster.
 # Replace YOUR_PGVECTOR_HOST and YOUR_DATA_INGRESS_VIP before applying with kubectl.
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    app.kubernetes.io/part-of: hybrid-cloud-agents
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/enforce: restricted
-    pod-security.kubernetes.io/warn: restricted
-  name: data-systems
----
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   labels:
     app.kubernetes.io/part-of: hybrid-cloud-agents
   name: pgvector-server-tls
-  namespace: data-systems
+  namespace: cert-manager
 spec:
   commonName: pgvector.hybrid-agents.internal
   dnsNames:

@@ -27,6 +27,24 @@ guide.
 These manifests are applied directly with `kubectl` on `gdc-so-model` and are
 **not** managed by Google Cloud Config Delivery (`FleetPackage`).
 
+## Prerequisites
+
+Before applying these manifests on `gdc-so-model`, verify that the following
+cluster prerequisites are in place:
+
+- **NVIDIA GPU Operator:** Installed and running on `gdc-so-model`, providing
+  `runtimeClassName: nvidia`, allocatable `nvidia.com/gpu` capacity, and the
+  `gpu-operator` namespace for DCGM exporter metrics.
+- **`local-shared` StorageClass:** Configured on `gdc-so-model` so
+  `PersistentVolumeClaim/model-cache-pvc` binds to a local shared volume.
+- **Google Cloud Managed Service for Prometheus:** Enabled on `gdc-so-model`
+  (providing the `monitoring.googleapis.com/v1` `PodMonitoring` CRD).
+- **`Secret/vllm-ingress-tls` in `namespace: gke-system`:** Issued by
+  `ClusterIssuer/hybrid-agents-ca` on the Gateway and Tools cluster with your
+  `gdc-so-model` `ingressVIP` in `spec.ipAddresses` and copied into
+  `namespace: gke-system` on `gdc-so-model`, as described in the Solution
+  Reference Implementation step **Expose the model tier over HTTPS**.
+
 ## Contents
 
 - `vllm-pvc.yaml` — `PersistentVolumeClaim/model-cache-pvc` (`100Gi`,
@@ -57,9 +75,9 @@ These manifests are applied directly with `kubectl` on `gdc-so-model` and are
      --from-literal=token="${HF_TOKEN}"
    ```
 
-2. Copy the TLS server certificate secret (`vllm-ingress-tls`, issued by
-   `ClusterIssuer/hybrid-agents-ca` with your `gdc-so-model` `ingressVIP` in
-   `spec.ipAddresses`) into `namespace: gke-system` on `gdc-so-model`.
+2. Ensure `Secret/vllm-ingress-tls` (issued on the Gateway and Tools cluster per
+   the Solution Reference Implementation step **Expose the model tier over
+   HTTPS**) is present in `namespace: gke-system` on `gdc-so-model`.
 
 3. Apply the model-tier manifests on `gdc-so-model`:
 

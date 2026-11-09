@@ -14,7 +14,7 @@
 
 # Zero-Trust Kubernetes NetworkPolicies for the data-systems Namespace on a
 # Sample Data-Tier Test Cluster.
-# Replace YOUR_GATEWAY_NODE_CIDR and YOUR_GATEWAY_POD_CIDR before applying with kubectl.
+# Replace YOUR_GATEWAY_NODE_CIDR before applying with kubectl.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -62,8 +62,6 @@ spec:
     - from:
         - ipBlock:
             cidr: YOUR_GATEWAY_NODE_CIDR
-        - ipBlock:
-            cidr: YOUR_GATEWAY_POD_CIDR
       ports:
         - port: 5432
           protocol: TCP
