@@ -43,6 +43,17 @@ environment.
 ```text
 hybridcloud-agents/
 ├── README.md
+├── agents/
+│   ├── README.md
+│   ├── adk-ops-orchestrator/
+│   │   ├── Dockerfile
+│   │   ├── app.py
+│   │   └── requirements.txt
+│   ├── adk-sovereign-agent/
+│   │   ├── Dockerfile
+│   │   ├── app.py
+│   │   └── requirements.txt
+│   └── cloudbuild-images.yaml
 ├── apigee/
 │   ├── environments/
 │   │   └── env-config.json
@@ -138,6 +149,10 @@ hybridcloud-agents/
         └── vllm-service.yaml
 ```
 
+- `agents/` contains sanitized Python source code (`app.py`), `Dockerfile`
+  definitions, pinned `requirements.txt` manifests (`google-adk==1.39.1`), and
+  `cloudbuild-images.yaml` for building the `adk-sovereign-agent` and
+  `adk-ops-orchestrator` container images.
 - `apigee/` contains portable, config-as-code Apigee hybrid 1.17 proxy bundles
   (`proxies/`), base API product specifications (`products/api-products.json`),
   and environment configuration templates (`environments/env-config.json` for
