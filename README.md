@@ -11,6 +11,10 @@
   - [SFT Model Serving with Fleet Packages Reference Implementation](/software-only/bare-metal/sft-model-serving/docs/reference-implementation.md)
   - [SFT Model Serving with Fleet Packages User Guide](/software-only/bare-metal/sft-model-serving/docs/user-guide.md)
 
+## Federated Learning for Edge AI
+
+- [Federated Learning for Edge AI on Distributed Cloud Software Only](/software-only/bare-metal/fed-lora/README.md)
+
 ## ARCHIVED Solutions
 
 - [Google Distributed Cloud (software only) for bare metal reference architecture](/docs/software-only_bare-metal_reference-architecture/README.md)

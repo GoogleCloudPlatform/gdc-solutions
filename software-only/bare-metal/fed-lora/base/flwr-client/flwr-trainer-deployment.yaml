@@ -1,0 +1,243 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Flower SuperExec GPU Trainer Deployment (GDC Edge Clusters)
+# Runs pre-baked flwr-trainer:v2.1.6 (flower-superexec --plugin-type clientapp)
+# on GPU Slice #2, co-located with vllm-gemma4 via podAffinity, mounting
+# shared-model-pvc (RWO) with non-root uid=1000 / fsGroup=2000 permissions.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: flwr-trainer
+    app.kubernetes.io/name: flwr-trainer
+    app.kubernetes.io/part-of: fed-lora-poc
+    component: edge-trainer
+  name: flwr-trainer
+  namespace: fed-lora-poc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flwr-trainer
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: flwr-trainer
+        app.kubernetes.io/name: flwr-trainer
+        app.kubernetes.io/part-of: fed-lora-poc
+        component: edge-trainer
+    spec:
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: vllm-serving
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - command:
+            - sh
+            - -c
+            - |
+              set -e
+              mkdir -p /tmp/pylib/fed_lora
+              cp /etc/fed-lora-observability/observability.py /tmp/pylib/observability.py
+              cp /etc/fed-lora-observability/observability.py /tmp/pylib/fed_lora/observability.py
+              printf 'from observability import *\n' > /tmp/pylib/fed_lora/__init__.py
+              python3 -m fed_lora.observability --serve --port 9100 --file /tmp/fed_lora_metrics.prom &
+              exec flower-superexec --insecure --runtime-api-address flwr-supernode-service:9094 --plugin-type clientapp
+          env:
+            - name: PYTORCH_CUDA_ALLOC_CONF
+              value: expandable_segments:True
+            - name: STORE_ID
+              value: "1"
+            - name: PYTHONPATH
+              value: /tmp/pylib
+            - name: CLUSTER_NAME
+              value: YOUR_STORE_1_CLUSTER
+            - name: SUPERLINK_ADDRESS
+              value: 10.200.0.50:9092
+            - name: VLLM_SERVER_URL
+              value: http://vllm-service.fed-lora-poc.svc.cluster.local:8000
+            - name: BASE_MODEL_NAME
+              value: google/gemma-4-E2B-it
+            - name: HF_HOME
+              value: /mnt/models/huggingface
+            - name: HOME
+              value: /home/flwr
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /etc/workload-identity/fleet-wi-config.json
+            - name: GOOGLE_CLOUD_PROJECT
+              value: YOUR_PROJECT_ID
+            - name: GCLOUD_PROJECT
+              value: YOUR_PROJECT_ID
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  key: token
+                  name: hf-token-secret
+                  optional: true
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  key: token
+                  name: hf-token-secret
+                  optional: true
+          image: us-central1-docker.pkg.dev/YOUR_PROJECT_ID/YOUR_AR_REPO/flwr-trainer:v2.1.6
+          imagePullPolicy: IfNotPresent
+          name: flwr-trainer
+          ports:
+            - containerPort: 9100
+              name: metrics
+              protocol: TCP
+          resources:
+            limits:
+              cpu: "4"
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: "2"
+              memory: 12Gi
+              nvidia.com/gpu: "1"
+          securityContext:
+            runAsGroup: 2000
+            runAsNonRoot: true
+            runAsUser: 1000
+          volumeMounts:
+            - mountPath: /mnt/models
+              name: shared-models
+            - mountPath: /mnt/store-data
+              name: store-training-data
+              readOnly: true
+            - mountPath: /dev/shm
+              name: dshm
+            - mountPath: /var/run/secrets/tokens/gcp-ksa
+              name: gcp-ksa
+              readOnly: true
+            - mountPath: /etc/workload-identity
+              name: fleet-wi-config
+              readOnly: true
+            - mountPath: /etc/fed-lora-observability
+              name: fed-lora-observability
+              readOnly: true
+      imagePullSecrets:
+        - name: ar-pull-secret
+      initContainers:
+        - command:
+            - bash
+            - -c
+            - |
+              set -e
+              mkdir -p /mnt/models/adapters \
+                       /mnt/models/huggingface \
+                       /mnt/models/edge-data/store-1 \
+                       /mnt/models/edge-data/store-2 \
+                       /mnt/models/store1-local-adapter \
+                       /mnt/models/store2-local-adapter \
+                       /mnt/models/store-fed-lora-round-1 \
+                       /mnt/models/store-fed-lora-candidate
+              chmod -R 2775 /mnt/models/adapters \
+                            /mnt/models/edge-data \
+                            /mnt/models/store1-local-adapter \
+                            /mnt/models/store2-local-adapter \
+                            /mnt/models/store-fed-lora-round-1 \
+                            /mnt/models/store-fed-lora-candidate
+              chown -R 1000:2000 /mnt/models/adapters \
+                                 /mnt/models/edge-data \
+                                 /mnt/models/store1-local-adapter \
+                                 /mnt/models/store2-local-adapter \
+                                 /mnt/models/store-fed-lora-round-1 \
+                                 /mnt/models/store-fed-lora-candidate
+              chgrp -R 2000 /mnt/models/huggingface 2>/dev/null || true
+              chmod -R g+rwX /mnt/models/huggingface 2>/dev/null || true
+          image: us-docker.pkg.dev/vertex-ai/vertex-vision-model-garden-dockers/pytorch-vllm-serve:gemma4
+          imagePullPolicy: IfNotPresent
+          name: init-adapters-permissions
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+          volumeMounts:
+            - mountPath: /mnt/models
+              name: shared-models
+        - command:
+            - sh
+            - -c
+            - |
+              set -e
+              SRC="/mnt/store-data/train.jsonl"
+              DST_DIR="/mnt/models/edge-data/store-${STORE_ID}"
+              DST="${DST_DIR}/train.jsonl"
+              mkdir -p "${DST_DIR}"
+              SRC_SHA=$(sha256sum "${SRC}" | awk '{print $1}')
+              DST_SHA="missing"
+              if [ -f "${DST}" ]; then
+                DST_SHA=$(sha256sum "${DST}" | awk '{print $1}')
+              fi
+              echo "[seed-store-training-data] store=${STORE_ID} src=${SRC} (sha256=${SRC_SHA}) dst=${DST} (before_sha256=${DST_SHA})"
+              if [ ! -f "${DST}" ] || [ "${SRC_SHA}" != "${DST_SHA}" ]; then
+                cp "${SRC}" "${DST}"
+                DST_SHA=$(sha256sum "${DST}" | awk '{print $1}')
+                echo "[seed-store-training-data] Copied ${SRC} -> ${DST} (after_sha256=${DST_SHA})"
+              else
+                echo "[seed-store-training-data] ${DST} already up-to-date (sha256=${DST_SHA})"
+              fi
+          env:
+            - name: STORE_ID
+              value: "1"
+          image: us-central1-docker.pkg.dev/YOUR_PROJECT_ID/YOUR_AR_REPO/flwr-trainer:v2.1.6
+          imagePullPolicy: IfNotPresent
+          name: seed-store-training-data
+          securityContext:
+            runAsGroup: 2000
+            runAsNonRoot: true
+            runAsUser: 1000
+          volumeMounts:
+            - mountPath: /mnt/models
+              name: shared-models
+            - mountPath: /mnt/store-data
+              name: store-training-data
+              readOnly: true
+      runtimeClassName: nvidia
+      securityContext:
+        fsGroup: 2000
+      serviceAccountName: default
+      volumes:
+        - name: shared-models
+          persistentVolumeClaim:
+            claimName: shared-model-pvc
+        - configMap:
+            name: store-training-data
+          name: store-training-data
+        - emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi
+          name: dshm
+        - name: gcp-ksa
+          projected:
+            defaultMode: 420
+            sources:
+              - serviceAccountToken:
+                  audience: YOUR_PROJECT_ID.svc.id.goog
+                  expirationSeconds: 3600
+                  path: token
+        - configMap:
+            name: fleet-wi-credentials-config
+          name: fleet-wi-config
+        - configMap:
+            name: fed-lora-observability
+          name: fed-lora-observability

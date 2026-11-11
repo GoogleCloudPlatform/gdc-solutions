@@ -1,0 +1,131 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Flower SuperLink Aggregator Deployment (Pre-Baked Image)
+# Cluster: YOUR_AGGREGATOR_CLUSTER (Namespace: fed-lora-aggregator)
+# Exposes FleetAPI (port 9092) and ExecAPI (port 9093) via Internal LoadBalancer (10.200.0.50)
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/component: aggregator
+    app.kubernetes.io/part-of: fed-lora-poc
+  name: fed-lora-aggregator
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    iam.gke.io/gcp-service-account: YOUR_WORKLOAD_SA_NAME@YOUR_PROJECT_ID.iam.gserviceaccount.com
+  name: default
+  namespace: fed-lora-aggregator
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: flwr-superlink
+    app.kubernetes.io/component: aggregator
+    app.kubernetes.io/part-of: fed-lora-poc
+  name: flwr-superlink
+  namespace: fed-lora-aggregator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flwr-superlink
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: flwr-superlink
+        app.kubernetes.io/component: aggregator
+        app.kubernetes.io/part-of: fed-lora-poc
+    spec:
+      containers:
+        - command:
+            - sh
+            - -c
+            - |
+              set -e
+              mkdir -p /root/.flwr /tmp/checkpoints /tmp/pylib/fed_lora
+              cp /etc/fed-lora-observability/observability.py /tmp/pylib/observability.py
+              cp /etc/fed-lora-observability/observability.py /tmp/pylib/fed_lora/observability.py
+              printf 'from observability import *\n' > /tmp/pylib/fed_lora/__init__.py
+              python3 -m fed_lora.observability --serve --port 9100 --file /tmp/fed_lora_metrics.prom &
+              cat << 'EOF' > /root/.flwr/config.toml
+              [superlink]
+              default = "gke-superlink"
+
+              [superlink.gke-superlink]
+              address = "127.0.0.1:9093"
+              insecure = true
+              EOF
+              echo "[INFO] Starting pre-baked Flower SuperLink daemon (FleetAPI :9092, ControlAPI :9093, OpenMetrics :9100)..."
+              exec flower-superlink --insecure --fleet-api-address 0.0.0.0:9092 --control-api-address 0.0.0.0:9093 --disable-runtime-dependency-installation
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: PYTHONPATH
+              value: /tmp/pylib
+            - name: STORE_ID
+              value: global
+            - name: CLUSTER_NAME
+              value: YOUR_AGGREGATOR_CLUSTER
+            - name: GCS_CHECKPOINT_PREFIX
+              value: gs://YOUR_GCS_BUCKET/checkpoints
+          image: us-central1-docker.pkg.dev/YOUR_PROJECT_ID/YOUR_AR_REPO/flwr-superlink:v2.1.6
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            periodSeconds: 10
+            tcpSocket:
+              port: 9092
+          name: flwr-superlink
+          ports:
+            - containerPort: 9092
+              name: fleet-api
+              protocol: TCP
+            - containerPort: 9093
+              name: exec-api
+              protocol: TCP
+            - containerPort: 9100
+              name: metrics
+              protocol: TCP
+          readinessProbe:
+            periodSeconds: 5
+            tcpSocket:
+              port: 9092
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+            requests:
+              cpu: "1"
+              memory: 2Gi
+          startupProbe:
+            failureThreshold: 20
+            initialDelaySeconds: 2
+            periodSeconds: 3
+            tcpSocket:
+              port: 9092
+          volumeMounts:
+            - mountPath: /etc/fed-lora-observability
+              name: fed-lora-observability
+              readOnly: true
+      volumes:
+        - configMap:
+            name: fed-lora-observability
+          name: fed-lora-observability

@@ -1,0 +1,110 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Flower SuperNode Control Daemon Deployment (GDC Edge Clusters)
+# Lightweight CPU-only pod (100m CPU, 256Mi RAM, 0 GPU, no /mnt/models mount)
+# holding the store's federation identity, outbound FleetAPI connection
+# to Central GKE SuperLink (10.200.0.50:9092), and internal ClientAppIo API (:9094).
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: flwr-supernode
+    app.kubernetes.io/name: flwr-supernode
+    app.kubernetes.io/part-of: fed-lora-poc
+    component: edge-supernode
+  name: flwr-supernode
+  namespace: fed-lora-poc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flwr-supernode
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: flwr-supernode
+        app.kubernetes.io/name: flwr-supernode
+        app.kubernetes.io/part-of: fed-lora-poc
+        component: edge-supernode
+    spec:
+      containers:
+        - args:
+            - --superlink
+            - $(SUPERLINK_ADDRESS)
+            - --insecure
+            - --isolation
+            - process
+            - --host
+            - 0.0.0.0
+            - --port
+            - "9094"
+            - --node-config
+            - store_id=$(STORE_ID)
+          command:
+            - flower-supernode
+          env:
+            - name: SUPERLINK_ADDRESS
+              value: 10.200.0.50:9092
+            - name: STORE_ID
+              value: "1"
+          image: flwr/supernode:1.36.0
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            tcpSocket:
+              port: 9094
+          name: flwr-supernode
+          ports:
+            - containerPort: 9094
+              name: clientappio
+              protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            tcpSocket:
+              port: 9094
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: flwr-supernode
+    app.kubernetes.io/name: flwr-supernode
+    app.kubernetes.io/part-of: fed-lora-poc
+    component: edge-supernode
+  name: flwr-supernode-service
+  namespace: fed-lora-poc
+spec:
+  ports:
+    - name: clientappio
+      port: 9094
+      protocol: TCP
+      targetPort: 9094
+  selector:
+    app: flwr-supernode
+  type: ClusterIP

@@ -1,0 +1,64 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Flower SuperLink Internal LoadBalancer Service
+# Exposes FleetAPI (port 9092) and ExecAPI (port 9093) at static internal IP 10.200.0.50
+
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    networking.gke.io/internal-load-balancer-allow-global-access: "true"
+    networking.gke.io/load-balancer-type: Internal
+  labels:
+    app: flwr-superlink
+    app.kubernetes.io/component: aggregator
+    app.kubernetes.io/part-of: fed-lora-poc
+  name: flwr-superlink-service
+  namespace: fed-lora-aggregator
+spec:
+  loadBalancerIP: 10.200.0.50
+  ports:
+    - name: fleet-api
+      port: 9092
+      protocol: TCP
+      targetPort: 9092
+    - name: exec-api
+      port: 9093
+      protocol: TCP
+      targetPort: 9093
+  selector:
+    app: flwr-superlink
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: flwr-superlink
+    app.kubernetes.io/part-of: fed-lora-poc
+  name: flwr-server-service
+  namespace: fed-lora-aggregator
+spec:
+  ports:
+    - name: fleet-api
+      port: 9092
+      protocol: TCP
+      targetPort: 9092
+    - name: exec-api
+      port: 9093
+      protocol: TCP
+      targetPort: 9093
+  selector:
+    app: flwr-superlink

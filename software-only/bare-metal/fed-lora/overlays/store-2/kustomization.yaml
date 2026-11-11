@@ -1,0 +1,95 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+configMapGenerator:
+  - files:
+      - train.jsonl=data/train.jsonl
+    name: store-training-data
+    namespace: fed-lora-poc
+    options:
+      disableNameSuffixHash: true
+kind: Kustomization
+labels:
+  - includeSelectors: false
+    pairs:
+      fed-lora.gdcso.google.com/store: store-2
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/clusterName
+        value: YOUR_STORE_2_CLUSTER
+    target:
+      group: addons.gke.io
+      kind: Stackdriver
+      name: stackdriver
+      namespace: kube-system
+      version: v1alpha1
+  - patch: |-
+      - op: add
+        path: /spec/loadBalancerIP
+        value: 10.200.0.163
+    target:
+      kind: Service
+      name: vllm-service
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/1/value
+        value: "2"
+    target:
+      kind: Deployment
+      name: flwr-supernode
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/initContainers/1/env/0/value
+        value: "2"
+      - op: replace
+        path: /spec/template/spec/containers/0/env/1/value
+        value: "2"
+      - op: replace
+        path: /spec/template/spec/containers/0/env/3/value
+        value: "YOUR_STORE_2_CLUSTER"
+    target:
+      kind: Deployment
+      name: flwr-trainer
+  - patch: |-
+      - op: replace
+        path: /data/fleet-wi-config.json
+        value: |
+          {
+            "type": "external_account",
+            "audience": "identitynamespace:YOUR_PROJECT_ID.svc.id.goog:https://gkehub.googleapis.com/projects/YOUR_PROJECT_ID/locations/global/memberships/YOUR_STORE_2_CLUSTER",
+            "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/YOUR_WORKLOAD_SA_NAME@YOUR_PROJECT_ID.iam.gserviceaccount.com:generateAccessToken",
+            "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+            "token_url": "https://sts.googleapis.com/v1/token",
+            "credential_source": {
+              "file": "/var/run/secrets/tokens/gcp-ksa/token"
+            }
+          }
+    target:
+      kind: ConfigMap
+      name: fleet-wi-credentials-config
+  - patch: |-
+      - op: replace
+        path: /spec/jobTemplate/spec/template/spec/containers/0/env/0/value
+        value: "YOUR_STORE_2_CLUSTER"
+    target:
+      kind: CronJob
+      name: ar-pull-refresher
+resources:
+  - ../../base/gpu-time-slicing
+  - ../../base/vllm-serving
+  - ../../base/credentials
+  - ../../base/flwr-client
+  - ../../base/monitoring

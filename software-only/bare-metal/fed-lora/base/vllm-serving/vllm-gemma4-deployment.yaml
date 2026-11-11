@@ -1,0 +1,140 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: vllm-serving
+    model: gemma-4-E2B-it
+  name: vllm-gemma4
+  namespace: fed-lora-poc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-serving
+  strategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: vllm-serving
+        model: gemma-4-E2B-it
+    spec:
+      containers:
+        - args:
+            - --model
+            - google/gemma-4-E2B-it
+            - --enable-lora
+            - --enable-sleep-mode
+            - --max-lora-rank
+            - "16"
+            - --gpu-memory-utilization
+            - "0.85"
+            - --port
+            - "8000"
+          command:
+            - bash
+            - -c
+            - |
+              set -e
+              mkdir -p /mnt/models/adapters /mnt/models/huggingface
+              chmod -R 2775 /mnt/models/adapters 2>/dev/null || true
+              chown -R 1000:2000 /mnt/models/adapters 2>/dev/null || true
+              python3 -c "
+              p = '/usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/gemma4_mm.py'
+              txt = open(p).read()
+              txt = txt.replace('from .interfaces import MultiModalEmbeddings, SupportsMultiModal, SupportsPP', 'from .interfaces import MultiModalEmbeddings, SupportsMultiModal, SupportsPP, SupportsLoRA')
+              txt = txt.replace('class Gemma4ForConditionalGeneration(nn.Module, SupportsMultiModal, SupportsPP):', 'class Gemma4ForConditionalGeneration(nn.Module, SupportsMultiModal, SupportsPP, SupportsLoRA):')
+              if 'Gemma4ForConditionalGeneration.supports_lora = True' not in txt:
+                  txt += '\nGemma4ForConditionalGeneration.supports_lora = True\nGemma4ForConditionalGeneration.packed_modules_mapping = {\"qkv_proj\": [\"q_proj\", \"k_proj\", \"v_proj\"], \"gate_up_proj\": [\"gate_proj\", \"up_proj\"]}\nGemma4ForConditionalGeneration.embedding_modules = {}\nGemma4ForConditionalGeneration.embedding_padding_modules = []\n'
+              open(p, 'w').write(txt)
+              verify_txt = open(p).read()
+              assert 'SupportsLoRA' in verify_txt and 'Gemma4ForConditionalGeneration.supports_lora = True' in verify_txt, 'SupportsLoRA patch failed!'
+              print('[PASS] Gemma4ForConditionalGeneration SupportsLoRA: True')
+              "
+              exec python3 -m vllm.entrypoints.openai.api_server "$@"
+            - --
+          env:
+            - name: VLLM_ALLOW_RUNTIME_LORA_UPDATING
+              value: "True"
+            - name: VLLM_SERVER_DEV_MODE
+              value: "1"
+            - name: HF_HOME
+              value: /mnt/models/huggingface
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  key: token
+                  name: hf-token-secret
+                  optional: true
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  key: token
+                  name: hf-token-secret
+                  optional: true
+          image: us-docker.pkg.dev/vertex-ai/vertex-vision-model-garden-dockers/pytorch-vllm-serve:gemma4
+          imagePullPolicy: IfNotPresent
+          name: vllm-openai
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          resources:
+            limits:
+              cpu: "8"
+              memory: 64Gi
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: "4"
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - mountPath: /mnt/models
+              name: shared-models
+            - mountPath: /dev/shm
+              name: dshm
+      runtimeClassName: nvidia
+      securityContext:
+        fsGroup: 2000
+      volumes:
+        - name: shared-models
+          persistentVolumeClaim:
+            claimName: shared-model-pvc
+        - emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi
+          name: dshm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: vllm-serving
+  name: vllm-service
+  namespace: fed-lora-poc
+spec:
+  ports:
+    - name: http
+      port: 8000
+      protocol: TCP
+      targetPort: 8000
+  selector:
+    app: vllm-serving
+  type: LoadBalancer

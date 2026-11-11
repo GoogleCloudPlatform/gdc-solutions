@@ -1,0 +1,308 @@
+{
+  "displayName": "GDC Software-Only Federated LoRA (FedLoRA) Live Demo Dashboard (v2.1.13)",
+  "mosaicLayout": {
+    "columns": 12,
+    "tiles": [
+      {
+        "height": 4,
+        "widget": {
+          "title": "Quadrant 1: Single-GPU RTX 6000 Pro (96 GiB) VRAM & vLLM Level-1 Sleep/Wake Lifecycle",
+          "xyChart": {
+            "dataSets": [
+              {
+                "legendTemplate": "DCGM FB Used MiB (${resource.labels.cluster_name})",
+                "plotType": "LINE",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "crossSeriesReducer": "REDUCE_MEAN",
+                      "groupByFields": ["resource.label.\"cluster_name\""],
+                      "perSeriesAligner": "ALIGN_MEAN"
+                    },
+                    "filter": "metric.type=\"prometheus.googleapis.com/DCGM_FI_DEV_FB_USED/gauge\" resource.type=\"prometheus_target\""
+                  }
+                }
+              },
+              {
+                "legendTemplate": "FedLoRA GPU VRAM MiB (${metric.labels.cluster_name} / ${metric.labels.store_id})",
+                "plotType": "LINE",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "crossSeriesReducer": "REDUCE_MEAN",
+                      "groupByFields": [
+                        "metric.label.\"cluster_name\"",
+                        "metric.label.\"store_id\""
+                      ],
+                      "perSeriesAligner": "ALIGN_MEAN"
+                    },
+                    "filter": "metric.type=\"prometheus.googleapis.com/fed_lora_gpu_vram_used_mib/gauge\" resource.type=\"prometheus_target\""
+                  }
+                }
+              },
+              {
+                "legendTemplate": "vLLM Level-1 Sleep Active (${metric.labels.cluster_name} / ${metric.labels.store_id})",
+                "plotType": "LINE",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "crossSeriesReducer": "REDUCE_MAX",
+                      "groupByFields": [
+                        "metric.label.\"cluster_name\"",
+                        "metric.label.\"store_id\""
+                      ],
+                      "perSeriesAligner": "ALIGN_MAX"
+                    },
+                    "filter": "metric.type=\"prometheus.googleapis.com/fed_lora_vllm_is_sleeping/gauge\" resource.type=\"prometheus_target\""
+                  }
+                }
+              }
+            ],
+            "yAxis": {
+              "label": "VRAM Used (MiB) / Sleep State (0 or 1)",
+              "scale": "LINEAR"
+            }
+          }
+        },
+        "width": 6,
+        "xPos": 0,
+        "yPos": 0
+      },
+      {
+        "height": 4,
+        "widget": {
+          "title": "Quadrant 2: Federated Convergence \u2014 Continuous KL-Prox Loss & Subspace Frobenius Norm ||lora_B||_F",
+          "xyChart": {
+            "dataSets": [
+              {
+                "legendTemplate": "Round Loss (${metric.labels.store_id} / ${metric.labels.loss_type})",
+                "plotType": "LINE",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "crossSeriesReducer": "REDUCE_MEAN",
+                      "groupByFields": [
+                        "metric.label.\"store_id\"",
+                        "metric.label.\"cluster_name\"",
+                        "metric.label.\"loss_type\""
+                      ],
+                      "perSeriesAligner": "ALIGN_MEAN"
+                    },
+                    "filter": "metric.type=\"prometheus.googleapis.com/fed_lora_round_loss/gauge\" resource.type=\"prometheus_target\""
+                  }
+                }
+              },
+              {
+                "legendTemplate": "||lora_B||_F [scope=${metric.labels.scope}, store=${metric.labels.store_id}]",
+                "plotType": "LINE",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "crossSeriesReducer": "REDUCE_MEAN",
+                      "groupByFields": [
+                        "metric.label.\"scope\"",
+                        "metric.label.\"store_id\"",
+                        "metric.label.\"cluster_name\""
+                      ],
+                      "perSeriesAligner": "ALIGN_MEAN"
+                    },
+                    "filter": "metric.type=\"prometheus.googleapis.com/fed_lora_lora_b_frobenius_norm/gauge\" resource.type=\"prometheus_target\""
+                  }
+                }
+              },
+              {
+                "legendTemplate": "Current Round [scope=${metric.labels.scope}, store=${metric.labels.store_id}]",
+                "plotType": "LINE",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "crossSeriesReducer": "REDUCE_MAX",
+                      "groupByFields": [
+                        "metric.label.\"scope\"",
+                        "metric.label.\"store_id\"",
+                        "metric.label.\"cluster_name\""
+                      ],
+                      "perSeriesAligner": "ALIGN_MAX"
+                    },
+                    "filter": "metric.type=\"prometheus.googleapis.com/fed_lora_current_round/gauge\" resource.type=\"prometheus_target\""
+                  }
+                }
+              }
+            ],
+            "yAxis": {
+              "label": "Loss / Frobenius Norm ||B||_F / Round",
+              "scale": "LINEAR"
+            }
+          }
+        },
+        "width": 6,
+        "xPos": 6,
+        "yPos": 0
+      },
+      {
+        "height": 4,
+        "widget": {
+          "title": "Quadrant 3: Two-Phase Cross-Store Canary Consensus Gate (14/14 Pass Ratio & Judge Faithfulness)",
+          "xyChart": {
+            "dataSets": [
+              {
+                "legendTemplate": "Canary Pass Ratio [scope=${metric.labels.scope}, cat=${metric.labels.category}]",
+                "plotType": "LINE",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "crossSeriesReducer": "REDUCE_MEAN",
+                      "groupByFields": [
+                        "metric.label.\"scope\"",
+                        "metric.label.\"store_id\"",
+                        "metric.label.\"cluster_name\"",
+                        "metric.label.\"category\""
+                      ],
+                      "perSeriesAligner": "ALIGN_MEAN"
+                    },
+                    "filter": "metric.type=\"prometheus.googleapis.com/fed_lora_canary_pass_ratio/gauge\" resource.type=\"prometheus_target\""
+                  }
+                }
+              },
+              {
+                "legendTemplate": "Faithfulness Score / 5.0 [scope=${metric.labels.scope}, store=${metric.labels.store_id}]",
+                "plotType": "LINE",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "crossSeriesReducer": "REDUCE_MEAN",
+                      "groupByFields": [
+                        "metric.label.\"scope\"",
+                        "metric.label.\"store_id\"",
+                        "metric.label.\"cluster_name\""
+                      ],
+                      "perSeriesAligner": "ALIGN_MEAN"
+                    },
+                    "filter": "metric.type=\"prometheus.googleapis.com/fed_lora_canary_faithfulness_score/gauge\" resource.type=\"prometheus_target\""
+                  }
+                }
+              },
+              {
+                "legendTemplate": "Cumulative Promotions [scope=${metric.labels.scope}, verdict=${metric.labels.verdict}]",
+                "plotType": "LINE",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "crossSeriesReducer": "REDUCE_MAX",
+                      "groupByFields": [
+                        "metric.label.\"scope\"",
+                        "metric.label.\"store_id\"",
+                        "metric.label.\"verdict\""
+                      ],
+                      "perSeriesAligner": "ALIGN_MAX"
+                    },
+                    "filter": "metric.type=\"prometheus.googleapis.com/fed_lora_canary_promotions_total/counter\" resource.type=\"prometheus_target\""
+                  }
+                }
+              }
+            ],
+            "yAxis": {
+              "label": "Pass Ratio (1.0 = 14/14) / Faithfulness (0-5)",
+              "scale": "LINEAR"
+            }
+          }
+        },
+        "width": 6,
+        "xPos": 0,
+        "yPos": 4
+      },
+      {
+        "height": 4,
+        "widget": {
+          "title": "Quadrant 4: Edge vLLM Serving Telemetry (:8000) & Federated Payload Efficiency (Bytes vs 15 GB Image)",
+          "xyChart": {
+            "dataSets": [
+              {
+                "legendTemplate": "vLLM KV-Cache Usage (${resource.labels.cluster_name})",
+                "plotType": "LINE",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "crossSeriesReducer": "REDUCE_MEAN",
+                      "groupByFields": ["resource.label.\"cluster_name\""],
+                      "perSeriesAligner": "ALIGN_MEAN"
+                    },
+                    "filter": "metric.type=\"prometheus.googleapis.com/vllm:gpu_cache_usage_perc/gauge\" resource.type=\"prometheus_target\""
+                  }
+                }
+              },
+              {
+                "legendTemplate": "FedLoRA Payload Bytes (${metric.labels.store_id} / ${metric.labels.direction})",
+                "plotType": "LINE",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "crossSeriesReducer": "REDUCE_MEAN",
+                      "groupByFields": [
+                        "metric.label.\"store_id\"",
+                        "metric.label.\"cluster_name\"",
+                        "metric.label.\"direction\""
+                      ],
+                      "perSeriesAligner": "ALIGN_MEAN"
+                    },
+                    "filter": "metric.type=\"prometheus.googleapis.com/fed_lora_payload_bytes/gauge\" resource.type=\"prometheus_target\""
+                  }
+                }
+              },
+              {
+                "legendTemplate": "Phase Duration Seconds (${metric.labels.store_id} / ${metric.labels.phase})",
+                "plotType": "LINE",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "crossSeriesReducer": "REDUCE_MEAN",
+                      "groupByFields": [
+                        "metric.label.\"store_id\"",
+                        "metric.label.\"cluster_name\"",
+                        "metric.label.\"phase\""
+                      ],
+                      "perSeriesAligner": "ALIGN_MEAN"
+                    },
+                    "filter": "metric.type=\"prometheus.googleapis.com/fed_lora_phase_duration_seconds/gauge\" resource.type=\"prometheus_target\""
+                  }
+                }
+              }
+            ],
+            "yAxis": {
+              "label": "Payload Bytes / Duration (s) / KV-Cache Ratio",
+              "scale": "LINEAR"
+            }
+          }
+        },
+        "width": 6,
+        "xPos": 6,
+        "yPos": 4
+      },
+      {
+        "height": 4,
+        "widget": {
+          "logsPanel": {
+            "filter": "resource.type=\"k8s_container\" (resource.labels.namespace_name=\"fed-lora-poc\" OR resource.labels.namespace_name=\"fed-lora-aggregator\") (jsonPayload.event_type:* OR labels.event_type:*)",
+            "resourceNames": ["projects/YOUR_PROJECT_ID"]
+          },
+          "title": "Live Federated Learning & Two-Phase Canary Consensus Structured Logs (GDC fluent-bit + Central GKE)"
+        },
+        "width": 12,
+        "xPos": 0,
+        "yPos": 8
+      }
+    ]
+  }
+}

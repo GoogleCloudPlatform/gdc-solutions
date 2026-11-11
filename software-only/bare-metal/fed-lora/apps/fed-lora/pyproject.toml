@@ -1,0 +1,117 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fed-lora"
+version = "1.0.0"
+description = "Edge-to-Cloud Federated LoRA (FFA-LoRA) on Google Distributed Cloud (GDC) and GKE"
+license = "Apache-2.0"
+dependencies = [
+    "flwr[rest]==1.36.0",
+    "google-cloud-storage>=2.18.0",
+    "numpy>=1.26.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+client = [
+    "torch>=2.4.0",
+    "peft>=0.14.0",
+    "bitsandbytes>=0.45.0",
+    "transformers>=4.48.0",
+    "datasets>=3.0.0",
+    "safetensors>=0.4.5",
+]
+
+[tool.flwr.app]
+publisher = "gdcso-dev"
+
+[tool.flwr.app.components]
+serverapp = "serverapp:app"
+clientapp = "clientapp:app"
+
+[tool.flwr.app.config]
+mode = "federated"
+num-server-rounds = 1
+min-clients = 2
+local-epochs = 4
+learning-rate = 0.0002
+weight-decay = 0.01
+lora-r = 16
+lora-alpha = 64
+lora-dropout = 0.1
+kl-coef = 0.2
+kl-temperature = 2.0
+kl-alpha = 0.5
+proximal-mu = 0.1
+target-loss = 0.05
+aggregation-mode = "ties"
+merge-method = "ties"
+trim-quantile = 0.2
+ties-density = 0.8
+scaling-lambda = 1.0
+residual-gamma = 0.85
+# Distinct round >= 2 subspace delta projection gain (defaults to residual-gamma when absent)
+round2-gamma = 0.56
+pre-merge-gain-small = 1.40
+pre-merge-gain-large = 1.30
+energy-balance-target-norm = 15.5
+require-vllm-sleep = true
+max-gpu-memory-fraction = 0.85
+enable-dp-clipping = false
+clipping-norm = 20.0
+dp-noise-multiplier = 0.0
+canary-gate = true
+canary-every-round = true
+canary-fact-min = 1.0
+canary-safety-min = 1.0
+require-global-consensus = true
+consensus-poll-timeout-sec = 5.0
+use-pretrained-local = true
+store-id = "1"
+base-model = "google/gemma-4-E2B-it"
+vllm-url = "http://vllm-service.fed-lora-poc.svc.cluster.local:8000"
+dataset-path = "/mnt/models/edge-data/store-{store_id}/train.jsonl"
+gcs-bucket = "gs://YOUR_GCS_BUCKET"
+global-adapter-gcs-prefix = "gs://YOUR_GCS_BUCKET/adapters/global/v1.0-federated"
+
+
+#######################################################################
+# CONFIGURATION MIGRATION NOTICE:
+#
+# What was previously called "federation config" for SuperLink
+# connections in pyproject.toml has been renamed and moved.
+#
+# These settings are now **SuperLink connection configuration**
+# and are defined in the Flower configuration file.
+#
+# The entries below are commented out intentionally and are kept
+# only as a migration reference.
+#
+# Docs: https://flower.ai/docs/framework/ref-flower-configuration.html
+#######################################################################
+
+# [tool.flwr.federations]
+# default = "gke-superlink"
+
+# [tool.flwr.federations.local-simulation]
+# options.num-supernodes = 2
+
+# [tool.flwr.federations.gke-superlink]
+# address = "127.0.0.1:19093"
+# insecure = true

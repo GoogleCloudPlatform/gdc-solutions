@@ -1,0 +1,56 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Google Cloud Managed Service for Prometheus (GMP) PodMonitoring CRDs
+# for GDC Software-Only Edge Clusters (namespace: fed-lora-poc):
+# 1. vllm-gemma4-monitoring (:8000/metrics on container port "http")
+# 2. flwr-trainer-monitoring (:9100/metrics on container port "metrics")
+
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  annotations:
+    config.kubernetes.io/depends-on: addons.gke.io/namespaces/kube-system/Stackdriver/stackdriver
+  labels:
+    app.kubernetes.io/component: edge-serving-monitoring
+    app.kubernetes.io/part-of: fed-lora-poc
+  name: vllm-gemma4-monitoring
+  namespace: fed-lora-poc
+spec:
+  endpoints:
+    - interval: 15s
+      path: /metrics
+      port: http
+  selector:
+    matchLabels:
+      app: vllm-serving
+---
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  annotations:
+    config.kubernetes.io/depends-on: addons.gke.io/namespaces/kube-system/Stackdriver/stackdriver
+  labels:
+    app.kubernetes.io/component: edge-trainer-monitoring
+    app.kubernetes.io/part-of: fed-lora-poc
+  name: flwr-trainer-monitoring
+  namespace: fed-lora-poc
+spec:
+  endpoints:
+    - interval: 15s
+      path: /metrics
+      port: metrics
+  selector:
+    matchLabels:
+      app: flwr-trainer
