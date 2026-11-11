@@ -1356,6 +1356,7 @@ def await_or_verify_global_consensus(
     config: Dict[str, Any],
     store_id: str = "1",
     vllm_url: str = "",
+    flwr_run_id: str = "",
 ) -> Dict[str, Any]:
     """Verifies federation-wide canary consensus before promoting candidate adapter locally."""
     if int(local_canary_pass) != 1:
@@ -1378,6 +1379,10 @@ def await_or_verify_global_consensus(
             "source": "explicit_config",
         }
 
+    current_run_id = str(
+        config.get("flwr_run_id", config.get("flwr-run-id", flwr_run_id))
+    ).strip()
+
     verdict_path = str(
         config.get(
             "consensus_verdict_path",
@@ -1388,14 +1393,25 @@ def await_or_verify_global_consensus(
         try:
             with open(verdict_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            v_str = str(data.get("verdict", "PROMOTE")).upper()
-            return {
-                "round": int(server_round),
-                "verdict": "REJECT" if v_str == "REJECT" else "PROMOTE",
-                "source": "consensus_verdict_path",
-                "stores_passed": data.get("stores_passed", []),
-                "stores_rejected": data.get("stores_rejected", []),
-            }
+            doc_run_id = str(data.get("flwr_run_id", "")).strip()
+            if current_run_id and doc_run_id != current_run_id:
+                logger.info(
+                    "[ConsensusGuard] Ignoring stale consensus_verdict_path %s"
+                    " for round %d (flwr_run_id='%s' != current '%s')",
+                    verdict_path,
+                    server_round,
+                    doc_run_id,
+                    current_run_id,
+                )
+            else:
+                v_str = str(data.get("verdict", "PROMOTE")).upper()
+                return {
+                    "round": int(server_round),
+                    "verdict": "REJECT" if v_str == "REJECT" else "PROMOTE",
+                    "source": "consensus_verdict_path",
+                    "stores_passed": data.get("stores_passed", []),
+                    "stores_rejected": data.get("stores_rejected", []),
+                }
         except Exception as exc:
             logger.warning(
                 "[ConsensusGuard] Failed to read consensus_verdict_path %s (%s)",
@@ -1442,15 +1458,15 @@ def await_or_verify_global_consensus(
     server_verdict_uri = f"{gcs_prefix}/round-{server_round}/consensus_verdict.json"
 
     if vllm_url or gcs_prefix.startswith("/"):
-        _try_upload_json_to_gcs(
-            {
-                "round": int(server_round),
-                "store_id": str(store_id),
-                "canary_pass": int(local_canary_pass),
-                "verdict": "PROMOTE" if int(local_canary_pass) == 1 else "REJECT",
-            },
-            own_receipt_uri,
-        )
+        receipt_payload: Dict[str, Any] = {
+            "round": int(server_round),
+            "store_id": str(store_id),
+            "canary_pass": int(local_canary_pass),
+            "verdict": "PROMOTE" if int(local_canary_pass) == 1 else "REJECT",
+        }
+        if current_run_id:
+            receipt_payload["flwr_run_id"] = current_run_id
+        _try_upload_json_to_gcs(receipt_payload, own_receipt_uri)
 
     deadline = time.time() + max(poll_timeout, 0.0)
     while True:
@@ -1459,6 +1475,17 @@ def await_or_verify_global_consensus(
             if (vllm_url or gcs_prefix.startswith("/"))
             else None
         )
+        if srv_doc is not None:
+            doc_run_id = str(srv_doc.get("flwr_run_id", "")).strip()
+            if current_run_id and doc_run_id != current_run_id:
+                logger.info(
+                    "[ConsensusGuard] Ignoring stale consensus_verdict.json for"
+                    " round %d (flwr_run_id='%s' != current '%s')",
+                    server_round,
+                    doc_run_id,
+                    current_run_id,
+                )
+                srv_doc = None
         if srv_doc is not None:
             v_str = str(srv_doc.get("verdict", "PROMOTE")).upper()
             return {
@@ -1474,6 +1501,17 @@ def await_or_verify_global_consensus(
             if (vllm_url or gcs_prefix.startswith("/"))
             else None
         )
+        if peer_doc is not None:
+            peer_run_id = str(peer_doc.get("flwr_run_id", "")).strip()
+            if current_run_id and peer_run_id != current_run_id:
+                logger.info(
+                    "[ConsensusGuard] Ignoring stale peer canary receipt for"
+                    " round %d (flwr_run_id='%s' != current '%s')",
+                    server_round,
+                    peer_run_id,
+                    current_run_id,
+                )
+                peer_doc = None
         if peer_doc is not None:
             peer_pass = int(
                 peer_doc.get("canary_pass", peer_doc.get("canary_passed", 1))
@@ -1521,6 +1559,7 @@ class FedLoRAClient(fl.client.NumPyClient):
         use_pretrained_local: bool = True,
         gcs_bucket_prefix: str = "gs://YOUR_GCS_BUCKET/checkpoints",
         model_init_kwargs: Optional[Dict[str, Any]] = None,
+        flwr_run_id: str = "",
     ):
         self.model = model
         self.tokenizer = tokenizer
@@ -1537,6 +1576,7 @@ class FedLoRAClient(fl.client.NumPyClient):
         self.use_pretrained_local = use_pretrained_local
         self.gcs_bucket_prefix = gcs_bucket_prefix.rstrip("/")
         self._model_init_kwargs: Dict[str, Any] = dict(model_init_kwargs or {})
+        self.flwr_run_id = str(flwr_run_id)
 
     def _ensure_model_and_tokenizer_loaded(self) -> None:
         if self.model is not None and self.tokenizer is not None:
@@ -2038,9 +2078,13 @@ class FedLoRAClient(fl.client.NumPyClient):
         torch.cuda.empty_cache()
         gc.collect()
         is_final_round = server_round >= num_server_rounds
-        canary_gate_enabled = bool(
-            config.get("canary_gate", config.get("canary-gate", True))
-        ) and (canary_every_round or is_final_round)
+        raw_canary_gate = config.get("canary_gate", config.get("canary-gate", True))
+        canary_gate_cfg = (
+            raw_canary_gate
+            if isinstance(raw_canary_gate, bool)
+            else str(raw_canary_gate).strip().lower() in ("true", "1", "yes")
+        )
+        canary_gate_enabled = canary_gate_cfg and (canary_every_round or is_final_round)
 
         canary_metrics: Dict[str, Any] = _fail_closed_canary_result(
             self.store_id,
@@ -2171,6 +2215,7 @@ class FedLoRAClient(fl.client.NumPyClient):
             config=config,
             store_id=self.store_id,
             vllm_url=self.vllm_url,
+            flwr_run_id=self.flwr_run_id,
         )
         if str(consensus_info.get("verdict", "PROMOTE")).upper() != "PROMOTE":
             logger.error(
@@ -2400,6 +2445,7 @@ def client_fn(context: Context):
             "gcs-bucket", os.environ.get("GCS_BUCKET", "gs://YOUR_GCS_BUCKET")
         )
     ).rstrip("/")
+    flwr_run_id = str(getattr(context, "run_id", ""))
     dataset_file = download_data_from_gcs(data_path, store_id=store_id)
     train_dataset = load_jsonl_dataset(dataset_file, tokenizer=None)
     client = FedLoRAClient(
@@ -2415,6 +2461,7 @@ def client_fn(context: Context):
         use_pretrained_local=use_pretrained_local,
         gcs_bucket_prefix=f"{gcs_bucket}/checkpoints",
         model_init_kwargs=model_init_kwargs,
+        flwr_run_id=flwr_run_id,
     )
     return client.to_client()
 

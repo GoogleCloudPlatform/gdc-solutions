@@ -28,7 +28,7 @@ import tempfile
 import types
 import unittest
 from contextlib import contextmanager
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 
@@ -1636,6 +1636,209 @@ class FlowerHardeningTest(unittest.TestCase):
             reset_log = json.loads(reset_buf.getvalue().strip())
             self.assertEqual(reset_log["event_type"], "STAGE1_BASELINE_RESET")
             self.assertEqual(reset_log["cluster_name"], "YOUR_AGGREGATOR_CLUSTER")
+
+    def test_f17_canary_gate_flag_honored(self):
+        """Verifies make_fit_config_fn, make_evaluate_config_fn, and evaluate() honor canary-gate=false across single and multi-round runs."""
+        for raw_false in (False, "false", "0", "no"):
+            cfg_1r = {"num-server-rounds": 1, "canary-gate": raw_false}
+            fit_1r = serverapp.make_fit_config_fn(cfg_1r)(1)
+            eval_1r = serverapp.make_evaluate_config_fn(cfg_1r)(1)
+            self.assertFalse(fit_1r["canary_gate"])
+            self.assertFalse(fit_1r["canary-gate"])
+            self.assertFalse(eval_1r["canary_gate"])
+            self.assertFalse(eval_1r["canary-gate"])
+
+            cfg_3r = {"num-server-rounds": 3, "canary-gate": raw_false}
+            fit_fn_3r = serverapp.make_fit_config_fn(cfg_3r)
+            eval_fn_3r = serverapp.make_evaluate_config_fn(cfg_3r)
+            for rnd in (1, 2, 3):
+                self.assertFalse(fit_fn_3r(rnd)["canary_gate"])
+                self.assertFalse(fit_fn_3r(rnd)["canary-gate"])
+                self.assertFalse(eval_fn_3r(rnd)["canary_gate"])
+                self.assertFalse(eval_fn_3r(rnd)["canary-gate"])
+
+        # Default True with canary-every-round=false still defers rounds 1..2 and gates round 3
+        cfg_defer = {"num-server-rounds": 3, "canary-every-round": "false"}
+        fit_defer = serverapp.make_fit_config_fn(cfg_defer)
+        eval_defer = serverapp.make_evaluate_config_fn(cfg_defer)
+        self.assertFalse(fit_defer(1)["canary_gate"])
+        self.assertFalse(eval_defer(2)["canary_gate"])
+        self.assertTrue(fit_defer(3)["canary_gate"])
+        self.assertTrue(eval_defer(3)["canary_gate"])
+
+        # Client evaluate() honors string "false" even when vllm_url is set
+        model = DummyToyCausalLM()
+        tokenizer = MagicMock()
+        tokenizer.save_pretrained = lambda d: None
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = clientapp.FedLoRAClient(
+                model=model,
+                tokenizer=tokenizer,
+                train_dataset=[1, 2],
+                output_dir=os.path.join(tmpdir, "local"),
+                global_output_dir=os.path.join(tmpdir, "global"),
+                vllm_url="http://127.0.0.1:9",
+                store_id="1",
+                mode="federated",
+            )
+            with patch.object(clientapp, "hotswap_vllm_adapter", return_value=True):
+                loss, _, metrics = client.evaluate(
+                    [np.ones((4, 4), dtype=np.float32)],
+                    {
+                        "server_round": 3,
+                        "num_server_rounds": 3,
+                        "canary_gate": "false",
+                        "require_global_consensus": False,
+                    },
+                )
+            self.assertEqual(loss, 0.0)
+            self.assertEqual(metrics["canary_pass"], 1)
+            self.assertEqual(metrics["consensus_verdict"], "PROMOTE")
+
+    def test_f18_ignore_stale_consensus_verdicts(self):
+        """Verifies await_or_verify_global_consensus ignores stale cross-run consensus_verdict.json and peer receipts with mismatched flwr_run_id."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            round1_dir = os.path.join(tmpdir, "round-1")
+            cand1_dir = os.path.join(tmpdir, "candidate", "round-1")
+            os.makedirs(round1_dir, exist_ok=True)
+            os.makedirs(cand1_dir, exist_ok=True)
+
+            # Write stale REJECT verdict and stale peer receipt from an older Flower run
+            verdict_file = os.path.join(round1_dir, "consensus_verdict.json")
+            with open(verdict_file, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "flwr_run_id": "run-old-100",
+                        "round": 1,
+                        "verdict": "REJECT",
+                        "stores_passed": ["1"],
+                        "stores_rejected": ["2"],
+                    },
+                    f,
+                )
+            peer_file = os.path.join(cand1_dir, "store-2-canary.json")
+            with open(peer_file, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "flwr_run_id": "run-old-100",
+                        "round": 1,
+                        "store_id": "2",
+                        "canary_pass": 0,
+                        "verdict": "REJECT",
+                    },
+                    f,
+                )
+
+            res_stale = clientapp.await_or_verify_global_consensus(
+                server_round=1,
+                local_canary_pass=1,
+                config={
+                    "gcs_bucket_prefix": tmpdir,
+                    "consensus_poll_timeout_sec": 0.0,
+                },
+                store_id="1",
+                flwr_run_id="run-new-200",
+            )
+            self.assertEqual(res_stale["verdict"], "PROMOTE")
+            self.assertEqual(res_stale["source"], "bounded_fallback_local_pass")
+
+            own_receipt = os.path.join(cand1_dir, "store-1-canary.json")
+            with open(own_receipt, "r", encoding="utf-8") as f:
+                receipt_doc = json.load(f)
+            self.assertEqual(receipt_doc["flwr_run_id"], "run-new-200")
+
+            # Matching flwr_run_id REJECT verdict IS enforced immediately
+            with open(verdict_file, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "flwr_run_id": "run-new-200",
+                        "round": 1,
+                        "verdict": "REJECT",
+                        "stores_passed": ["1"],
+                        "stores_rejected": ["2"],
+                    },
+                    f,
+                )
+            res_match = clientapp.await_or_verify_global_consensus(
+                server_round=1,
+                local_canary_pass=1,
+                config={
+                    "gcs_bucket_prefix": tmpdir,
+                    "consensus_poll_timeout_sec": 0.0,
+                },
+                store_id="1",
+                flwr_run_id="run-new-200",
+            )
+            self.assertEqual(res_match["verdict"], "REJECT")
+            self.assertEqual(res_match["source"], "gcs_server_consensus")
+
+        # Verify server_fn propagates context.run_id into evaluate_config
+        ctxt = Context(
+            run_id=98765,
+            node_id=0,
+            node_config={},
+            state=None,
+            run_config={"mode": "federated", "num-server-rounds": 1},
+        )
+        comps = serverapp.server_fn(ctxt)
+        eval_cfg = comps.strategy.on_evaluate_config_fn(1)
+        self.assertEqual(eval_cfg["flwr_run_id"], "98765")
+
+    def test_f16_derive_global_adapter_prefix_from_gcs_bucket(self):
+        """Verifies server_fn derives global_adapter_gcs_prefix from gcs-bucket while preserving explicit overrides."""
+        # 1. Only gcs-bucket provided (with gs:// scheme)
+        ctxt_uri = Context(
+            run_id=101,
+            node_id=0,
+            node_config={},
+            state=None,
+            run_config={"gcs-bucket": "gs://custom-edge-bucket"},
+        )
+        strat_uri = serverapp.server_fn(ctxt_uri).strategy
+        self.assertEqual(
+            strat_uri.gcs_bucket_prefix, "gs://custom-edge-bucket/checkpoints"
+        )
+        self.assertEqual(
+            strat_uri.global_adapter_gcs_prefix,
+            "gs://custom-edge-bucket/adapters/global/v1.0-federated",
+        )
+
+        # 2. Bare bucket name + pyproject.toml default placeholder still present in run_config
+        ctxt_toml_merged = Context(
+            run_id=102,
+            node_id=0,
+            node_config={},
+            state=None,
+            run_config={
+                "gcs-bucket": "custom-edge-bucket",
+                "global-adapter-gcs-prefix": serverapp.DEFAULT_GLOBAL_ADAPTER_GCS_PREFIX,
+            },
+        )
+        strat_merged = serverapp.server_fn(ctxt_toml_merged).strategy
+        self.assertEqual(
+            strat_merged.gcs_bucket_prefix, "gs://custom-edge-bucket/checkpoints"
+        )
+        self.assertEqual(
+            strat_merged.global_adapter_gcs_prefix,
+            "gs://custom-edge-bucket/adapters/global/v1.0-federated",
+        )
+
+        # 3. Explicit global-adapter-gcs-prefix override is honored
+        ctxt_override = Context(
+            run_id=103,
+            node_id=0,
+            node_config={},
+            state=None,
+            run_config={
+                "gcs-bucket": "gs://custom-edge-bucket",
+                "global-adapter-gcs-prefix": "gs://explicit-bucket/custom/adapters/v2/",
+            },
+        )
+        strat_override = serverapp.server_fn(ctxt_override).strategy
+        self.assertEqual(
+            strat_override.global_adapter_gcs_prefix,
+            "gs://explicit-bucket/custom/adapters/v2",
+        )
 
 
 if __name__ == "__main__":

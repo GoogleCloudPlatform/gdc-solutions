@@ -351,6 +351,14 @@ def ties_merge_lora_b(
     return merged_tensors
 
 
+def _parse_bool_flag(val: Any, default: bool = True) -> bool:
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return val
+    return str(val).strip().lower() in ("true", "1", "yes")
+
+
 def make_fit_config_fn(
     run_config: Dict[str, Any],
 ) -> Callable[[int], Dict[str, Scalar]]:
@@ -388,17 +396,23 @@ def make_fit_config_fn(
         "enable-dp-clipping",
         "clipping-norm",
         "use-pretrained-local",
+        "flwr-run-id",
     )
 
     def fit_config(server_round: int) -> Dict[str, Scalar]:
         num_rounds = int(
             run_config.get("num-server-rounds", run_config.get("num_server_rounds", 1))
         )
-        canary_every_round = str(
+        canary_every_round = _parse_bool_flag(
             run_config.get(
-                "canary-every-round", run_config.get("canary_every_round", "true")
-            )
-        ).lower() in ("true", "1", "yes")
+                "canary-every-round", run_config.get("canary_every_round", True)
+            ),
+            default=True,
+        )
+        canary_gate_enabled = _parse_bool_flag(
+            run_config.get("canary-gate", run_config.get("canary_gate", True)),
+            default=True,
+        )
         cfg: Dict[str, Scalar] = {
             "server_round": int(server_round),
             "num_server_rounds": int(num_rounds),
@@ -419,11 +433,12 @@ def make_fit_config_fn(
         cfg["clipping-norm"] = clip_val
         if num_rounds >= 2:
             if int(server_round) == 1:
-                use_pre = bool(
+                use_pre = _parse_bool_flag(
                     run_config.get(
                         "use-pretrained-local",
                         run_config.get("use_pretrained_local", True),
-                    )
+                    ),
+                    default=True,
                 )
                 cfg["use_pretrained_local"] = use_pre
                 cfg["use-pretrained-local"] = use_pre
@@ -451,12 +466,16 @@ def make_fit_config_fn(
                 cfg["kl-alpha"] = kl_val
                 cfg["weight_decay"] = 0.0
                 cfg["weight-decay"] = 0.0
-            if int(server_round) < num_rounds and not canary_every_round:
-                cfg["canary_gate"] = False
-                cfg["canary-gate"] = False
-            else:
-                cfg["canary_gate"] = True
-                cfg["canary-gate"] = True
+        if (
+            num_rounds >= 2
+            and int(server_round) < num_rounds
+            and not canary_every_round
+        ):
+            cfg["canary_gate"] = False
+            cfg["canary-gate"] = False
+        else:
+            cfg["canary_gate"] = bool(canary_gate_enabled)
+            cfg["canary-gate"] = bool(canary_gate_enabled)
         return cfg
 
     return fit_config
@@ -469,11 +488,16 @@ def make_evaluate_config_fn(
     num_rounds = int(
         run_config.get("num-server-rounds", run_config.get("num_server_rounds", 1))
     )
-    canary_every_round = str(
+    canary_every_round = _parse_bool_flag(
         run_config.get(
-            "canary-every-round", run_config.get("canary_every_round", "true")
-        )
-    ).lower() in ("true", "1", "yes")
+            "canary-every-round", run_config.get("canary_every_round", True)
+        ),
+        default=True,
+    )
+    canary_gate_enabled = _parse_bool_flag(
+        run_config.get("canary-gate", run_config.get("canary_gate", True)),
+        default=True,
+    )
 
     def evaluate_config(server_round: int) -> Dict[str, Scalar]:
         cfg = dict(fit_fn(server_round))
@@ -485,8 +509,8 @@ def make_evaluate_config_fn(
             cfg["canary_gate"] = False
             cfg["canary-gate"] = False
         else:
-            cfg["canary_gate"] = True
-            cfg["canary-gate"] = True
+            cfg["canary_gate"] = bool(canary_gate_enabled)
+            cfg["canary-gate"] = bool(canary_gate_enabled)
         return cfg
 
     return evaluate_config
@@ -754,7 +778,7 @@ class FedLoRAStrategy(fl.server.strategy.FedAvg):
     def __init__(
         self,
         gcs_bucket_prefix: str = "gs://YOUR_GCS_BUCKET/checkpoints",
-        global_adapter_gcs_prefix: str = DEFAULT_GLOBAL_ADAPTER_GCS_PREFIX,
+        global_adapter_gcs_prefix: Optional[str] = None,
         min_fit_clients: int = 2,
         min_available_clients: int = 2,
         min_evaluate_clients: int = 2,
@@ -784,7 +808,17 @@ class FedLoRAStrategy(fl.server.strategy.FedAvg):
             **kwargs,
         )
         self.gcs_bucket_prefix = gcs_bucket_prefix.rstrip("/")
-        self.global_adapter_gcs_prefix = global_adapter_gcs_prefix.rstrip("/")
+        if global_adapter_gcs_prefix and str(global_adapter_gcs_prefix).strip():
+            self.global_adapter_gcs_prefix = (
+                str(global_adapter_gcs_prefix).strip().rstrip("/")
+            )
+        elif self.gcs_bucket_prefix.endswith("/checkpoints"):
+            base_bucket = self.gcs_bucket_prefix[: -len("/checkpoints")]
+            self.global_adapter_gcs_prefix = (
+                f"{base_bucket}/adapters/global/v1.0-federated"
+            )
+        else:
+            self.global_adapter_gcs_prefix = DEFAULT_GLOBAL_ADAPTER_GCS_PREFIX
         self.aggregation_mode = aggregation_mode.lower()
         self.trim_quantile = (
             float(1.0 - ties_density)
@@ -825,6 +859,8 @@ class FedLoRAStrategy(fl.server.strategy.FedAvg):
             fit_ins.config["prev_round_global_verdict"] = self.last_global_verdict
             fit_ins.config["prev_round_consensus_round"] = int(server_round - 1)
             fit_ins.config["gcs_bucket_prefix"] = self.gcs_bucket_prefix
+            if self.flwr_run_id:
+                fit_ins.config["flwr_run_id"] = self.flwr_run_id
         return client_instructions
 
     def configure_evaluate(
@@ -840,6 +876,8 @@ class FedLoRAStrategy(fl.server.strategy.FedAvg):
             eval_ins.config["prev_round_global_verdict"] = self.last_global_verdict
             eval_ins.config["prev_round_consensus_round"] = int(server_round - 1)
             eval_ins.config["gcs_bucket_prefix"] = self.gcs_bucket_prefix
+            if self.flwr_run_id:
+                eval_ins.config["flwr_run_id"] = self.flwr_run_id
         return client_instructions
 
     @property
@@ -1590,14 +1628,37 @@ SubspaceFedLoraStrategy = FedLoRAStrategy
 def server_fn(context: Context) -> ServerAppComponents:
     run_cfg = dict(context.run_config)
     flwr_run_id = str(getattr(context, "run_id", ""))
+    if flwr_run_id:
+        run_cfg.setdefault("flwr-run-id", flwr_run_id)
     mode = str(run_cfg.get("mode", "federated"))
     num_rounds = int(run_cfg.get("num-server-rounds", 1))
     min_clients = int(run_cfg.get("min-clients", 2))
-    gcs_bucket = str(run_cfg.get("gcs-bucket", "gs://YOUR_GCS_BUCKET"))
-    gcs_prefix = gcs_bucket.rstrip("/") + "/checkpoints"
-    global_adapter_prefix = str(
-        run_cfg.get("global-adapter-gcs-prefix", DEFAULT_GLOBAL_ADAPTER_GCS_PREFIX)
+    raw_gcs_bucket = (
+        str(
+            run_cfg.get("gcs-bucket", run_cfg.get("gcs_bucket", "gs://YOUR_GCS_BUCKET"))
+        )
+        .strip()
+        .rstrip("/")
     )
+    if raw_gcs_bucket and not raw_gcs_bucket.startswith(("gs://", "/")):
+        gcs_bucket = f"gs://{raw_gcs_bucket}"
+    else:
+        gcs_bucket = raw_gcs_bucket or "gs://YOUR_GCS_BUCKET"
+    gcs_prefix = f"{gcs_bucket}/checkpoints"
+    raw_global_prefix = (
+        str(
+            run_cfg.get(
+                "global-adapter-gcs-prefix",
+                run_cfg.get("global_adapter_gcs_prefix", ""),
+            )
+        )
+        .strip()
+        .rstrip("/")
+    )
+    if not raw_global_prefix or raw_global_prefix == DEFAULT_GLOBAL_ADAPTER_GCS_PREFIX:
+        global_adapter_prefix = f"{gcs_bucket}/adapters/global/v1.0-federated"
+    else:
+        global_adapter_prefix = raw_global_prefix
     aggregation_mode = str(
         run_cfg.get("aggregation-mode", run_cfg.get("merge-method", "ties"))
     )
