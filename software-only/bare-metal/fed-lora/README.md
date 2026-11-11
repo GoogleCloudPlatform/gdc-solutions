@@ -97,10 +97,10 @@ orchestration and execution of AI workloads across hybrid infrastructure:
 
 ### Target Architecture
 
-See
-[The Solution: Decentralized Federated LoRA (Fed-LoRA)](#the-solution-decentralized-federated-lora-fed-lora)
-above for the central GKE `SuperLink`, hybrid edge `SuperNode`, and
-`apps/fed-lora` topology.
+![Edge AI Inference with Federated Learning - Target Architecture](docs/images/fed-lora_architecture_diagram.png)
+
+📄 A vector copy for zoom is available at
+[`docs/images/fed-lora_architecture_diagram.pdf`](docs/images/fed-lora_architecture_diagram.pdf).
 
 ---
 
@@ -233,6 +233,9 @@ proceeds through 5 core verification and execution stages (plus Stage 0 / Stage
 │   ├── fleetpackage-edge.yaml                  # Edge store clusters FleetPackage specification
 │   └── render.sh                               # Deterministic Kustomize-to-FleetPackage renderer
 ├── docs/                                       # Solution documentation & demo runbooks
+│   ├── images/                                 # Architecture diagrams & schematics
+│   │   ├── fed-lora_architecture_diagram.png   # High-resolution Target Architecture diagram (3000 x 1688)
+│   │   └── fed-lora_architecture_diagram.pdf   # Vector PDF copy of the same diagram (for zoom)
 │   ├── fed-lora_poc_implementation_guide.md    # End-to-end lab deployment & verification guide
 │   ├── fed-lora_poc_demo_script.md             # Master demo runbook & interactive talking points
 │   ├── verify_demo_setup_cheat_sheet.md        # Quick reference setup cheat sheet (25 checks)
