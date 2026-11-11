@@ -61,7 +61,6 @@ patches:
       kind: Deployment
       name: flwr-trainer
 resources:
-  - ../../base/gpu-time-slicing
   - ../../base/vllm-serving
   - ../../base/credentials
   - ../../base/flwr-client

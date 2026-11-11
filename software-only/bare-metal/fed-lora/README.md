@@ -61,7 +61,9 @@ cluster are prerequisites (not provisioned by the `FleetPackage` bundles):
 - Two Distributed Cloud software only standalone bare-metal clusters (`1.36.0`
   or later) registered to your Google Cloud fleet with Config Sync enabled,
   labeled `app-tier=fed-lora-edge` and `store=store-1` / `store=store-2`, each
-  equipped with an NVIDIA GPU (48 GB+ VRAM recommended) and NVIDIA GPU Operator.
+  equipped with an NVIDIA GPU (48 GB+ VRAM recommended), NVIDIA GPU Operator,
+  and (on single-GPU nodes) the one-time Phase A GPU time-slicing prerequisite
+  in `prerequisites/gpu-time-slicing/`.
 - One central GKE Standard cluster registered to the same fleet with Config Sync
   and Workload Identity enabled, labeled `app-tier=fed-lora-aggregator`.
 - Cloud Storage bucket (`gs://YOUR_GCS_BUCKET`), Artifact Registry Docker
@@ -91,7 +93,6 @@ fed-lora/
 │   ├── credentials/
 │   ├── flwr-client/
 │   ├── flwr-server/
-│   ├── gpu-time-slicing/
 │   ├── monitoring/
 │   └── vllm-serving/
 ├── config/
@@ -119,6 +120,12 @@ fed-lora/
 │   ├── central-aggregator/
 │   ├── store-1/
 │   └── store-2/
+├── prerequisites/
+│   └── gpu-time-slicing/
+│       ├── README.md
+│       ├── gpu-clusterpolicy-timeslicing.yaml
+│       ├── gpu-time-slicing-configmap.yaml
+│       └── kustomization.yaml
 └── scripts/
     ├── apply_cluster_secrets.sh
     ├── build_and_stage_fab.sh
@@ -150,6 +157,7 @@ public fork):
 | `YOUR_STORE_1_CLUSTER`    | Fleet membership name of Distributed Cloud software only edge cluster 1            |
 | `YOUR_STORE_2_CLUSTER`    | Fleet membership name of Distributed Cloud software only edge cluster 2            |
 | `YOUR_AGGREGATOR_CLUSTER` | Fleet membership name of the central GKE aggregator cluster                        |
+| `YOUR_STORE_CIDR`         | Source IPv4 CIDR of edge store clusters allowed by SuperLink internal LoadBalancer |
 
 <!-- mdformat on -->
 
@@ -162,12 +170,14 @@ public fork):
   from `gcs-bucket`.
 
 📌 **NOTE:** Sample manifests use RFC 1918 private VIPs on `10.200.0.0/24`
-(`10.200.0.50` for the central SuperLink internal LoadBalancer, `10.200.0.131`
-and `10.200.0.163` for Store 1 and Store 2 `vLLM` LoadBalancers), and
-`base/gpu-time-slicing/` configures 2x GPU time-slicing on single-GPU store
-nodes so `vLLM` and `flwr-trainer` can share one GPU. Adjust those settings in
-`base/` and `overlays/` if your environment uses dedicated GPUs or a different
-VPC CIDR.
+(`10.200.0.50` for the central SuperLink internal LoadBalancer restricted by
+`spec.loadBalancerSourceRanges: [YOUR_STORE_CIDR]`, and `10.200.0.131` /
+`10.200.0.163` for Store 1 and Store 2 `vLLM` LoadBalancers). GPU time-slicing
+(`2x` replicas on single-GPU store nodes) lives outside the `FleetPackage` under
+`prerequisites/gpu-time-slicing/` as a one-time Phase A platform-admin
+prerequisite. Adjust VIPs in `base/` and `overlays/` if your environment uses a
+different VPC CIDR, and skip `prerequisites/gpu-time-slicing/` on multi-GPU
+nodes.
 
 ## Deploy
 
@@ -181,7 +191,13 @@ VPC CIDR.
      software-only/bare-metal/fed-lora
    ```
 
-2. **Apply one-time cluster prerequisites:**
+2. **Apply one-time cluster prerequisites (Phase A):**
+   - On single-GPU edge store clusters, apply
+     `kubectl apply -k prerequisites/gpu-time-slicing` once as platform admin
+     (if upgrading from an older `FleetPackage` that bundled GPU time-slicing,
+     annotate `ConfigMap/time-slicing-config` and `ClusterPolicy/cluster-policy`
+     with `client.lifecycle.config.k8s.io/deletion=detach` first; see
+     [`prerequisites/gpu-time-slicing/README.md`](prerequisites/gpu-time-slicing/README.md)).
    - Substitute `YOUR_PROJECT_NUMBER` in
      `fleet-package/configdelivery-rbac.yaml` and apply it on all three clusters
      so the Config Delivery service agent has namespace-scoped `RootSync`

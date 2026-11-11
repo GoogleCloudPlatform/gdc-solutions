@@ -986,28 +986,6 @@ metadata:
   namespace: fed-lora-poc
 ---
 apiVersion: v1
-data:
-  any: |-
-    version: v1
-    flags:
-      migStrategy: none
-    sharing:
-      timeSlicing:
-        renameByDefault: false
-        failRequestsGreaterThanOne: false
-        resources:
-        - name: nvidia.com/gpu
-          replicas: 2
-kind: ConfigMap
-metadata:
-  labels:
-    app.kubernetes.io/component: gpu-time-slicing
-    app.kubernetes.io/part-of: fed-lora-poc
-    fed-lora.gdcso.google.com/store: store-1
-  name: time-slicing-config
-  namespace: gpu-operator
----
-apiVersion: v1
 kind: Service
 metadata:
   labels:
@@ -1651,18 +1629,3 @@ spec:
   selector:
     matchLabels:
       app: nvidia-dcgm-exporter
----
-apiVersion: nvidia.com/v1
-kind: ClusterPolicy
-metadata:
-  labels:
-    app.kubernetes.io/component: gpu-time-slicing
-    app.kubernetes.io/part-of: fed-lora-poc
-    fed-lora.gdcso.google.com/store: store-1
-  name: cluster-policy
-spec:
-  devicePlugin:
-    config:
-      default: any
-      name: time-slicing-config
-    enabled: true

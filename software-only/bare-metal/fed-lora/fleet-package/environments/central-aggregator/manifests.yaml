@@ -736,6 +736,8 @@ metadata:
   namespace: fed-lora-aggregator
 spec:
   loadBalancerIP: 10.200.0.50
+  loadBalancerSourceRanges:
+    - YOUR_STORE_CIDR
   ports:
     - name: fleet-api
       port: 9092

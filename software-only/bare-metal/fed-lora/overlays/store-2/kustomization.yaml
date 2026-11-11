@@ -88,7 +88,6 @@ patches:
       kind: CronJob
       name: ar-pull-refresher
 resources:
-  - ../../base/gpu-time-slicing
   - ../../base/vllm-serving
   - ../../base/credentials
   - ../../base/flwr-client
