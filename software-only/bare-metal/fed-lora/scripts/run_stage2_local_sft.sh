@@ -34,7 +34,7 @@
 #      counters to confirm zero OOM restarts across both stores.
 #
 # Usage:
-#   ./run_stage2_local_sft.sh [--dry-run] [--help]
+#   ./run_stage2_local_sft.sh [--min-clients N] [--dry-run] [--help]
 # ==============================================================================
 
 set -o errexit
@@ -85,38 +85,99 @@ export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-10.200.0.131}"
 export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-10.200.0.163}"
 export SUPERLINK_IP="${SUPERLINK_IP:-10.200.0.50}"
 export SUPERLINK_EXEC_PORT="${SUPERLINK_EXEC_PORT:-9093}"
+export SUPERLINK_LOCAL_PORT="${SUPERLINK_LOCAL_PORT:-19093}"
 export BASE_MODEL_ID="${BASE_MODEL_ID:-google/gemma-4-E2B-it}"
 
 DRY_RUN=false
-for arg in "$@"; do
-  case "${arg}" in
+MIN_CLIENTS_OVERRIDE=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
   --dry-run | -n)
     DRY_RUN=true
+    shift
+    ;;
+  --min-clients)
+    if [[ $# -lt 2 ]] || [[ ! $2 =~ ^[1-9][0-9]*$ ]]; then
+      log_error "--min-clients requires a positive integer (for example: --min-clients 1)."
+      exit 1
+    fi
+    MIN_CLIENTS_OVERRIDE="$2"
+    shift 2
+    ;;
+  --min-clients=*)
+    MIN_CLIENTS_OVERRIDE="${1#*=}"
+    if [[ ! ${MIN_CLIENTS_OVERRIDE} =~ ^[1-9][0-9]*$ ]]; then
+      log_error "--min-clients requires a positive integer (got '${MIN_CLIENTS_OVERRIDE}')."
+      exit 1
+    fi
+    shift
     ;;
   --help | -h)
     cat << EOF
-Usage: $0 [--dry-run] [--help]
+Usage: $0 [--min-clients N] [--dry-run] [--help]
 
 Orchestrates Stage 2 Siloed Local Fine-Tuning (QLoRA) using Flower SuperLink/SuperNode:
   1. Stages or verifies asymmetric training datasets in GCS (${GCS_BUCKET})
   2. Ensures 'flwr-supernode' is active on Store 1 & Store 2 and 'flwr-superlink' on GKE
   3. Triggers Flower App centrally via ExecAPI (10.200.0.50:9093) with mode='local-sft'
+     and requires canary_pass=1 for every participating store
   4. Verifies/executes REST calls to load 'store1-local-adapter' and 'store2-local-adapter'
-  5. Queries 'GET /v1/models' on both stores to verify active local adapters
+  5. Queries 'GET /v1/models' on online stores to verify active local adapters
   6. Checks GPU memory and verifies zero 'vllm' pod restarts
 
 Options:
-  --dry-run, -n   Print execution commands without mutating cluster state
-  --help, -h      Display this help message and exit
+  --min-clients N  Minimum number of online edge stores required (overrides min-clients in run_config_local_sft.toml)
+  --dry-run, -n    Print execution commands without mutating cluster state
+  --help, -h       Display this help message and exit
 EOF
     exit 0
     ;;
   *)
-    log_error "Unknown argument: ${arg}. Use --help for usage information."
+    log_error "Unknown argument: $1. Use --help for usage information."
     exit 1
     ;;
   esac
 done
+
+DEFAULT_RUN_CONFIG="${APP_DIR}/run_config_local_sft.toml"
+CONFIGURED_MIN_CLIENTS=$(sed -n 's/^[[:space:]]*min-clients[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' "${DEFAULT_RUN_CONFIG}" | head -n 1)
+EFFECTIVE_MIN_CLIENTS="${MIN_CLIENTS_OVERRIDE:-${CONFIGURED_MIN_CLIENTS:-2}}"
+if [[ ! ${EFFECTIVE_MIN_CLIENTS} =~ ^[1-9][0-9]*$ ]]; then
+  log_error "Invalid effective min-clients value '${EFFECTIVE_MIN_CLIENTS}'."
+  exit 1
+fi
+
+TMP_RUN_CONFIG=""
+FLWR_STREAM_LOG=""
+cleanup_temp_files() {
+  if [[ -n ${TMP_RUN_CONFIG} && -f ${TMP_RUN_CONFIG} ]]; then
+    rm -f "${TMP_RUN_CONFIG}"
+  fi
+  if [[ -n ${FLWR_STREAM_LOG} && -f ${FLWR_STREAM_LOG} ]]; then
+    rm -f "${FLWR_STREAM_LOG}"
+  fi
+}
+trap cleanup_temp_files EXIT
+
+RUN_CONFIG_ARG="run_config_local_sft.toml"
+if [[ -n ${MIN_CLIENTS_OVERRIDE} && ${DRY_RUN} != "true" ]]; then
+  TMP_RUN_CONFIG="$(mktemp "${TMPDIR:-/tmp}/run_config_local_sft.XXXXXX.toml")"
+  awk -v mc="${MIN_CLIENTS_OVERRIDE}" '
+    BEGIN { replaced = 0 }
+    /^[[:space:]]*min-clients[[:space:]]*=/ {
+      print "min-clients = " mc
+      replaced = 1
+      next
+    }
+    { print }
+    END {
+      if (!replaced) {
+        print "min-clients = " mc
+      }
+    }
+  ' "${DEFAULT_RUN_CONFIG}" > "${TMP_RUN_CONFIG}"
+  RUN_CONFIG_ARG="${TMP_RUN_CONFIG}"
+fi
 
 # Resilient HTTP GET for vLLM models (K8s Port-Forward -> Connect Gateway exec -> Direct HTTP)
 vllm_http_get() {
@@ -210,14 +271,14 @@ run_flwr_cmd() {
 
   export PATH="${HOME}/.local/bin:${PATH}"
 
-  # Tier 1: Local flwr CLI if installed and superlink is port-forwarded (127.0.0.1:19093)
+  # Tier 1: Local flwr CLI if installed and superlink is port-forwarded (127.0.0.1:${SUPERLINK_LOCAL_PORT})
   if command -v flwr > /dev/null 2>&1; then
-    if ! timeout 1 bash -c "</dev/tcp/127.0.0.1/19093" 2> /dev/null; then
-      kubectl --context="${GKE_CONTEXT}" -n fed-lora-aggregator port-forward svc/flwr-superlink-service 19093:9093 > /dev/null 2>&1 &
+    if ! timeout 1 bash -c "</dev/tcp/127.0.0.1/${SUPERLINK_LOCAL_PORT}" 2> /dev/null; then
+      kubectl --context="${GKE_CONTEXT}" -n fed-lora-aggregator port-forward svc/flwr-superlink-service "${SUPERLINK_LOCAL_PORT}:9093" < /dev/null > /dev/null 2>&1 &
       sleep 2
     fi
-    if timeout 1 bash -c "</dev/tcp/127.0.0.1/19093" 2> /dev/null; then
-      log_info "Executing via local flwr CLI over K8s port-forward (127.0.0.1:19093): flwr ${flwr_subcmd} $*"
+    if timeout 1 bash -c "</dev/tcp/127.0.0.1/${SUPERLINK_LOCAL_PORT}" 2> /dev/null; then
+      log_info "Executing via local flwr CLI over K8s port-forward (127.0.0.1:${SUPERLINK_LOCAL_PORT}): flwr ${flwr_subcmd} $*"
       if [[ ${flwr_subcmd} == "run" ]]; then
         if (cd "${APP_DIR}" && flwr run . gke-superlink "$@"); then
           return 0
@@ -245,7 +306,17 @@ run_flwr_cmd() {
       kubectl --context="${GKE_CONTEXT}" -n fed-lora-aggregator exec "${gke_pod}" -- rm -rf /tmp/fed-lora
       kubectl --context="${GKE_CONTEXT}" -n fed-lora-aggregator cp "${APP_DIR}" "${gke_pod}:/tmp/fed-lora"
       kubectl --context="${GKE_CONTEXT}" -n fed-lora-aggregator cp "${APP_DIR}/serverapp.py" "${gke_pod}:/app/serverapp.py" 2> /dev/null || true
-      kubectl --context="${GKE_CONTEXT}" -n fed-lora-aggregator exec "${gke_pod}" -- bash -c "cd /tmp/fed-lora && flwr run . gke-superlink $*"
+      local pod_args=()
+      local flwr_arg
+      for flwr_arg in "$@"; do
+        if [[ -n ${TMP_RUN_CONFIG} && ${flwr_arg} == "${TMP_RUN_CONFIG}" ]]; then
+          kubectl --context="${GKE_CONTEXT}" -n fed-lora-aggregator cp "${TMP_RUN_CONFIG}" "${gke_pod}:/tmp/fed-lora/run_config_local_sft.override.toml"
+          pod_args+=("run_config_local_sft.override.toml")
+        else
+          pod_args+=("${flwr_arg}")
+        fi
+      done
+      kubectl --context="${GKE_CONTEXT}" -n fed-lora-aggregator exec "${gke_pod}" -- bash -c "cd /tmp/fed-lora && flwr run . gke-superlink ${pod_args[*]}"
       return 0
     elif [[ ${flwr_subcmd} == "supernode" ]]; then
       kubectl --context="${GKE_CONTEXT}" -n fed-lora-aggregator exec "${gke_pod}" -- flwr supernode "$@"
@@ -260,7 +331,16 @@ run_flwr_cmd() {
   return 1
 }
 
-log_info "Starting Stage 2 Siloed Local Fine-Tuning Execution (DRY_RUN=${DRY_RUN})..."
+log_info "Starting Stage 2 Siloed Local Fine-Tuning Execution (DRY_RUN=${DRY_RUN}, min_clients=${EFFECTIVE_MIN_CLIENTS})..."
+
+STORE_IDS=("1" "2")
+STORE_LABELS=("Store 1 (YOUR_STORE_1_CLUSTER)" "Store 2 (YOUR_STORE_2_CLUSTER)")
+STORE_CONTEXTS=("${STORE1_CONTEXT}" "${STORE2_CONTEXT}")
+STORE_IPS=("${STORE1_VLLM_LB_IP}" "${STORE2_VLLM_LB_IP}")
+ADAPTER_NAMES=("store1-local-adapter" "store2-local-adapter")
+OUTPUT_DIRS=("/mnt/models/store1-local-adapter" "/mnt/models/store2-local-adapter")
+STEP1_VERIFIED_INDICES=()
+ONLINE_STORE_INDICES=()
 
 # ------------------------------------------------------------------------------
 # Step 1/6: Verify store-local training datasets on edge PVCs (/mnt/models/edge-data/store-{1,2}/train.jsonl)
@@ -268,28 +348,38 @@ log_info "Starting Stage 2 Siloed Local Fine-Tuning Execution (DRY_RUN=${DRY_RUN
 log_info "[Step 1/6] Verifying declarative store-local training datasets on edge PVCs (/mnt/models/edge-data/store-{1,2}/train.jsonl)..."
 if [[ ${DRY_RUN} == "true" ]]; then
   echo "[DRY-RUN] Verify /mnt/models/edge-data/store-1/train.jsonl and /mnt/models/edge-data/store-2/train.jsonl SHA-256 against overlays/store-{1,2}/data/train.jsonl"
+  ONLINE_STORE_INDICES=(0 1)
 else
-  S1_EXPECTED_SHA=$(sha256sum "${SCRIPT_DIR}/../overlays/store-1/data/train.jsonl" | awk '{print $1}')
-  S2_EXPECTED_SHA=$(sha256sum "${SCRIPT_DIR}/../overlays/store-2/data/train.jsonl" | awk '{print $1}')
-  S1_PVC_SHA=$(kubectl --context="${STORE1_CONTEXT}" -n fed-lora-poc exec deployment/flwr-trainer -c flwr-trainer -- sha256sum /mnt/models/edge-data/store-1/train.jsonl 2> /dev/null | awk '{print $1}' || true)
-  S2_PVC_SHA=$(kubectl --context="${STORE2_CONTEXT}" -n fed-lora-poc exec deployment/flwr-trainer -c flwr-trainer -- sha256sum /mnt/models/edge-data/store-2/train.jsonl 2> /dev/null | awk '{print $1}' || true)
-  if [[ ${S1_PVC_SHA} != "${S1_EXPECTED_SHA}" ]]; then
-    log_error "Store 1 PVC dataset SHA-256 mismatch or missing: got '${S1_PVC_SHA}', expected '${S1_EXPECTED_SHA}'"
+  for i in "${!STORE_IDS[@]}"; do
+    sid="${STORE_IDS[$i]}"
+    label="${STORE_LABELS[$i]}"
+    ctx="${STORE_CONTEXTS[$i]}"
+    expected_sha=$(sha256sum "${SCRIPT_DIR}/../overlays/store-${sid}/data/train.jsonl" | awk '{print $1}')
+    pvc_sha=$(kubectl --context="${ctx}" -n fed-lora-poc exec deployment/flwr-trainer -c flwr-trainer -- sha256sum "/mnt/models/edge-data/store-${sid}/train.jsonl" 2> /dev/null | awk '{print $1}' || true)
+    if [[ ${pvc_sha} == "${expected_sha}" ]]; then
+      STEP1_VERIFIED_INDICES+=("${i}")
+      log_success "${label}: Verified store-local PVC training dataset (sha256=${pvc_sha})."
+    elif [[ -n ${pvc_sha} ]]; then
+      log_error "${label} PVC dataset SHA-256 mismatch: got '${pvc_sha}', expected '${expected_sha}'"
+      exit 1
+    elif ((EFFECTIVE_MIN_CLIENTS >= ${#STORE_IDS[@]})); then
+      log_error "${label} PVC dataset missing or cluster unreachable (got '${pvc_sha}', expected '${expected_sha}')."
+      exit 1
+    else
+      log_warn "${label} is unreachable; skipping offline store because min-clients=${EFFECTIVE_MIN_CLIENTS}."
+    fi
+  done
+
+  if ((${#STEP1_VERIFIED_INDICES[@]} < EFFECTIVE_MIN_CLIENTS)); then
+    log_error "Verified ${#STEP1_VERIFIED_INDICES[@]} store dataset(s), fewer than required min-clients=${EFFECTIVE_MIN_CLIENTS}."
     exit 1
   fi
-  if [[ ${S2_PVC_SHA} != "${S2_EXPECTED_SHA}" ]]; then
-    log_error "Store 2 PVC dataset SHA-256 mismatch or missing: got '${S2_PVC_SHA}', expected '${S2_EXPECTED_SHA}'"
-    exit 1
-  fi
-  log_success "Verified store-local PVC training datasets on Store 1 (sha256=${S1_PVC_SHA}) and Store 2 (sha256=${S2_PVC_SHA})."
 fi
 
 # ------------------------------------------------------------------------------
 # Step 2/6: Verify SuperLink & SuperNodes Readiness
 # ------------------------------------------------------------------------------
-log_info "[Step 2/6] Verifying Flower SuperLink on GKE and SuperNodes on Store 1 & Store 2..."
-STORE_LABELS=("Store 1 (YOUR_STORE_1_CLUSTER)" "Store 2 (YOUR_STORE_2_CLUSTER)")
-STORE_CONTEXTS=("${STORE1_CONTEXT}" "${STORE2_CONTEXT}")
+log_info "[Step 2/6] Verifying Flower SuperLink on GKE and SuperNodes on online edge store(s)..."
 
 if [[ ${DRY_RUN} == "true" ]]; then
   echo "[DRY-RUN] kubectl --context=${GKE_CONTEXT} -n fed-lora-aggregator rollout status deployment/flwr-superlink"
@@ -300,39 +390,78 @@ else
   kubectl --context="${GKE_CONTEXT}" -n fed-lora-aggregator rollout status deployment/flwr-superlink --timeout=120s 2> /dev/null ||
     kubectl --context="${GKE_CONTEXT}" -n fed-lora-aggregator rollout status deployment/flwr-server --timeout=120s
 
-  for i in 0 1; do
+  for i in "${STEP1_VERIFIED_INDICES[@]}"; do
     label="${STORE_LABELS[$i]}"
     ctx="${STORE_CONTEXTS[$i]}"
     log_info "${label}: Verifying edge SuperNode (CPU) & SuperExec Trainer (GPU) daemons readiness..."
-    kubectl --context="${ctx}" -n fed-lora-poc rollout status deployment/flwr-supernode --timeout=120s 2> /dev/null
-    kubectl --context="${ctx}" -n fed-lora-poc rollout status deployment/flwr-trainer --timeout=120s 2> /dev/null
-    log_success "${label}: Edge SuperNode (CPU) & SuperExec Trainer (GPU Slice #2) daemons ready."
+    if kubectl --context="${ctx}" -n fed-lora-poc rollout status deployment/flwr-supernode --timeout=120s 2> /dev/null &&
+      kubectl --context="${ctx}" -n fed-lora-poc rollout status deployment/flwr-trainer --timeout=120s 2> /dev/null; then
+      ONLINE_STORE_INDICES+=("${i}")
+      log_success "${label}: Edge SuperNode (CPU) & SuperExec Trainer (GPU Slice #2) daemons ready."
+    elif ((EFFECTIVE_MIN_CLIENTS >= ${#STORE_IDS[@]})); then
+      log_error "${label}: Edge SuperNode or SuperExec Trainer failed readiness check."
+      exit 1
+    else
+      log_warn "${label}: Edge SuperNode or SuperExec Trainer not ready; skipping store (min-clients=${EFFECTIVE_MIN_CLIENTS})."
+    fi
   done
+
+  if ((${#ONLINE_STORE_INDICES[@]} < EFFECTIVE_MIN_CLIENTS)); then
+    log_error "Only ${#ONLINE_STORE_INDICES[@]} online store(s) ready, fewer than required min-clients=${EFFECTIVE_MIN_CLIENTS}."
+    exit 1
+  fi
 fi
 
 # ------------------------------------------------------------------------------
 # Step 3/6: Trigger Stage 2 Local SFT centrally via Flower App (No kubectl exec!)
 # ------------------------------------------------------------------------------
 log_info "[Step 3/6] Triggering Stage 2 Siloed QLoRA Fine-Tuning centrally via Flower SuperLink..."
-log_info "Dispatching Flower App: mode='local-sft' (NoOpAggregationStrategy, 0 parameter transfer)..."
+log_info "Dispatching Flower App: mode='local-sft', min-clients=${EFFECTIVE_MIN_CLIENTS} (NoOpAggregationStrategy, 0 parameter transfer)..."
 
 if [[ ${DRY_RUN} == "true" ]]; then
-  echo "[DRY-RUN] flwr run ${APP_DIR} gke-superlink --run-config run_config_local_sft.toml"
+  if [[ -n ${MIN_CLIENTS_OVERRIDE} ]]; then
+    echo "[DRY-RUN] flwr run ${APP_DIR} gke-superlink --run-config <temp_toml:min-clients=${EFFECTIVE_MIN_CLIENTS}> --stream"
+  else
+    echo "[DRY-RUN] flwr run ${APP_DIR} gke-superlink --run-config run_config_local_sft.toml --stream"
+  fi
 else
-  run_flwr_cmd run --run-config run_config_local_sft.toml --stream
-  log_success "Stage 2 Siloed Local Fine-Tuning completed across Store 1 and Store 2."
+  FLWR_STREAM_LOG="$(mktemp "${TMPDIR:-/tmp}/flwr_stage2_stream.XXXXXX.log")"
+  run_flwr_cmd run --run-config "${RUN_CONFIG_ARG}" --stream 2>&1 | tee "${FLWR_STREAM_LOG}"
+
+  canary_pass_count=0
+  canary_fail_count=0
+  while IFS= read -r token_val; do
+    if [[ -z ${token_val} ]]; then
+      continue
+    elif [[ ${token_val} == "1" ]]; then
+      canary_pass_count=$((canary_pass_count + 1))
+    else
+      canary_fail_count=$((canary_fail_count + 1))
+    fi
+  done < <(
+    sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g; s/\r//g' "${FLWR_STREAM_LOG}" |
+      { grep -Eo "canary_pass[\"']?[[:space:]]*[:=][[:space:]]*[0-9]+" || true; } |
+      sed -E 's/^.*[:=][[:space:]]*//'
+  )
+
+  if ((canary_fail_count > 0)); then
+    log_error "Stage 2 Local SFT failed Canary Gate (${canary_fail_count} store(s) reported canary_pass=0)."
+    exit 1
+  fi
+  if ((canary_pass_count < EFFECTIVE_MIN_CLIENTS)); then
+    log_error "Stage 2 Local SFT did not report canary_pass=1 for all ${EFFECTIVE_MIN_CLIENTS} required store(s) (observed ${canary_pass_count})."
+    exit 1
+  fi
+
+  log_success "Stage 2 Siloed Local Fine-Tuning completed and passed Canary Gate (canary_pass=1 on ${canary_pass_count} store(s))."
 fi
 
 # ------------------------------------------------------------------------------
 # Step 4/6: Verify Idempotent REST Hot-Swap against vLLM External LoadBalancers
 # ------------------------------------------------------------------------------
-log_info "[Step 4/6] Verifying REST adapter hot-swap against Store 1 (${STORE1_VLLM_LB_IP}:8000) and Store 2 (${STORE2_VLLM_LB_IP}:8000)..."
+log_info "[Step 4/6] Verifying REST adapter hot-swap against online store vLLM endpoint(s)..."
 
-STORE_IPS=("${STORE1_VLLM_LB_IP}" "${STORE2_VLLM_LB_IP}")
-ADAPTER_NAMES=("store1-local-adapter" "store2-local-adapter")
-OUTPUT_DIRS=("/mnt/models/store1-local-adapter" "/mnt/models/store2-local-adapter")
-
-for i in 0 1; do
+for i in "${ONLINE_STORE_INDICES[@]}"; do
   ip="${STORE_IPS[$i]}"
   adapter_name="${ADAPTER_NAMES[$i]}"
   output_dir="${OUTPUT_DIRS[$i]}"
@@ -356,7 +485,7 @@ done
 # ------------------------------------------------------------------------------
 log_info "[Step 5/6] Querying 'GET /v1/models' to verify active local LoRA adapters..."
 
-for i in 0 1; do
+for i in "${ONLINE_STORE_INDICES[@]}"; do
   ip="${STORE_IPS[$i]}"
   adapter_name="${ADAPTER_NAMES[$i]}"
   label="${STORE_LABELS[$i]}"
@@ -381,7 +510,7 @@ done
 # ------------------------------------------------------------------------------
 log_info "[Step 6/6] Checking GPU memory utilization (nvidia-smi) and vLLM pod restart counts..."
 
-for i in 0 1; do
+for i in "${ONLINE_STORE_INDICES[@]}"; do
   label="${STORE_LABELS[$i]}"
   ctx="${STORE_CONTEXTS[$i]}"
 

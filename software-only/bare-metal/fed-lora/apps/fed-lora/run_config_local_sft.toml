@@ -14,15 +14,17 @@
 
 # Run configuration for Stage 2 Siloed Local SFT (Layer A Hallucination Controls)
 mode = "local-sft"
-local-epochs = 4
-learning-rate = 0.0002
+# Set to the number of online edge stores participating in Stage 2 SFT.
+min-clients = 2
+local-epochs = 6
+learning-rate = 0.0006
 weight-decay = 0.01
 lora-r = 16
 lora-alpha = 64
 lora-dropout = 0.1
-kl-coef = 0.2
-kl-alpha = 0.5
+kl-coef = 0.1
+kl-alpha = 0.0
 kl-temperature = 2.0
-proximal-mu = 0.05
+proximal-mu = 0.0
 target-loss = 0.35
 canary-gate = true

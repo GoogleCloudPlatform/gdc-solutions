@@ -23,8 +23,13 @@
 import hashlib
 import json
 import os
+import socket
+import stat
+import subprocess
 import sys
 import tempfile
+import threading
+import tomllib
 import types
 import unittest
 from contextlib import contextmanager
@@ -1209,10 +1214,12 @@ class FlowerHardeningTest(unittest.TestCase):
             encoding="utf-8",
         ) as f:
             local_sft_toml = f.read()
-        self.assertIn("learning-rate = 0.0002", local_sft_toml)
-        self.assertIn("local-epochs = 4", local_sft_toml)
-        self.assertIn("kl-coef = 0.2", local_sft_toml)
-        self.assertIn("kl-alpha = 0.5", local_sft_toml)
+        self.assertIn("min-clients = 2", local_sft_toml)
+        self.assertIn("learning-rate = 0.0006", local_sft_toml)
+        self.assertIn("local-epochs = 6", local_sft_toml)
+        self.assertIn("kl-coef = 0.1", local_sft_toml)
+        self.assertIn("kl-alpha = 0.0", local_sft_toml)
+        self.assertIn("proximal-mu = 0.0", local_sft_toml)
 
         with open(
             os.path.join(THIS_DIR, "run_config_federated.toml"),
@@ -1839,6 +1846,206 @@ class FlowerHardeningTest(unittest.TestCase):
             strat_override.global_adapter_gcs_prefix,
             "gs://explicit-bucket/custom/adapters/v2",
         )
+
+    def test_f26_f27_local_sft_config_and_stage2_script_guards(self):
+        """Verifies calibrated run_config_local_sft.toml (including min-clients) and run_stage2_local_sft.sh canary_pass / --min-clients guards."""
+        toml_path = os.path.join(THIS_DIR, "run_config_local_sft.toml")
+        with open(toml_path, "r", encoding="utf-8") as f:
+            raw_toml = f.read()
+        self.assertIn("# Set to the number of online edge stores", raw_toml)
+        self.assertIn("min-clients = 2", raw_toml)
+
+        parsed = tomllib.loads(raw_toml)
+        self.assertEqual(parsed["mode"], "local-sft")
+        self.assertEqual(parsed["min-clients"], 2)
+        self.assertEqual(parsed["local-epochs"], 6)
+        self.assertAlmostEqual(parsed["learning-rate"], 0.0006)
+        self.assertAlmostEqual(parsed["weight-decay"], 0.01)
+        self.assertAlmostEqual(parsed["kl-coef"], 0.1)
+        self.assertAlmostEqual(parsed["kl-alpha"], 0.0)
+        self.assertAlmostEqual(parsed["kl-temperature"], 2.0)
+        self.assertAlmostEqual(parsed["proximal-mu"], 0.0)
+        self.assertAlmostEqual(parsed["target-loss"], 0.35)
+        self.assertTrue(parsed["canary-gate"])
+
+        ctxt_local = Context(
+            run_id=204,
+            node_id=0,
+            node_config={},
+            state=None,
+            run_config={**parsed, "min-clients": 1},
+        )
+        strat_local = serverapp.server_fn(ctxt_local).strategy
+        self.assertIsInstance(strat_local, serverapp.NoOpAggregationStrategy)
+        self.assertEqual(strat_local.min_fit_clients, 1)
+        self.assertEqual(strat_local.min_available_clients, 1)
+        self.assertEqual(strat_local.min_evaluate_clients, 1)
+
+        stage2_script = os.path.join(SCRIPTS_DIR, "run_stage2_local_sft.sh")
+        s1_data_path = os.path.abspath(
+            os.path.join(THIS_DIR, "../../overlays/store-1/data/train.jsonl")
+        )
+        with open(s1_data_path, "rb") as f:
+            s1_sha = hashlib.sha256(f.read()).hexdigest()
+
+        with tempfile.TemporaryDirectory() as tmpdir, socket.socket(
+            socket.AF_INET, socket.SOCK_STREAM
+        ) as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(64)
+            local_port = listener.getsockname()[1]
+
+            def _drain_accepts(srv: socket.socket) -> None:
+                while True:
+                    try:
+                        conn, _ = srv.accept()
+                        conn.close()
+                    except OSError:
+                        break
+
+            threading.Thread(
+                target=_drain_accepts, args=(listener,), daemon=True
+            ).start()
+
+            bin_dir = os.path.join(tmpdir, ".local", "bin")
+            os.makedirs(bin_dir, exist_ok=True)
+            captured_cfg_file = os.path.join(tmpdir, "captured_run_config.toml")
+            captured_cfg_path_record = os.path.join(tmpdir, "captured_cfg_path.txt")
+
+            kubectl_stub = os.path.join(bin_dir, "kubectl")
+            with open(kubectl_stub, "w", encoding="utf-8") as f:
+                f.write(
+                    "#!/usr/bin/env bash\n"
+                    'all_args="$*"\n'
+                    # Store 2 is offline across all kubectl calls
+                    'if [[ "${all_args}" == *"YOUR_STORE_2_CLUSTER"* || "${all_args}" == *"store2-ctx"* ]]; then\n'
+                    "  exit 1\n"
+                    "fi\n"
+                    'if [[ "${all_args}" == *"sha256sum /mnt/models/edge-data/store-1/train.jsonl"* ]]; then\n'
+                    f'  echo "{s1_sha}  /mnt/models/edge-data/store-1/train.jsonl"\n'
+                    "  exit 0\n"
+                    "fi\n"
+                    'if [[ "${all_args}" == *"curl"*"/v1/models"* ]]; then\n'
+                    '  echo \'{"data":[{"id":"store1-local-adapter"}]}\'\n'
+                    "  exit 0\n"
+                    "fi\n"
+                    'if [[ "${all_args}" == *"curl"* ]]; then\n'
+                    '  echo \'{"status":"ok"}\'\n'
+                    "  exit 0\n"
+                    "fi\n"
+                    'if [[ "${all_args}" == *"restartCount"* ]]; then\n'
+                    '  echo "0"\n'
+                    "  exit 0\n"
+                    "fi\n"
+                    "exit 0\n"
+                )
+            os.chmod(kubectl_stub, stat.S_IRWXU)
+
+            flwr_stub = os.path.join(bin_dir, "flwr")
+            with open(flwr_stub, "w", encoding="utf-8") as f:
+                f.write(
+                    "#!/usr/bin/env bash\n"
+                    'prev=""\n'
+                    'for a in "$@"; do\n'
+                    '  if [[ "${prev}" == "--run-config" ]]; then\n'
+                    f'    printf "%s" "${{a}}" > "{captured_cfg_path_record}"\n'
+                    f'    cp "${{a}}" "{captured_cfg_file}"\n'
+                    "  fi\n"
+                    '  prev="${a}"\n'
+                    "done\n"
+                    'if [[ "${MOCK_CANARY_MODE:-pass}" == "fail" ]]; then\n'
+                    '  printf "\\033[92mINFO\\033[0m :   SuperNode node-1: SFT fit completed (train_loss=1.5420, kl_loss=0.5, ||lora_B||_F=2.5342, canary_pass=0)\\n"\n'
+                    'elif [[ "${MOCK_CANARY_MODE:-pass}" == "missing" ]]; then\n'
+                    '  printf "INFO :   Stage 2 run finished without fit metrics\\n"\n'
+                    "else\n"
+                    '  printf "\\033[92mINFO\\033[0m :   SuperNode node-1: SFT fit completed (train_loss=0.5586, kl_loss=0.0, ||lora_B||_F=8.2615, canary_pass=1)\\n"\n'
+                    "fi\n"
+                    "exit 0\n"
+                )
+            os.chmod(flwr_stub, stat.S_IRWXU)
+
+            curl_stub = os.path.join(bin_dir, "curl")
+            with open(curl_stub, "w", encoding="utf-8") as f:
+                f.write("#!/usr/bin/env bash\nexit 1\n")
+            os.chmod(curl_stub, stat.S_IRWXU)
+
+            base_env = os.environ.copy()
+            base_env.update(
+                {
+                    "HOME": tmpdir,
+                    "PATH": f"{bin_dir}:{base_env.get('PATH', '')}",
+                    "TMPDIR": tmpdir,
+                    "SUPERLINK_LOCAL_PORT": str(local_port),
+                    "SUPERLINK_PF_PORT": str(local_port),
+                    "STORE1_PF_PORT": str(local_port),
+                    "STORE2_PF_PORT": str(local_port),
+                }
+            )
+
+            # 1. Without --min-clients 1, offline Store 2 fails under default min-clients = 2
+            res_default = subprocess.run(
+                ["bash", stage2_script],
+                env=base_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(res_default.returncode, 0)
+
+            # 2. With --min-clients 1 and canary_pass=0, script MUST exit non-zero
+            env_fail = dict(base_env, MOCK_CANARY_MODE="fail")
+            res_fail = subprocess.run(
+                ["bash", stage2_script, "--min-clients", "1"],
+                env=env_fail,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(res_fail.returncode, 0)
+            self.assertIn("failed Canary Gate", res_fail.stdout + res_fail.stderr)
+
+            # 3. With --min-clients 1 and missing canary_pass metric, script MUST exit non-zero
+            env_missing = dict(base_env, MOCK_CANARY_MODE="missing")
+            res_missing = subprocess.run(
+                ["bash", stage2_script, "--min-clients=1"],
+                env=env_missing,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(res_missing.returncode, 0)
+            self.assertIn(
+                "did not report canary_pass=1",
+                res_missing.stdout + res_missing.stderr,
+            )
+
+            # 4. With --min-clients 1 and canary_pass=1, script succeeds with Store 2 offline
+            env_pass = dict(base_env, MOCK_CANARY_MODE="pass")
+            res_pass = subprocess.run(
+                ["bash", stage2_script, "--min-clients", "1"],
+                env=env_pass,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(
+                res_pass.returncode,
+                0,
+                msg=f"Expected exit 0, got stdout={res_pass.stdout}\nstderr={res_pass.stderr}",
+            )
+            with open(captured_cfg_file, "r", encoding="utf-8") as f:
+                override_toml = tomllib.loads(f.read())
+            self.assertEqual(override_toml["min-clients"], 1)
+            self.assertEqual(override_toml["local-epochs"], 6)
+            self.assertAlmostEqual(override_toml["learning-rate"], 0.0006)
+            self.assertAlmostEqual(override_toml["proximal-mu"], 0.0)
+
+            with open(captured_cfg_path_record, "r", encoding="utf-8") as f:
+                temp_cfg_path = f.read().strip()
+            self.assertFalse(
+                os.path.exists(temp_cfg_path),
+                "Temporary TOML run-config file must be cleaned up on script exit",
+            )
 
 
 if __name__ == "__main__":
