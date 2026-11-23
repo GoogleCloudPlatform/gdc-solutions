@@ -46,23 +46,6 @@ steps:
   - args:
       - -c
       - |
-        if [[ -f "software-only/bare-metal/hybridcloud-agents/registry/sync-apigee-identity.sh" ]]; then
-          exec bash "software-only/bare-metal/hybridcloud-agents/registry/sync-apigee-identity.sh"
-        elif [[ -f "registry/sync-apigee-identity.sh" ]]; then
-          exec bash "registry/sync-apigee-identity.sh"
-        fi
-        exec bash "./sync-apigee-identity.sh"
-    entrypoint: bash
-    env:
-      - AGENTS_CLUSTER_OIDC_JWKS=${_AGENTS_CLUSTER_OIDC_JWKS}
-      - AGENTS_CLUSTER_OIDC_JWKS_B64=${_AGENTS_CLUSTER_OIDC_JWKS_B64}
-      - APIGEE_ENV=${_APIGEE_ENV}
-      - PROJECT_ID=${PROJECT_ID}
-    id: sync-apigee-identity
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-  - args:
-      - -c
-      - |
         if [[ -f "software-only/bare-metal/hybridcloud-agents/registry/sync-apigee-proxies.sh" ]]; then
           exec bash "software-only/bare-metal/hybridcloud-agents/registry/sync-apigee-proxies.sh"
         elif [[ -f "registry/sync-apigee-proxies.sh" ]]; then
@@ -77,12 +60,31 @@ steps:
       - APIGEE_RUNTIME_SA=${_APIGEE_RUNTIME_SA}
       - GATEWAY_CLUSTER_NAME=${_GATEWAY_CLUSTER_NAME}
       - GATEWAY_FQDN=${_GATEWAY_FQDN}
+      - MCP_SERVERS_DIR=${_MCP_SERVERS_DIR}
       - MCP_TOOLBOX_HOST=${_MCP_TOOLBOX_HOST}
       - MODEL_ARMOR_LOCATION=${_MODEL_ARMOR_LOCATION}
       - MODEL_CLUSTER_NAME=${_MODEL_CLUSTER_NAME}
       - PROJECT_ID=${PROJECT_ID}
       - VLLM_INGRESS_HOST=${_VLLM_INGRESS_HOST}
     id: sync-apigee-proxies
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+  - args:
+      - -c
+      - |
+        if [[ -f "software-only/bare-metal/hybridcloud-agents/registry/sync-apigee-identity.sh" ]]; then
+          exec bash "software-only/bare-metal/hybridcloud-agents/registry/sync-apigee-identity.sh"
+        elif [[ -f "registry/sync-apigee-identity.sh" ]]; then
+          exec bash "registry/sync-apigee-identity.sh"
+        fi
+        exec bash "./sync-apigee-identity.sh"
+    entrypoint: bash
+    env:
+      - AGENTS_CLUSTER_OIDC_JWKS=${_AGENTS_CLUSTER_OIDC_JWKS}
+      - AGENTS_CLUSTER_OIDC_JWKS_B64=${_AGENTS_CLUSTER_OIDC_JWKS_B64}
+      - APIGEE_ENV=${_APIGEE_ENV}
+      - MCP_SERVERS_DIR=${_MCP_SERVERS_DIR}
+      - PROJECT_ID=${PROJECT_ID}
+    id: sync-apigee-identity
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
   - args:
       - -c

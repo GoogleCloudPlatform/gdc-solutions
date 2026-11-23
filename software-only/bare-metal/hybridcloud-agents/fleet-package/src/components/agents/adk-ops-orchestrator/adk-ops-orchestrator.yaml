@@ -32,15 +32,7 @@ data:
   peer-agents.json: |
     {
       "discovery_source": "agent-registry-gitops-configmap",
-      "peers": {
-        "adk-sovereign-agent": {
-          "a2a_egress_url": "http://agent-egress-envoy.agent-workloads.svc.cluster.local:15002/a2a/sovereign",
-          "agent_card_gateway_url": "https://api.hybrid-agents.internal/agents/sovereign/.well-known/agent-card.json",
-          "canonical_gateway_url": "https://api.hybrid-agents.internal/a2a/sovereign",
-          "protocol_binding": "HTTP+JSON",
-          "required_skill": "sovereign-policy-assessment"
-        }
-      }
+      "peers": {}
     }
 kind: ConfigMap
 metadata:
@@ -110,7 +102,7 @@ spec:
               value: enterprise-sovereign
             - name: SOVEREIGN_MODEL_NAME
               value: google/gemma-4-31B-it
-          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:v0.5.6@sha256:11e9f4a3f56b166e118aa2184af31deb7ce9a656b0ed3c3a2ab567f10e31b95f
+          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:v0.7.0@sha256:292849ed092939a82537ca4f8728d8769285aba864e4cdc0371ae1e2694387f0
           livenessProbe:
             httpGet:
               path: /healthz

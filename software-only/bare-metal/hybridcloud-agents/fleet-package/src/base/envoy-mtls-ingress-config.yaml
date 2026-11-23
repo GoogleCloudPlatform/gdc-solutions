@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Shared mTLS ingress proxy baseline. Per-agent routes and upstream clusters
+# are wired dynamically by fleet-package/render.sh from active
+# registry/agents/*/agent.yaml.
 apiVersion: v1
 automountServiceAccountToken: false
 kind: ServiceAccount
@@ -97,25 +100,11 @@ data:
                           domains: ["*"]
                           routes:
                             - match:
-                                prefix: "/ops-orchestrator/"
-                              route:
-                                cluster: adk_ops_orchestrator_cluster
-                                prefix_rewrite: "/"
-                                timeout: 360s
-                                idle_timeout: 360s
-                            - match:
-                                path: "/ops-orchestrator"
-                              route:
-                                cluster: adk_ops_orchestrator_cluster
-                                prefix_rewrite: "/"
-                                timeout: 360s
-                                idle_timeout: 360s
-                            - match:
                                 prefix: "/"
-                              route:
-                                cluster: adk_agent_cluster
-                                timeout: 360s
-                                idle_timeout: 360s
+                              direct_response:
+                                status: 404
+                                body:
+                                  inline_string: "no active agents configured\n"
                     http_filters:
                       - name: envoy.filters.http.router
                         typed_config:
@@ -158,34 +147,6 @@ data:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
 
       clusters:
-        - name: adk_agent_cluster
-          type: STRICT_DNS
-          connect_timeout: 5s
-          lb_policy: ROUND_ROBIN
-          load_assignment:
-            cluster_name: adk_agent_cluster
-            endpoints:
-              - lb_endpoints:
-                  - endpoint:
-                      address:
-                        socket_address:
-                          address: adk-agent.agent-workloads.svc.cluster.local
-                          port_value: 8080
-
-        - name: adk_ops_orchestrator_cluster
-          type: STRICT_DNS
-          connect_timeout: 5s
-          lb_policy: ROUND_ROBIN
-          load_assignment:
-            cluster_name: adk_ops_orchestrator_cluster
-            endpoints:
-              - lb_endpoints:
-                  - endpoint:
-                      address:
-                        socket_address:
-                          address: adk-ops-orchestrator.agent-workloads.svc.cluster.local
-                          port_value: 8080
-
         - name: otel_collector_grpc
           type: STRICT_DNS
           connect_timeout: 2s
@@ -244,7 +205,7 @@ spec:
   template:
     metadata:
       annotations:
-        envoy.hybrid-agents.internal/config-version: v0.2.0-otel-a2a
+        envoy.hybrid-agents.internal/config-version: v0.7.0-idle
       labels:
         app.kubernetes.io/component: agent-ingress-proxy
         app.kubernetes.io/name: agent-ingress-envoy

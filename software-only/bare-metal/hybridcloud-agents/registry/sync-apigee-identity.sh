@@ -13,12 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Idempotently reconciles per-agent Apigee identity, API products/quotas,
-# Secret Manager API key versions (only when the consumer key hash changes,
-# never printing keys; destroys all enabled/disabled key versions when a
-# pipeline-managed agent manifest is removed), and the environment KVM
-# `agent-jwt-subjects` from `registry/agents/*/agent.yaml`
-# (Wave ID-SYNC: I1, I2, I5 + Wave SECRET-CLEANUP).
+# Idempotently reconciles per-agent Apigee identity, API products/quotas (scoped
+# to active MCP servers in registry/mcp-servers/*.yaml), Secret Manager API key
+# versions (only when the consumer key hash changes, never printing keys;
+# destroys all enabled/disabled key versions when a pipeline-managed agent
+# manifest is removed), unreferenced pipeline-managed API products, and the
+# environment KVM `agent-jwt-subjects` from active `registry/agents/*/agent.yaml`
+# (Wave ID-SYNC + Wave SECRET-CLEANUP + D29 progressive onboarding/rollback).
 
 set -o errexit
 set -o nounset
@@ -31,6 +32,8 @@ APIGEE_ENV="${APIGEE_ENV:-hybrid-agents-env}"
 AGENTS_CLUSTER_OIDC_JWKS="${AGENTS_CLUSTER_OIDC_JWKS:-}"
 AGENTS_CLUSTER_OIDC_JWKS_B64="${AGENTS_CLUSTER_OIDC_JWKS_B64:-}"
 AGENTS_DIR="${AGENTS_DIR:-${SCRIPT_DIR}/agents}"
+MCP_SERVERS_DIR="${MCP_SERVERS_DIR:-${SCRIPT_DIR}/mcp-servers}"
+AVAILABLE_MCP_SERVERS_DIR="${AVAILABLE_MCP_SERVERS_DIR:-${SCRIPT_DIR}/available/mcp-servers}"
 PRODUCTS_FILE="${PRODUCTS_FILE:-${REPO_ROOT}/apigee/products/api-products.json}"
 ENV_CONFIG_FILE="${ENV_CONFIG_FILE:-${REPO_ROOT}/apigee/environments/env-config.json}"
 
@@ -51,8 +54,8 @@ if [[ "${AGENTS_CLUSTER_OIDC_JWKS_B64}" == YOUR_* || "${AGENTS_CLUSTER_OIDC_JWKS
   exit 1
 fi
 
-PYTHON_BIN="$(gcloud info --format='value(basic.python_location)' 2>/dev/null || command -v python3 || true)"
-CLOUDSDK_THIRD_PARTY="$(gcloud info --format='value(installation.sdk_root)' 2>/dev/null || echo /usr/lib/google-cloud-sdk)/lib/third_party"
+PYTHON_BIN="$(gcloud info --format='value(basic.python_location)' 2> /dev/null || command -v python3 || true)"
+CLOUDSDK_THIRD_PARTY="$(gcloud info --format='value(installation.sdk_root)' 2> /dev/null || echo /usr/lib/google-cloud-sdk)/lib/third_party"
 export CLOUDSDK_THIRD_PARTY
 if [[ -z "${PYTHON_BIN}" || ! -x "${PYTHON_BIN}" ]]; then
   echo "ERROR: Python 3 runtime not found." >&2
@@ -62,7 +65,14 @@ fi
 ACCESS_TOKEN="$(gcloud auth print-access-token --quiet)"
 export ACCESS_TOKEN
 
-"${PYTHON_BIN}" - "${PROJECT_ID}" "${APIGEE_ENV}" "${AGENTS_DIR}" "${PRODUCTS_FILE}" "${ENV_CONFIG_FILE}" << 'EOF'
+"${PYTHON_BIN}" - \
+  "${PROJECT_ID}" \
+  "${APIGEE_ENV}" \
+  "${AGENTS_DIR}" \
+  "${MCP_SERVERS_DIR}" \
+  "${AVAILABLE_MCP_SERVERS_DIR}" \
+  "${PRODUCTS_FILE}" \
+  "${ENV_CONFIG_FILE}" << 'EOF'
 import base64
 import hashlib
 import json
@@ -74,6 +84,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+
 
 def load_yaml(text: str):
   try:
@@ -94,8 +105,10 @@ def load_yaml(text: str):
 project_id = sys.argv[1]
 apigee_env = sys.argv[2]
 agents_dir = Path(sys.argv[3])
-products_file = Path(sys.argv[4])
-env_config_file = Path(sys.argv[5])
+mcp_dir = Path(sys.argv[4])
+avail_mcp_dir = Path(sys.argv[5])
+products_file = Path(sys.argv[6])
+env_config_file = Path(sys.argv[7])
 token = os.environ["ACCESS_TOKEN"]
 
 MANAGED_BY_VALUE = "hybridcloud-agents-id-sync"
@@ -241,7 +254,7 @@ def canonical_product(p):
 def add_secret_version(secret_name: str, secret_val: str) -> None:
   b64_payload = base64.b64encode(secret_val.encode("utf-8")).decode("ascii")
   url = f"{SM_BASE}/secrets/{secret_name}:addVersion"
-  status, resp = api_req("POST", url, {"payload": {"data": b64_payload}})
+  _, resp = api_req("POST", url, {"payload": {"data": b64_payload}})
   ver_name = resp.get("name", "unknown")
   print(f"SECRET_VERSION_ADDED secret={secret_name} version={ver_name}")
 
@@ -300,6 +313,25 @@ def destroy_secret_versions(secret_name: str, app_name: str):
   return destroyed, errors
 
 
+def _collect_mcp_proxies(directory: Path) -> set[str]:
+  proxies: set[str] = set()
+  if not directory.is_dir():
+    return proxies
+  for mcp_path in sorted(directory.glob("*.yaml")):
+    obj = load_yaml(mcp_path.read_text(encoding="utf-8"))
+    if not isinstance(obj, dict):
+      continue
+    name = str(obj.get("name") or mcp_path.stem).strip()
+    proxy = str(obj.get("apigeeProxy") or f"{name}-v1").strip()
+    if proxy:
+      proxies.add(proxy)
+  return proxies
+
+
+active_mcp_proxies = _collect_mcp_proxies(mcp_dir)
+staged_mcp_proxies = _collect_mcp_proxies(avail_mcp_dir)
+gated_mcp_proxies = active_mcp_proxies | staged_mcp_proxies
+
 # Load base API products and env config
 raw_products = json.loads(products_file.read_text(encoding="utf-8"))
 base_products_list = (
@@ -310,29 +342,65 @@ base_products_list = (
 base_products = {p["name"]: p for p in base_products_list}
 env_cfg = json.loads(env_config_file.read_text(encoding="utf-8"))
 
-# Load agent manifests
+# Load active agent manifests
 agent_manifests = []
-for manifest_path in sorted(agents_dir.glob("*/agent.yaml")):
-  m = load_yaml(manifest_path.read_text(encoding="utf-8"))
-  agent_manifests.append(m)
+if agents_dir.is_dir():
+  for manifest_path in sorted(agents_dir.glob("*/agent.yaml")):
+    m = load_yaml(manifest_path.read_text(encoding="utf-8"))
+    agent_manifests.append(m)
 
 created_count = 0
 updated_count = 0
 noop_count = 0
 deleted_count = 0
+products_deleted_count = 0
 secret_versions_destroyed = 0
 secret_version_destroy_errors = 0
 
-# 1. Reconcile API Products referenced in agent manifests
+# 1. Reconcile API Products referenced in active agent manifests (gated by active MCP servers)
 product_updates = set()
+desired_product_names = set()
+agent_effective_products: dict[str, list[str]] = {}
+
 for m in agent_manifests:
+  agent_name = m["name"]
   allowed_models_csv = ",".join(m.get("allowedModelAliases") or [])
+  eff_prods: list[str] = []
   for prod_override in m.get("apiProducts") or []:
     pname = prod_override["name"]
     if pname not in base_products:
       raise RuntimeError(f"API product {pname} not found in {products_file}")
     desired_prod = json.loads(json.dumps(base_products[pname]))
+
+    # Gate MCP payloadOperationGroup entries by active registry/mcp-servers/*.yaml
+    pog = desired_prod.get("payloadOperationGroup")
+    if isinstance(pog, dict) and pog.get("operationConfigs"):
+      orig_configs = pog["operationConfigs"]
+      has_gated_mcp = any(
+          oc.get("apiSource") in gated_mcp_proxies for oc in orig_configs
+      )
+      if has_gated_mcp:
+        filtered = [
+            oc
+            for oc in orig_configs
+            if oc.get("apiSource") not in gated_mcp_proxies
+            or oc.get("apiSource") in active_mcp_proxies
+        ]
+        has_active_gated = any(
+            oc.get("apiSource") in active_mcp_proxies for oc in filtered
+        )
+        if not has_active_gated:
+          print(
+              f"SKIP APIProduct {pname} for agent {agent_name} (no active MCP server in registry/mcp-servers/)"
+          )
+          continue
+        desired_prod["payloadOperationGroup"]["operationConfigs"] = filtered
+
+    eff_prods.append(pname)
+    desired_product_names.add(pname)
+
     attrs = attrs_to_dict(desired_prod.get("attributes"))
+    attrs["managed_by"] = MANAGED_BY_VALUE
     if allowed_models_csv and "allowed_models" in attrs:
       attrs["allowed_models"] = allowed_models_csv
     if "allowCloudBurst" in prod_override:
@@ -388,6 +456,7 @@ for m in agent_manifests:
         product_updates.add(pname)
       else:
         print(f"UNCHANGED APIProduct {pname}")
+  agent_effective_products[agent_name] = sorted(eff_prods)
 
 # 2. Ensure KVM agent-jwt-subjects exists and load existing entries
 kvm_name = "agent-jwt-subjects"
@@ -446,7 +515,7 @@ for k, v in sorted(desired_static_kvm.items()):
     )
     live_kvm_entries[k] = v
 
-# 3. Reconcile Developer, Developer Apps, Secret Manager keys, and KVM entries per agent manifest
+# 3. Reconcile Developer, Developer Apps, Secret Manager keys, and KVM entries per active agent manifest
 desired_app_names = set()
 developers_checked = set()
 
@@ -458,7 +527,7 @@ for m in agent_manifests:
   desired_app_names.add((dev_email, app_name))
   expected_sub = m["kubernetesIdentity"]["expectedJwtSubject"]
   secret_name = m["secretManagerSecret"]
-  desired_prods = sorted([p["name"] for p in m.get("apiProducts") or []])
+  desired_prods = agent_effective_products.get(agent_name, [])
 
   # Ensure developer exists
   if dev_email not in developers_checked:
@@ -566,23 +635,27 @@ for m in agent_manifests:
   key_sha256 = hashlib.sha256(consumer_key.encode("utf-8")).hexdigest()
   expected_key_marker = f"{key_sha256}:{secret_name}"
 
-  # Check if products on active_cred match desired_prods
-  cur_cred_prods = sorted([
-      ap["apiproduct"]
-      for ap in (active_cred.get("apiProducts") or [])
-      if ap.get("status") == "approved"
-  ])
-  if cur_cred_prods != desired_prods:
-    print(f"UPDATE DeveloperApp {app_name} credential products -> {desired_prods}")
-    key_url = f"{app_url}/keys/{urllib.parse.quote(consumer_key, safe='')}"
-    api_req("POST", key_url, {"apiProducts": desired_prods})
-    for old_p in cur_cred_prods:
-      if old_p not in desired_prods:
-        api_req(
-            "DELETE",
-            f"{key_url}/apiproducts/{urllib.parse.quote(old_p, safe='')}",
-        )
-    app_updated = True
+  # Reconcile products on active_cred and detach removed products from all approved credentials
+  for idx, cred in enumerate(creds):
+    ck = cred["consumerKey"]
+    cur_cred_prods = sorted([
+        ap["apiproduct"]
+        for ap in (cred.get("apiProducts") or [])
+        if ap.get("status") == "approved"
+    ])
+    if cur_cred_prods != desired_prods:
+      key_url = f"{app_url}/keys/{urllib.parse.quote(ck, safe='')}"
+      if idx == 0:
+        print(f"UPDATE DeveloperApp {app_name} credential products -> {desired_prods}")
+        if desired_prods:
+          api_req("POST", key_url, {"apiProducts": desired_prods})
+      for old_p in cur_cred_prods:
+        if old_p not in desired_prods:
+          api_req(
+              "DELETE",
+              f"{key_url}/apiproducts/{urllib.parse.quote(old_p, safe='')}",
+          )
+      app_updated = True
 
   # Check if Secret Manager secret version needs to be written (only when key changed)
   live_attrs = attrs_to_dict(live_app.get("attributes"))
@@ -639,13 +712,25 @@ for m in agent_manifests:
     print(f"UNCHANGED Agent identity {agent_name} (app={app_name})")
     noop_count += 1
 
-# 4. Delete pipeline-managed Developer Apps, KVM entries, and Secret Manager key versions for removed manifests
+# 4. Delete pipeline-managed Developer Apps, KVM entries, and Secret Manager key versions for removed manifests.
+# Scan all developers in the org (filtering strictly on app attribute managed_by==MANAGED_BY_VALUE)
+# so pruning still runs when 0 agents remain active, even under pre-existing developers.
+all_developers = set(developers_checked)
+_, developers_resp = api_req("GET", f"{APIGEE_BASE}/developers?expand=true")
+for dev_obj in developers_resp.get("developer", []):
+  d_email = str(dev_obj.get("email") or "").strip()
+  if d_email:
+    all_developers.add(d_email)
+
 active_secret_names = {m["secretManagerSecret"] for m in agent_manifests}
-for dev_email in sorted(developers_checked):
-  _, apps_resp = api_req(
+for dev_email in sorted(all_developers):
+  st_apps, apps_resp = api_req(
       "GET",
       f"{APIGEE_BASE}/developers/{urllib.parse.quote(dev_email, safe='@.')}/apps?expand=true",
+      allow_404=True,
   )
+  if st_apps == 404:
+    continue
   for app_obj in apps_resp.get("app", []):
     aname = app_obj.get("name", "")
     if (dev_email, aname) in desired_app_names:
@@ -685,9 +770,31 @@ for dev_email in sorted(developers_checked):
           f"WARN: Removed pipeline-managed DeveloperApp {aname} had no keySecret attribute; skipping secret version destruction."
       )
 
+# 5. Delete unreferenced pipeline-managed API Products (for removed agents or removed MCP servers)
+_, live_prods_resp = api_req("GET", f"{APIGEE_BASE}/apiproducts?expand=true")
+for prod_obj in live_prods_resp.get("apiProduct", []):
+  pname = str(prod_obj.get("name") or "").strip()
+  if not pname or pname in desired_product_names:
+    continue
+  p_attrs = attrs_to_dict(prod_obj.get("attributes"))
+  if p_attrs.get("managed_by") != MANAGED_BY_VALUE:
+    continue
+  print(f"DELETE unreferenced pipeline-managed APIProduct {pname}")
+  try:
+    api_req(
+        "DELETE",
+        f"{APIGEE_BASE}/apiproducts/{urllib.parse.quote(pname, safe='')}",
+    )
+    products_deleted_count += 1
+  except RuntimeError as exc:
+    print(
+        f"WARN: Could not delete pipeline-managed APIProduct {pname} (may still be referenced by a non-managed app): {exc}"
+    )
+
 summary_obj = {
     "created": created_count,
     "deleted": deleted_count,
+    "products_deleted": products_deleted_count,
     "secret_versions_destroyed": secret_versions_destroyed,
     "unchanged": noop_count,
     "updated": updated_count,

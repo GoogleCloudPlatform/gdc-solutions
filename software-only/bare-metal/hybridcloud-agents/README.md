@@ -84,14 +84,23 @@ hybridcloud-agents/
 │   ├── render.sh
 │   └── src/
 │       ├── base/
-│       │   ├── adk-ops-orchestrator.yaml
-│       │   ├── adk-sovereign-agent.yaml
 │       │   ├── agent-egress-envoy.yaml
 │       │   ├── envoy-mtls-ingress-config.yaml
 │       │   ├── kustomization.yaml
 │       │   ├── network-policies.yaml
 │       │   └── pod-monitoring.yaml
 │       ├── components/
+│       │   ├── agents/
+│       │   │   ├── adk-ops-orchestrator/
+│       │   │   │   ├── adk-ops-orchestrator.yaml
+│       │   │   │   ├── external-secret.yaml
+│       │   │   │   ├── kustomization.yaml
+│       │   │   │   └── network-policy.yaml
+│       │   │   └── adk-sovereign-agent/
+│       │   │       ├── adk-sovereign-agent.yaml
+│       │   │       ├── external-secret.yaml
+│       │   │       ├── kustomization.yaml
+│       │   │       └── network-policy.yaml
 │       │   └── otel-collector/
 │       │       ├── kustomization.yaml
 │       │       └── otel-collector.yaml
@@ -106,18 +115,23 @@ hybridcloud-agents/
 │               └── mcp-toolbox.yaml
 ├── registry/
 │   ├── agents/
-│   │   ├── adk-ops-orchestrator/
-│   │   │   └── agent.yaml
-│   │   └── adk-sovereign-agent/
-│   │       └── agent.yaml
+│   │   └── .gitkeep
+│   ├── available/
+│   │   ├── agents/
+│   │   │   ├── adk-ops-orchestrator/
+│   │   │   │   └── agent.yaml
+│   │   │   └── adk-sovereign-agent/
+│   │   │       └── agent.yaml
+│   │   └── mcp-servers/
+│   │       ├── mcp-bigquery.yaml
+│   │       ├── mcp-storage.yaml
+│   │       └── mcp-toolbox.yaml
 │   ├── cards/
 │   │   ├── adk-ops-orchestrator.json
 │   │   └── adk-sovereign-agent.json
 │   ├── cloudbuild-register.yaml
 │   ├── mcp-servers/
-│   │   ├── mcp-bigquery.yaml
-│   │   ├── mcp-storage.yaml
-│   │   └── mcp-toolbox.yaml
+│   │   └── .gitkeep
 │   ├── sync-agent-registry.sh
 │   ├── sync-apigee-identity.sh
 │   ├── sync-apigee-proxies.sh
@@ -181,19 +195,28 @@ hybridcloud-agents/
      (`mcp-tools` MCP Toolbox sample and `otel-system` OpenTelemetry Collector)
      to `cluster-role=gateway-tools`.
   2. **AGENTS second (`fleetpackage.yaml`, `FleetPackage/hybridcloud-agents`):**
-     selects `cluster-role=agents` and deploys the `agents` variant (Envoy mTLS
-     ingress and consolidated multi-listener egress proxies, ADK agent
-     `Deployment`s, per-agent `NetworkPolicy` objects, `PodMonitoring`, and
-     per-agent `ExternalSecret`s) into the `agent-workloads` namespace owned by
-     the PLATFORM package, with zero overlapping objects between the two
-     `RootSync`s.
-- `registry/` contains per-agent identity and quota manifests
-  (`agents/<agent>/agent.yaml`), generic A2A Agent Card definitions
-  (`cards/*.json`), local MCP server tool specifications (`mcp-servers/*.yaml`),
-  the preflight manifest validator (`validate-manifests.sh`, run as `Step #0`
-  before any API mutation), and the three idempotent Cloud Build reconciliation
-  scripts (`sync-apigee-identity.sh`, `sync-apigee-proxies.sh`, and
-  `sync-agent-registry.sh`) orchestrated by `cloudbuild-register.yaml`.
+     selects `cluster-role=agents` and deploys the `agents` variant rendered by
+     `fleet-package/render.sh` from the active set in `registry/agents/`. It
+     deploys the shared Envoy mTLS ingress and multi-listener egress proxies
+     (idle baseline with zero agent listeners/routes when `registry/agents/` is
+     empty) plus per-agent Kustomize components
+     (`src/components/agents/<agent>/`: ADK agent `Deployment`, `Service`,
+     `ServiceAccount`, `PodDisruptionBudget`, `ConfigMap`, `ExternalSecret`, and
+     per-agent `NetworkPolicy` rules) and `PodMonitoring` into the
+     `agent-workloads` namespace owned by the PLATFORM package, with zero
+     overlapping objects between the two `RootSync`s.
+- `registry/` manages the active set of agents (`agents/<agent>/agent.yaml`) and
+  MCP servers (`mcp-servers/<server>.yaml`). The repository ships with an empty
+  active set and stages sample manifests inactive under
+  `available/agents/<agent>/` and `available/mcp-servers/<server>.yaml`.
+  Onboarding moves a manifest with `git mv registry/available/... registry/...`,
+  re-renders with `fleet-package/render.sh agents`, and tags a release; forward
+  rollback moves manifests back to `registry/available/` and tags a new release.
+  `cards/*.json` holds canonical A2A Agent Card definitions,
+  `validate-manifests.sh` runs as `Step #0` before any API mutation, and
+  `cloudbuild-register.yaml` orchestrates the three idempotent reconciliation
+  scripts (`sync-apigee-proxies.sh`, `sync-apigee-identity.sh`, and
+  `sync-agent-registry.sh`).
 - `tests/a2a/` contains an optional, self-pruning `FleetPackage`
   (`hybridcloud-agents-a2a-tests` with `deletionPropagationPolicy: FOREGROUND`)
   that runs negative-security verification `Job` workloads for rogue caller

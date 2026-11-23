@@ -99,7 +99,7 @@ spec:
               }
               print(json.dumps(summary, sort_keys=True))
               sys.exit(1 if bypass_succeeded else 0)
-          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:v0.5.6@sha256:11e9f4a3f56b166e118aa2184af31deb7ce9a656b0ed3c3a2ab567f10e31b95f
+          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:v0.7.0@sha256:292849ed092939a82537ca4f8728d8769285aba864e4cdc0371ae1e2694387f0
           name: direct-bypass-probe
           resources:
             limits:
@@ -239,7 +239,7 @@ spec:
               }
               print(json.dumps(summary, sort_keys=True))
               sys.exit(1 if bypass_succeeded else 0)
-          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:v0.5.6@sha256:11e9f4a3f56b166e118aa2184af31deb7ce9a656b0ed3c3a2ab567f10e31b95f
+          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:v0.7.0@sha256:292849ed092939a82537ca4f8728d8769285aba864e4cdc0371ae1e2694387f0
           name: mtls-bypass-probe
           resources:
             limits:
@@ -356,7 +356,7 @@ spec:
               }
               print(json.dumps(summary, sort_keys=True))
               sys.exit(1 if failed else 0)
-          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:v0.5.6@sha256:11e9f4a3f56b166e118aa2184af31deb7ce9a656b0ed3c3a2ab567f10e31b95f
+          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:v0.7.0@sha256:292849ed092939a82537ca4f8728d8769285aba864e4cdc0371ae1e2694387f0
           name: rogue-probe
           resources:
             limits:

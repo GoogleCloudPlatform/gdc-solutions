@@ -93,9 +93,10 @@ cluster-reachable registry
 manifests):
 
 1. Update the `image:` digest references in
-   `fleet-package/src/base/adk-sovereign-agent.yaml` and
-   `fleet-package/src/base/adk-ops-orchestrator.yaml` with the new `@sha256:...`
-   digests.
+   `fleet-package/src/components/agents/adk-sovereign-agent/adk-sovereign-agent.yaml`
+   and
+   `fleet-package/src/components/agents/adk-ops-orchestrator/adk-ops-orchestrator.yaml`
+   with the new `@sha256:...` digests.
 2. Re-render the environment manifest bundles before committing:
 
    ```bash

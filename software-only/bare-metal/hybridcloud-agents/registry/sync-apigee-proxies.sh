@@ -14,10 +14,11 @@
 # limitations under the License.
 
 # Idempotently reconciles Apigee environment configuration (TargetServers,
-# PropertySet `hybrid_agents_env`, and KVM `ai-model-aliases`) and all 10
-# Apigee proxy bundles in `apigee/proxies/` using content-hash (SHA-256)
-# comparison against the deployed revision's `<Description>` tag (Wave ID-SYNC:
-# I3, I7.a, I7.b).
+# PropertySet `hybrid_agents_env`, and KVM `ai-model-aliases`) and Apigee proxy
+# bundles in `apigee/proxies/` using content-hash (SHA-256) comparison against
+# the deployed revision's `<Description>` tag. MCP server proxies declared under
+# `registry/available/mcp-servers/` or `registry/mcp-servers/` are deployed only
+# when active in `registry/mcp-servers/` and removed from deployment when inactive (D29).
 
 set -o errexit
 set -o nounset
@@ -41,6 +42,8 @@ MCP_TOOLBOX_HOST="${MCP_TOOLBOX_HOST:-mcp-toolbox.mcp-tools.svc.cluster.local}"
 VLLM_INGRESS_HOST="${VLLM_INGRESS_HOST:-}"
 PROXIES_DIR="${PROXIES_DIR:-${REPO_ROOT}/apigee/proxies}"
 ENV_CONFIG_FILE="${ENV_CONFIG_FILE:-${REPO_ROOT}/apigee/environments/env-config.json}"
+MCP_SERVERS_DIR="${MCP_SERVERS_DIR:-${SCRIPT_DIR}/mcp-servers}"
+AVAILABLE_MCP_SERVERS_DIR="${AVAILABLE_MCP_SERVERS_DIR:-${SCRIPT_DIR}/available/mcp-servers}"
 
 for VAR_NAME in \
   PROJECT_ID \
@@ -61,7 +64,9 @@ for VAR_NAME in \
   fi
 done
 
-PYTHON_BIN="$(command -v python3 || gcloud info --format='value(basic.python_location)' 2>/dev/null || true)"
+PYTHON_BIN="$(gcloud info --format='value(basic.python_location)' 2> /dev/null || command -v python3 || true)"
+CLOUDSDK_THIRD_PARTY="$(gcloud info --format='value(installation.sdk_root)' 2> /dev/null || echo /usr/lib/google-cloud-sdk)/lib/third_party"
+export CLOUDSDK_THIRD_PARTY
 if [[ -z "${PYTHON_BIN}" || ! -x "${PYTHON_BIN}" ]]; then
   echo "ERROR: Python 3 runtime not found." >&2
   exit 1
@@ -70,7 +75,22 @@ fi
 ACCESS_TOKEN="$(gcloud auth print-access-token --quiet)"
 export ACCESS_TOKEN
 
-"${PYTHON_BIN}" - "${PROJECT_ID}" "${APIGEE_ENV}" "${APIGEE_RUNTIME_SA}" "${GATEWAY_FQDN}" "${MODEL_ARMOR_LOCATION}" "${AGENTS_CLUSTER_NAME}" "${GATEWAY_CLUSTER_NAME}" "${MODEL_CLUSTER_NAME}" "${AGENTS_INGRESS_HOST}" "${MCP_TOOLBOX_HOST}" "${VLLM_INGRESS_HOST}" "${PROXIES_DIR}" "${ENV_CONFIG_FILE}" << 'EOF'
+"${PYTHON_BIN}" - \
+  "${PROJECT_ID}" \
+  "${APIGEE_ENV}" \
+  "${APIGEE_RUNTIME_SA}" \
+  "${GATEWAY_FQDN}" \
+  "${MODEL_ARMOR_LOCATION}" \
+  "${AGENTS_CLUSTER_NAME}" \
+  "${GATEWAY_CLUSTER_NAME}" \
+  "${MODEL_CLUSTER_NAME}" \
+  "${AGENTS_INGRESS_HOST}" \
+  "${MCP_TOOLBOX_HOST}" \
+  "${VLLM_INGRESS_HOST}" \
+  "${PROXIES_DIR}" \
+  "${ENV_CONFIG_FILE}" \
+  "${MCP_SERVERS_DIR}" \
+  "${AVAILABLE_MCP_SERVERS_DIR}" << 'EOF'
 import hashlib
 import io
 import json
@@ -83,6 +103,23 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+
+
+def load_yaml(text: str):
+  try:
+    import yaml as pyyaml
+    return pyyaml.safe_load(text)
+  except Exception:
+    for p in (
+        os.environ.get("CLOUDSDK_THIRD_PARTY", ""),
+        "/usr/lib/google-cloud-sdk/lib/third_party",
+        "/google-cloud-sdk/lib/third_party",
+    ):
+      if p and os.path.isdir(p) and p not in sys.path:
+        sys.path.insert(0, p)
+    from ruamel import yaml as ryaml
+    return ryaml.YAML(typ="safe").load(text)
+
 
 project_id = sys.argv[1]
 apigee_env = sys.argv[2]
@@ -97,6 +134,8 @@ mcp_toolbox_host = sys.argv[10]
 vllm_ingress_host = sys.argv[11]
 proxies_dir = Path(sys.argv[12])
 env_config_file = Path(sys.argv[13])
+mcp_dir = Path(sys.argv[14])
+avail_mcp_dir = Path(sys.argv[15])
 token = os.environ["ACCESS_TOKEN"]
 
 APIGEE_BASE = f"https://apigee.googleapis.com/v1/organizations/{project_id}"
@@ -135,6 +174,25 @@ def api_req(
     raise RuntimeError(f"HTTP {e.code} on {method} {url}: {err_body}") from e
 
 
+def _collect_mcp_proxies(directory: Path) -> set[str]:
+  proxies: set[str] = set()
+  if not directory.is_dir():
+    return proxies
+  for mcp_path in sorted(directory.glob("*.yaml")):
+    obj = load_yaml(mcp_path.read_text(encoding="utf-8"))
+    if not isinstance(obj, dict):
+      continue
+    name = str(obj.get("name") or mcp_path.stem).strip()
+    proxy = str(obj.get("apigeeProxy") or f"{name}-v1").strip()
+    if proxy:
+      proxies.add(proxy)
+  return proxies
+
+
+active_mcp_proxies = _collect_mcp_proxies(mcp_dir)
+staged_mcp_proxies = _collect_mcp_proxies(avail_mcp_dir)
+gated_mcp_proxies = active_mcp_proxies | staged_mcp_proxies
+
 # 1. Load and render env-config.json
 raw_env_cfg = env_config_file.read_text(encoding="utf-8")
 replacements = {
@@ -159,6 +217,7 @@ if "YOUR_" in raw_env_cfg:
       "ERROR: Rendered env-config.json still contains unresolved YOUR_* placeholders; refusing to modify Apigee."
   )
 env_cfg = json.loads(raw_env_cfg)
+
 
 def canonical_ts(t):
   ssl = t.get("sSLInfo") or {}
@@ -255,7 +314,8 @@ for kvm_name, kvm_spec in sorted((env_cfg.get("keyValueMaps") or {}).items()):
           {"name": ek, "value": str(ev)},
       )
 
-# 5. Reconcile all proxy bundles in apigee/proxies/* via SHA-256 content hash
+# 5. Reconcile proxy bundles in apigee/proxies/* via SHA-256 content hash
+# (gated MCP proxies are deployed only when active in registry/mcp-servers/ and removed when inactive)
 _, depl_resp = api_req(
     "GET", f"{APIGEE_BASE}/environments/{apigee_env}/deployments"
 )
@@ -270,6 +330,7 @@ sa_proxies = set(env_cfg.get("runtimeServiceAccountProxies") or [])
 imported_count = 0
 deployed_count = 0
 unchanged_count = 0
+removed_count = 0
 newly_deployed = []
 
 for proxy_dir in sorted(proxies_dir.iterdir()):
@@ -279,6 +340,21 @@ for proxy_dir in sorted(proxies_dir.iterdir()):
   if not apiproxy_dir.is_dir():
     continue
   proxy_name = proxy_dir.name
+
+  if proxy_name in gated_mcp_proxies and proxy_name not in active_mcp_proxies:
+    cur_rev = deployed_revs.get(proxy_name)
+    if cur_rev is not None:
+      print(
+          f"UNDEPLOY inactive MCP proxy {proxy_name} rev={cur_rev} from {apigee_env}"
+      )
+      remove_url = f"{APIGEE_BASE}/environments/{apigee_env}/apis/{urllib.parse.quote(proxy_name, safe='')}/revisions/{cur_rev}/deployments"
+      api_req("DELETE", remove_url, allow_404=True)
+      removed_count += 1
+    else:
+      print(
+          f"SKIP inactive MCP proxy {proxy_name} (not active in registry/mcp-servers/)"
+      )
+    continue
 
   # Compute deterministic SHA-256 across all files under apiproxy/
   h = hashlib.sha256()
@@ -326,7 +402,7 @@ for proxy_dir in sorted(proxies_dir.iterdir()):
     )
   else:
     root_xml = root_xml.replace(
-        f"</DisplayName>",
+        "</DisplayName>",
         f"</DisplayName>\n  <Description>{sha_tag}</Description>",
         1,
     )
@@ -380,6 +456,7 @@ print(
         {
             "deployed": deployed_count,
             "imported": imported_count,
+            "removed": removed_count,
             "unchanged": unchanged_count,
         },
         sort_keys=True,

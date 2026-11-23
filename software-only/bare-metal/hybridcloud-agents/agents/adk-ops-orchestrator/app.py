@@ -19,7 +19,7 @@
 Security and architectural invariants:
   1. Zero code execution or shell tools: `code_executor=None`, no subprocess/exec/skill-script tools.
   2. Strict proxy mediation: all outbound LLM (`ApigeeLlm` OpenAI `/v1/chat/completions` facade and native `Gemini` `/v1beta` facade),
-     MCP (`/mcp-bigquery`, `/mcp-storage`, `/mcp`), and peer A2A JSON-RPC (`message/send`) calls target ONLY
+     MCP (`/mcp-toolbox`, `/mcp-bigquery`, `/mcp-storage`, `/mcp`), and peer A2A JSON-RPC (`message/send`) calls target ONLY
      the local Envoy egress proxy (`http://agent-egress-envoy.agent-workloads.svc.cluster.local:15002`),
      injecting `adk-ops-orchestrator`'s projected KSA JWT (`x-agent-ksa-token`) and W3C `traceparent`.
   3. Deploy-time target resolution: resolves `adk-sovereign-agent`'s A2A URL from a read-only
@@ -414,6 +414,7 @@ def _build_orchestrator_agent(
     client_mode: str,
     httpx_client: httpx.AsyncClient | None,
     enforce_a2a: bool = True,
+    enable_toolbox_mcp: bool = False,
     enable_cloud_mcp: bool = False,
     cloud_mcp_targets: list[str] | None = None,
     enable_apigee_mcp: bool = False,
@@ -471,6 +472,18 @@ def _build_orchestrator_agent(
     if enforce_a2a:
         tools.append(delegate_sovereign_policy_assessment)
 
+    if enable_toolbox_mcp:
+        toolbox_mcp = McpToolset(
+            connection_params=StreamableHTTPConnectionParams(
+                url=f"{EGRESS_PROXY_BASE}/mcp-toolbox",
+                headers=base_headers,
+                timeout=15.0,
+            ),
+            tool_name_prefix="toolbox_",
+        )
+        tools.append(toolbox_mcp)
+        mcp_toolsets.append(toolbox_mcp)
+
     if enable_cloud_mcp and data_classification in ("cloud-eligible", "public"):
         targets = cloud_mcp_targets or ["bigquery", "storage"]
         if "bigquery" in targets:
@@ -517,12 +530,13 @@ def _build_orchestrator_agent(
             "sovereign compliance assessment from adk-sovereign-agent, and then "
             "synthesize a concise operational recommendation."
         )
-    elif enable_cloud_mcp or enable_apigee_mcp:
+    elif enable_toolbox_mcp or enable_cloud_mcp or enable_apigee_mcp:
         instruction = (
             "You are the Hybrid Cloud Operations Assistant on Distributed Cloud "
-            "software only. Use the available MCP tools (`bq_*`, `gcs_*`, or "
-            "`apigee_catalog_*`) to inspect the requested datasets, Cloud Storage "
-            "buckets, or gateway catalog resources, and synthesize a concise answer."
+            "software only. Use the available MCP tools (`toolbox_*`, `bq_*`, "
+            "`gcs_*`, or `apigee_catalog_*`) to inspect the requested sovereign "
+            "policy records, datasets, Cloud Storage buckets, or gateway catalog "
+            "resources, and synthesize a concise answer."
         )
     else:
         instruction = (
@@ -632,14 +646,22 @@ def _parse_ops_request(request: Request, payload: dict) -> dict[str, object]:
         else ["bigquery", "storage"]
     )
 
+    peer_cfg = _load_peer_registry_config()
+    has_sovereign_peer = bool((peer_cfg.get("peers") or {}).get("adk-sovereign-agent"))
+    raw_enforce_a2a = payload.get("enforce_a2a_delegation")
+    enforce_a2a = (
+        bool(raw_enforce_a2a) if raw_enforce_a2a is not None else has_sovereign_peer
+    )
+
     return {
         "prompt_text": prompt_text,
         "classification": classification,
         "user_id": str(payload.get("user_id", "apigee-northbound-ops-caller")),
-        "enforce_a2a": bool(payload.get("enforce_a2a_delegation", True)),
+        "enforce_a2a": enforce_a2a,
         "default_category": str(payload.get("policy_category", "residency")),
         "requested_model": requested_model,
         "client_mode": client_mode,
+        "enable_toolbox_mcp": bool(payload.get("enable_toolbox_mcp", False)),
         "enable_cloud_mcp": bool(payload.get("enable_cloud_mcp", False)),
         "cloud_mcp_targets": cloud_mcp_targets,
         "enable_apigee_mcp": bool(payload.get("enable_apigee_mcp", False)),
@@ -662,6 +684,7 @@ async def invoke(request: Request) -> JSONResponse:
     default_category = str(parsed["default_category"])
     requested_model = str(parsed["requested_model"])
     client_mode = str(parsed["client_mode"])
+    enable_toolbox_mcp = bool(parsed["enable_toolbox_mcp"])
     enable_cloud_mcp = bool(parsed["enable_cloud_mcp"])
     cloud_mcp_targets = list(parsed["cloud_mcp_targets"])  # type: ignore[arg-type]
     enable_apigee_mcp = bool(parsed["enable_apigee_mcp"])
@@ -702,6 +725,7 @@ async def invoke(request: Request) -> JSONResponse:
                 client_mode,
                 httpx_client,
                 enforce_a2a=enforce_a2a,
+                enable_toolbox_mcp=enable_toolbox_mcp,
                 enable_cloud_mcp=enable_cloud_mcp,
                 cloud_mcp_targets=cloud_mcp_targets,
                 enable_apigee_mcp=enable_apigee_mcp,
@@ -959,6 +983,7 @@ async def invoke_stream(request: Request) -> StreamingResponse:
                     client_mode,
                     httpx_client,
                     enforce_a2a=False,
+                    enable_toolbox_mcp=False,
                     enable_cloud_mcp=False,
                     enable_apigee_mcp=False,
                     model_tier_hint=model_tier_hint,

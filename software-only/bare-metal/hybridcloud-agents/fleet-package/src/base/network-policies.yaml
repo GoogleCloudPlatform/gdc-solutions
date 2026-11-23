@@ -12,130 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  labels:
-    app.kubernetes.io/part-of: hybrid-cloud-agents
-  name: allow-adk-agents
-  namespace: agent-workloads
-spec:
-  egress:
-    - ports:
-        - port: 15001
-          protocol: TCP
-      to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: agent-workloads
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/component: agent-egress-proxy
-    - ports:
-        - port: 4317
-          protocol: TCP
-        - port: 4318
-          protocol: TCP
-      to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: otel-system
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/component: otel-collector
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: agent-workloads
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/component: agent-ingress-proxy
-      ports:
-        - port: 8080
-          protocol: TCP
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: gmp-system
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              managed-by: stackdriver
-      ports:
-        - port: 8080
-          protocol: TCP
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/component: adk-agent
-  policyTypes:
-    - Ingress
-    - Egress
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  labels:
-    app.kubernetes.io/part-of: hybrid-cloud-agents
-  name: allow-adk-ops-orchestrator
-  namespace: agent-workloads
-spec:
-  egress:
-    - ports:
-        - port: 15002
-          protocol: TCP
-      to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: agent-workloads
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/component: agent-egress-proxy
-    - ports:
-        - port: 4317
-          protocol: TCP
-        - port: 4318
-          protocol: TCP
-      to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: otel-system
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/component: otel-collector
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: agent-workloads
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/component: agent-ingress-proxy
-      ports:
-        - port: 8080
-          protocol: TCP
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: gmp-system
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              managed-by: stackdriver
-      ports:
-        - port: 8080
-          protocol: TCP
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/component: adk-ops-orchestrator
-  policyTypes:
-    - Ingress
-    - Egress
----
+# Shared Envoy NetworkPolicy baselines. Per-agent ingress/egress port rules are
+# added dynamically by fleet-package/render.sh from active
+# registry/agents/*/agent.yaml.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -145,22 +24,6 @@ metadata:
   namespace: agent-workloads
 spec:
   egress:
-    - ports:
-        - port: 8080
-          protocol: TCP
-      to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: agent-workloads
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/component: adk-agent
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: agent-workloads
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/component: adk-ops-orchestrator
     - ports:
         - port: 4317
           protocol: TCP
@@ -225,26 +88,6 @@ spec:
             matchLabels:
               app.kubernetes.io/component: otel-collector
   ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: agent-workloads
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/component: adk-agent
-      ports:
-        - port: 15001
-          protocol: TCP
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: agent-workloads
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/component: adk-ops-orchestrator
-      ports:
-        - port: 15002
-          protocol: TCP
     - from:
         - namespaceSelector:
             matchLabels:

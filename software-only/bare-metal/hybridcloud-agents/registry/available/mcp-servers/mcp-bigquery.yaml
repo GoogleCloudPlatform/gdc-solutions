@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+apigeeProxy: mcp-bigquery-v1
 description: Governed pass-through MCP proxy (mcp-bigquery-v1) to Google Cloud BigQuery remote MCP server with mutating tool stripping.
 displayName: mcp-bigquery
 interface:

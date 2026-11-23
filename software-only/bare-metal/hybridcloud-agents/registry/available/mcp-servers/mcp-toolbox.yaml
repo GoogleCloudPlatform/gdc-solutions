@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+apigeeProxy: mcp-toolbox-v1
 description: Governed on-premises MCP Toolbox for Databases (PostgreSQL and pgvector) behind Apigee hybrid mcp-toolbox-v1.
 displayName: mcp-toolbox
 interface:

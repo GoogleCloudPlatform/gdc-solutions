@@ -13,9 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Reconciles A2A Agent Cards (cards/*.json) and manually registered MCP servers
-# (mcp-servers/*.yaml) idempotently into Google Cloud Agent Registry writable
-# Service resources using documented GA gcloud commands:
+# Reconciles active A2A Agent Cards (referenced by registry/agents/*/agent.yaml)
+# and active manually registered MCP servers (registry/mcp-servers/*.yaml)
+# idempotently into Google Cloud Agent Registry writable Service resources using
+# documented GA gcloud commands, and deregisters any pipeline-managed Service
+# removed from the active set:
 #   - https://docs.cloud.google.com/agent-registry/register-agents
 #   - https://docs.cloud.google.com/agent-registry/register-mcp-servers
 #   - https://docs.cloud.google.com/agent-registry/json-schemas
@@ -31,6 +33,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ID="${PROJECT_ID:-}"
 REGISTRY_LOCATION="${REGISTRY_LOCATION:-us-central1}"
 GATEWAY_FQDN="${GATEWAY_FQDN:-}"
+AGENTS_DIR="${AGENTS_DIR:-${SCRIPT_DIR}/agents}"
 CARDS_DIR="${CARDS_DIR:-${SCRIPT_DIR}/cards}"
 MCP_SERVERS_DIR="${MCP_SERVERS_DIR:-${SCRIPT_DIR}/mcp-servers}"
 MANAGED_MARKER="[managed-by=hybridcloud-agents-registry]"
@@ -43,6 +46,10 @@ for VAR_NAME in PROJECT_ID REGISTRY_LOCATION GATEWAY_FQDN; do
   fi
 done
 
+if [[ ! -d "${AGENTS_DIR}" ]]; then
+  echo "ERROR: Agents directory not found: ${AGENTS_DIR}" >&2
+  exit 1
+fi
 if [[ ! -d "${CARDS_DIR}" ]]; then
   echo "ERROR: Cards directory not found: ${CARDS_DIR}" >&2
   exit 1
@@ -51,8 +58,8 @@ fi
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
-PYTHON_BIN="$(gcloud info --format='value(basic.python_location)' 2>/dev/null || command -v python3 || true)"
-CLOUDSDK_THIRD_PARTY="$(gcloud info --format='value(installation.sdk_root)' 2>/dev/null || echo /usr/lib/google-cloud-sdk)/lib/third_party"
+PYTHON_BIN="$(gcloud info --format='value(basic.python_location)' 2> /dev/null || command -v python3 || true)"
+CLOUDSDK_THIRD_PARTY="$(gcloud info --format='value(installation.sdk_root)' 2> /dev/null || echo /usr/lib/google-cloud-sdk)/lib/third_party"
 export CLOUDSDK_THIRD_PARTY
 if [[ -z "${PYTHON_BIN}" || ! -x "${PYTHON_BIN}" ]]; then
   echo "ERROR: Python 3 runtime not found." >&2
@@ -68,11 +75,20 @@ gcloud agent-registry services list \
   --format=json \
   --quiet > "${EXISTING_FILE}"
 
-"${PYTHON_BIN}" - "${CARDS_DIR}" "${MCP_SERVERS_DIR}" "${EXISTING_FILE}" "${GATEWAY_FQDN}" "${MANAGED_MARKER}" "${WORK_DIR}" > "${PLAN_FILE}" << 'EOF'
+"${PYTHON_BIN}" - \
+  "${SCRIPT_DIR}" \
+  "${AGENTS_DIR}" \
+  "${CARDS_DIR}" \
+  "${MCP_SERVERS_DIR}" \
+  "${EXISTING_FILE}" \
+  "${GATEWAY_FQDN}" \
+  "${MANAGED_MARKER}" \
+  "${WORK_DIR}" > "${PLAN_FILE}" << 'EOF'
 import json
+import os
 from pathlib import Path
 import sys
-import os
+
 
 def load_yaml(text: str):
   try:
@@ -90,12 +106,14 @@ def load_yaml(text: str):
     return ryaml.YAML(typ="safe").load(text)
 
 
-cards_dir = Path(sys.argv[1])
-mcp_dir = Path(sys.argv[2])
-existing_items = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8") or "[]")
-gateway_fqdn = sys.argv[4]
-managed_marker = sys.argv[5]
-work_dir = Path(sys.argv[6])
+script_dir = Path(sys.argv[1])
+agents_dir = Path(sys.argv[2])
+cards_dir = Path(sys.argv[3])
+mcp_dir = Path(sys.argv[4])
+existing_items = json.loads(Path(sys.argv[5]).read_text(encoding="utf-8") or "[]")
+gateway_fqdn = sys.argv[6]
+managed_marker = sys.argv[7]
+work_dir = Path(sys.argv[8])
 
 existing_by_id = {}
 for item in existing_items:
@@ -106,9 +124,18 @@ for item in existing_items:
 
 desired_ids = set()
 
-# 1. Process A2A Agent Cards (cards/*.json)
-for card_path in sorted(cards_dir.glob("*.json")):
-  svc_id = card_path.stem
+# 1. Process A2A Agent Cards ONLY for active agents (registry/agents/*/agent.yaml)
+for agent_path in sorted(agents_dir.glob("*/agent.yaml")):
+  agent_obj = load_yaml(agent_path.read_text(encoding="utf-8"))
+  if not isinstance(agent_obj, dict):
+    continue
+  card_ref = str(agent_obj.get("agentCard") or "").strip()
+  card_path = (
+      (script_dir / card_ref).resolve()
+      if card_ref
+      else (cards_dir / f"{agent_path.parent.name}.json")
+  )
+  svc_id = str(agent_obj.get("name") or card_path.stem).strip()
   desired_ids.add(svc_id)
   raw_text = card_path.read_text(encoding="utf-8").replace(
       "YOUR_GATEWAY_FQDN", gateway_fqdn
@@ -166,7 +193,7 @@ for card_path in sorted(cards_dir.glob("*.json")):
   else:
     print(f"UPDATE_AGENT\t{svc_id}")
 
-# 2. Process MCP Server specs (mcp-servers/*.yaml)
+# 2. Process active MCP Server specs (registry/mcp-servers/*.yaml)
 if mcp_dir.is_dir():
   for mcp_path in sorted(mcp_dir.glob("*.yaml")):
     raw_yaml = mcp_path.read_text(encoding="utf-8").replace(

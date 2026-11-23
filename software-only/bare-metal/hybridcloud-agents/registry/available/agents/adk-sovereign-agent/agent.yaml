@@ -12,42 +12,49 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-agentCard: cards/adk-ops-orchestrator.json
+agentCard: cards/adk-sovereign-agent.json
 allowedModelAliases:
   - enterprise-sovereign
-  - enterprise-flash
   - google/gemma-4-31B-it
-  - google/gemini-3.5-flash
 apiProducts:
-  - allowCloudBurst: "true"
+  - allowCloudBurst: "false"
     llmTokenQuotaInterval: "1"
     llmTokenQuotaLimit: "500000"
     llmTokenQuotaTimeUnit: hour
-    name: cloud-eligible-agents
-    promptTokenRate: 2400pm
+    name: sovereign-agents
+    promptTokenRate: 120000pm
     spikeArrestRate: 30ps
-  - name: cloud-eligible-agents-mcp
+  - name: sovereign-agents-mcp
     spikeArrestRate: 30ps
     toolQuotaInterval: "1"
     toolQuotaLimit: "60"
     toolQuotaTimeUnit: minute
-  - name: a2a-sovereign-callers
-    spikeArrestRate: 30ps
 apigeeApp:
-  businessUnit: corp-it
-  costCenter: CC-OPS-205
+  businessUnit: fab-etch
+  costCenter: CC-FAB-410
   developerEmail: hybrid-agents-platform@example.com
-  name: ops-orchestrator-app
+  name: sovereign-agents-app
 egressProxy:
-  endpoint: http://agent-egress-envoy.agent-workloads.svc.cluster.local:15002
-  port: 15002
+  endpoint: http://agent-egress-envoy.agent-workloads.svc.cluster.local:15001
+  mountPath: /etc/envoy/apigee-key
+  port: 15001
+  portName: http-egress
+  sdsSecretName: apigee_sovereign_api_key
+  secretName: agent-egress-apigee-api-key
   service: agent-egress-envoy
+  statPrefix: agent_apigee_egress
+  volumeName: apigee-key
 exposedMcpServers:
-  - mcp-bigquery
-  - mcp-storage
+  - mcp-toolbox
+ingressProxy:
+  clusterName: adk_agent_cluster
+  pathPrefix: /
+  serviceName: adk-agent
+  servicePort: 8080
 kubernetesIdentity:
-  expectedJwtSubject: system:serviceaccount:agent-workloads:adk-ops-orchestrator
+  componentLabel: adk-agent
+  expectedJwtSubject: system:serviceaccount:agent-workloads:adk-sovereign-agent
   namespace: agent-workloads
-  serviceAccount: adk-ops-orchestrator
-name: adk-ops-orchestrator
-secretManagerSecret: apigee-ops-orchestrator-api-key
+  serviceAccount: adk-sovereign-agent
+name: adk-sovereign-agent
+secretManagerSecret: apigee-sovereign-agent-api-key

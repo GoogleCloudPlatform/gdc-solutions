@@ -14,12 +14,14 @@
 # limitations under the License.
 
 # Preflight static validator (Step #0 in cloudbuild-register.yaml) that checks
-# Git tag syntax, referential integrity between registry/agents/*/agent.yaml and
-# registry/cards/*.json, uniqueness of agent names, Apigee DeveloperApp names,
-# Secret Manager secret IDs, Kubernetes JWT subjects, A2A Agent Card interface
-# URLs, and MCP Server interface URLs, plus zero KRM object overlap between the
-# PLATFORM (agents-platform) and AGENTS (agents) FleetPackage renders before any
-# Apigee, Secret Manager, or Agent Registry API mutation runs.
+# Git tag syntax, referential integrity between active registry/agents/*/agent.yaml
+# (and staged registry/available/agents/*/agent.yaml) and registry/cards/*.json,
+# uniqueness of agent names, Apigee DeveloperApp names, Secret Manager secret
+# IDs, Kubernetes JWT subjects, egress proxy ports, A2A Agent Card and MCP
+# Server interface URLs, active-vs-available separation, rendered agents
+# FleetPackage parity with the active set, and zero KRM object overlap between
+# the PLATFORM (agents-platform) and AGENTS (agents) FleetPackage renders
+# before any Apigee, Secret Manager, or Agent Registry API mutation runs.
 
 set -o errexit
 set -o nounset
@@ -27,8 +29,11 @@ set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGENTS_DIR="${AGENTS_DIR:-${SCRIPT_DIR}/agents}"
+AVAILABLE_AGENTS_DIR="${AVAILABLE_AGENTS_DIR:-${SCRIPT_DIR}/available/agents}"
 CARDS_DIR="${CARDS_DIR:-${SCRIPT_DIR}/cards}"
 MCP_SERVERS_DIR="${MCP_SERVERS_DIR:-${SCRIPT_DIR}/mcp-servers}"
+AVAILABLE_MCP_SERVERS_DIR="${AVAILABLE_MCP_SERVERS_DIR:-${SCRIPT_DIR}/available/mcp-servers}"
+PROXIES_DIR="${PROXIES_DIR:-${SCRIPT_DIR}/../apigee/proxies}"
 FLEET_ENV_DIR="${FLEET_ENV_DIR:-${SCRIPT_DIR}/../fleet-package/environments}"
 TAG_NAME="${TAG_NAME:-}"
 
@@ -48,15 +53,24 @@ if [[ ! -d "${CARDS_DIR}" ]]; then
   exit 1
 fi
 
-PYTHON_BIN="$(gcloud info --format='value(basic.python_location)' 2>/dev/null || command -v python3 || true)"
-CLOUDSDK_THIRD_PARTY="$(gcloud info --format='value(installation.sdk_root)' 2>/dev/null || echo /usr/lib/google-cloud-sdk)/lib/third_party"
+PYTHON_BIN="$(gcloud info --format='value(basic.python_location)' 2> /dev/null || command -v python3 || true)"
+CLOUDSDK_THIRD_PARTY="$(gcloud info --format='value(installation.sdk_root)' 2> /dev/null || echo /usr/lib/google-cloud-sdk)/lib/third_party"
 export CLOUDSDK_THIRD_PARTY
 if [[ -z "${PYTHON_BIN}" || ! -x "${PYTHON_BIN}" ]]; then
   echo "ERROR: Python 3 runtime not found." >&2
   exit 1
 fi
 
-"${PYTHON_BIN}" - "${SCRIPT_DIR}" "${AGENTS_DIR}" "${CARDS_DIR}" "${MCP_SERVERS_DIR}" "${FLEET_ENV_DIR}" "${TAG_NAME}" << 'EOF'
+"${PYTHON_BIN}" - \
+  "${SCRIPT_DIR}" \
+  "${AGENTS_DIR}" \
+  "${AVAILABLE_AGENTS_DIR}" \
+  "${CARDS_DIR}" \
+  "${MCP_SERVERS_DIR}" \
+  "${AVAILABLE_MCP_SERVERS_DIR}" \
+  "${PROXIES_DIR}" \
+  "${FLEET_ENV_DIR}" \
+  "${TAG_NAME}" << 'EOF'
 import json
 import os
 from pathlib import Path
@@ -85,21 +99,27 @@ load_yaml, load_yaml_all = _import_yaml_loader()
 
 script_dir = Path(sys.argv[1])
 agents_dir = Path(sys.argv[2])
-cards_dir = Path(sys.argv[3])
-mcp_dir = Path(sys.argv[4])
-fleet_env_dir = Path(sys.argv[5])
-tag_name = sys.argv[6]
+avail_agents_dir = Path(sys.argv[3])
+cards_dir = Path(sys.argv[4])
+mcp_dir = Path(sys.argv[5])
+avail_mcp_dir = Path(sys.argv[6])
+proxies_dir = Path(sys.argv[7])
+fleet_env_dir = Path(sys.argv[8])
+tag_name = sys.argv[9]
 
 errors: list[str] = []
 
-agent_files = sorted(agents_dir.glob("*/agent.yaml"))
+active_agent_files = sorted(agents_dir.glob("*/agent.yaml"))
+staged_agent_files = (
+    sorted(avail_agents_dir.glob("*/agent.yaml"))
+    if avail_agents_dir.is_dir()
+    else []
+)
 card_files = sorted(cards_dir.glob("*.json"))
-mcp_files = sorted(mcp_dir.glob("*.yaml")) if mcp_dir.is_dir() else []
-
-if not agent_files:
-  errors.append(f"No agent manifests found under {agents_dir}/*/agent.yaml")
-if not card_files:
-  errors.append(f"No Agent Card JSON files found under {cards_dir}/*.json")
+active_mcp_files = sorted(mcp_dir.glob("*.yaml")) if mcp_dir.is_dir() else []
+staged_mcp_files = (
+    sorted(avail_mcp_dir.glob("*.yaml")) if avail_mcp_dir.is_dir() else []
+)
 
 seen_agent_names: dict[str, str] = {}
 seen_app_names: dict[str, str] = {}
@@ -108,17 +128,19 @@ seen_jwt_subjects: dict[str, str] = {}
 seen_egress_ports: dict[int, str] = {}
 referenced_cards: dict[str, str] = {}
 seen_urls: dict[str, str] = {}
+active_agent_specs: dict[str, dict] = {}
 
-for agent_path in agent_files:
+
+def _validate_agent_file(agent_path: Path, is_active: bool) -> None:
   rel_path = str(agent_path.relative_to(script_dir))
   try:
     obj = load_yaml(agent_path.read_text(encoding="utf-8"))
   except Exception as exc:
     errors.append(f"{rel_path}: invalid YAML: {exc}")
-    continue
+    return
   if not isinstance(obj, dict):
     errors.append(f"{rel_path}: top-level YAML document must be a mapping")
-    continue
+    return
 
   name = str(obj.get("name") or "").strip()
   if not name:
@@ -133,6 +155,8 @@ for agent_path in agent_files:
     )
   else:
     seen_agent_names[name] = rel_path
+    if is_active:
+      active_agent_specs[name] = obj
 
   card_ref = str(obj.get("agentCard") or "").strip()
   if not card_ref:
@@ -199,7 +223,11 @@ for agent_path in agent_files:
     else:
       egress_port = egress_proxy.get("port")
       egress_ep = str(egress_proxy.get("endpoint") or "").strip()
-      if not isinstance(egress_port, int) or isinstance(egress_port, bool) or not (1024 <= egress_port <= 65535):
+      if (
+          not isinstance(egress_port, int)
+          or isinstance(egress_port, bool)
+          or not (1024 <= egress_port <= 65535)
+      ):
         errors.append(
             f"{rel_path}: 'egressProxy.port' must be an integer between 1024 and 65535"
         )
@@ -215,6 +243,12 @@ for agent_path in agent_files:
         errors.append(
             f"{rel_path}: egressProxy.endpoint '{egress_ep}' does not match egressProxy.port '{egress_port}'"
         )
+
+
+for p in active_agent_files:
+  _validate_agent_file(p, is_active=True)
+for p in staged_agent_files:
+  _validate_agent_file(p, is_active=False)
 
 for card_path in card_files:
   rel_card = f"cards/{card_path.name}"
@@ -237,7 +271,7 @@ for card_path in card_files:
 
   if rel_card not in referenced_cards:
     errors.append(
-        f"{rel_card}: orphan Agent Card is not referenced by any registry/agents/*/agent.yaml"
+        f"{rel_card}: orphan Agent Card is not referenced by any active or available agent.yaml"
     )
 
   ifaces = card_obj.get("supportedInterfaces")
@@ -246,7 +280,9 @@ for card_path in card_files:
   else:
     for idx, iface in enumerate(ifaces):
       if not isinstance(iface, dict):
-        errors.append(f"{rel_card}: supportedInterfaces[{idx}] must be an object")
+        errors.append(
+            f"{rel_card}: supportedInterfaces[{idx}] must be an object"
+        )
         continue
       url = str(iface.get("url") or "").strip()
       if not url:
@@ -261,16 +297,18 @@ for card_path in card_files:
         seen_urls[url] = rel_card
 
 seen_mcp_names: dict[str, str] = {}
-for mcp_path in mcp_files:
-  rel_mcp = f"mcp-servers/{mcp_path.name}"
+
+
+def _validate_mcp_file(mcp_path: Path) -> None:
+  rel_mcp = str(mcp_path.relative_to(script_dir))
   try:
     mcp_obj = load_yaml(mcp_path.read_text(encoding="utf-8"))
   except Exception as exc:
     errors.append(f"{rel_mcp}: invalid YAML: {exc}")
-    continue
+    return
   if not isinstance(mcp_obj, dict):
     errors.append(f"{rel_mcp}: top-level YAML document must be a mapping")
-    continue
+    return
 
   mcp_name = str(mcp_obj.get("name") or "").strip()
   if not mcp_name:
@@ -297,10 +335,24 @@ for mcp_path in mcp_files:
   else:
     seen_urls[url] = rel_mcp
 
+  apigee_proxy = str(mcp_obj.get("apigeeProxy") or "").strip()
+  if apigee_proxy and proxies_dir.is_dir():
+    if not (proxies_dir / apigee_proxy / "apiproxy").is_dir():
+      errors.append(
+          f"{rel_mcp}: apigeeProxy '{apigee_proxy}' not found under {proxies_dir}"
+      )
+
+
+for p in active_mcp_files:
+  _validate_mcp_file(p)
+for p in staged_mcp_files:
+  _validate_mcp_file(p)
+
 fleet_summary = ""
 if fleet_env_dir.is_dir():
   expected_variants = ("agents-platform", "gateway-tools-platform", "agents")
   variant_objects: dict[str, set[tuple[str, str, str, str]]] = {}
+  rendered_agent_deployments: dict[str, dict] = {}
 
   for variant in expected_variants:
     manifest_path = fleet_env_dir / variant / "manifests.yaml"
@@ -332,11 +384,47 @@ if fleet_env_dir.is_dir():
             f"fleet-package/environments/{variant}/manifests.yaml: duplicate object {group or 'core'}/{kind} {ns}/{name}"
         )
       objects.add(key)
-      if variant == "agents" and kind == "Namespace":
-        errors.append(
-            f"fleet-package/environments/agents/manifests.yaml: AGENTS package must not declare Namespace/{name} (owned by PLATFORM)"
-        )
+      if variant == "agents":
+        if kind == "Namespace":
+          errors.append(
+              f"fleet-package/environments/agents/manifests.yaml: AGENTS package must not declare Namespace/{name} (owned by PLATFORM)"
+          )
+        labels = meta.get("labels") or {}
+        if kind == "Deployment" and labels.get("registry.gke.io/functional-type") == "AGENT":
+          rendered_agent_deployments[name] = doc
     variant_objects[variant] = objects
+
+  # Check rendered agents bundle matches active registry/agents/*
+  expected_active_names = set(active_agent_specs.keys())
+  rendered_names = set(rendered_agent_deployments.keys())
+  if rendered_names != expected_active_names:
+    errors.append(
+        "fleet-package/environments/agents/manifests.yaml active agent Deployments "
+        f"{sorted(rendered_names)} do not match active registry/agents/* "
+        f"{sorted(expected_active_names)} (re-run fleet-package/render.sh agents)"
+    )
+  for aname, dep_doc in rendered_agent_deployments.items():
+    spec_ep = str(
+        (active_agent_specs.get(aname, {}).get("egressProxy") or {}).get(
+            "endpoint", ""
+        )
+    )
+    if spec_ep:
+      containers = (
+          dep_doc.get("spec", {})
+          .get("template", {})
+          .get("spec", {})
+          .get("containers", [])
+      )
+      env_map = {
+          e["name"]: str(e.get("value", ""))
+          for e in (containers[0].get("env", []) if containers else [])
+      }
+      if env_map.get("EGRESS_PROXY_BASE") != spec_ep:
+        errors.append(
+            f"Deployment/{aname} EGRESS_PROXY_BASE ('{env_map.get('EGRESS_PROXY_BASE')}') "
+            f"does not match registry/agents/{aname}/agent.yaml egressProxy.endpoint ('{spec_ep}')"
+        )
 
   overlap = sorted(
       variant_objects.get("agents-platform", set())
@@ -361,8 +449,9 @@ if errors:
   sys.exit(1)
 
 print(
-    f"Preflight manifest validation PASSED: {len(agent_files)} agent(s), "
-    f"{len(card_files)} card(s), {len(mcp_files)} MCP server(s)"
+    f"Preflight manifest validation PASSED: {len(active_agent_files)} active agent(s) "
+    f"({len(staged_agent_files)} staged), {len(card_files)} card(s), "
+    f"{len(active_mcp_files)} active MCP server(s) ({len(staged_mcp_files)} staged)"
     f"{fleet_summary}"
     + (f", tag={tag_name}" if tag_name else "")
     + "."
