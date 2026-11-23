@@ -38,10 +38,11 @@ and ADK message content capture in OpenTelemetry spans at source.
 `adk-ops-orchestrator` (`v0.3.0`) is the hybrid operations and incident triage
 orchestrator. Like `adk-sovereign-agent`, it runs as a non-root container
 (`uid/gid 10001`) with `code_executor=None` and routes all outbound traffic
-through its dedicated Envoy egress proxy (`ops-egress-envoy:15001`). It combines
-Apigee-routed LLM inference (`enterprise-flash` for `cloud-eligible` or `public`
-requests and `enterprise-sovereign` for `sovereign`, `confidential`, or
-`restricted` requests) with `McpToolset` discovery for Google-managed BigQuery
+through its dedicated listener port on the shared Envoy egress proxy
+(`agent-egress-envoy:15002`). It combines Apigee-routed LLM inference
+(`enterprise-flash` for `cloud-eligible` or `public` requests and
+`enterprise-sovereign` for `sovereign`, `confidential`, or `restricted`
+requests) with `McpToolset` discovery for Google-managed BigQuery
 (`/mcp-bigquery`), Cloud Storage (`/mcp-storage`), and the Apigee gateway
 catalog (`/mcp`), and delegates sovereign compliance assessments over
 Apigee-mediated A2A JSON-RPC (`message/send`) to `adk-sovereign-agent` using the
@@ -103,12 +104,15 @@ manifests):
 
 ## `google-adk==1.39.1` version pin warning
 
-🚨 **IMPORTANT:** Keep `google-adk==1.39.1` pinned in both `requirements.txt`
-files. Both agents hook private `ApigeeLlm` internals
-(`_completions_http_client._client.event_hooks` to capture gateway routing and
-token-quota response headers, and `_completions_http_client._construct_payload`
-to inject `stream_options.include_usage` during Server-Sent Events streaming),
-and each `Dockerfile` asserts internal `ApigeeLlm` attributes (`_api_type`,
+🚨 **IMPORTANT:** Both `requirements.txt` files pin every direct and transitive
+dependency to exact versions with `--require-hashes` (`google-adk==1.39.1` and
+all 114 transitive packages verified in runtime containers). Keep
+`google-adk==1.39.1` pinned unless you re-verify compatibility. Both agents hook
+private `ApigeeLlm` internals (`_completions_http_client._client.event_hooks` to
+capture gateway routing and token-quota response headers, and
+`_completions_http_client._construct_payload` to inject
+`stream_options.include_usage` during Server-Sent Events streaming), and each
+`Dockerfile` asserts internal `ApigeeLlm` attributes (`_api_type`,
 `_isvertexai`, `_custom_headers`) at build time. If you upgrade `google-adk`,
 verify that these private attributes and hooks remain compatible before rolling
 out new images.

@@ -34,7 +34,7 @@ data:
       "discovery_source": "agent-registry-gitops-configmap",
       "peers": {
         "adk-sovereign-agent": {
-          "a2a_egress_url": "http://ops-egress-envoy.agent-workloads.svc.cluster.local:15001/a2a/sovereign",
+          "a2a_egress_url": "http://agent-egress-envoy.agent-workloads.svc.cluster.local:15002/a2a/sovereign",
           "agent_card_gateway_url": "https://api.hybrid-agents.internal/agents/sovereign/.well-known/agent-card.json",
           "canonical_gateway_url": "https://api.hybrid-agents.internal/a2a/sovereign",
           "protocol_binding": "HTTP+JSON",
@@ -97,7 +97,7 @@ spec:
             - name: CLOUD_MODEL_ALIAS
               value: enterprise-flash
             - name: EGRESS_PROXY_BASE
-              value: http://ops-egress-envoy.agent-workloads.svc.cluster.local:15001
+              value: http://agent-egress-envoy.agent-workloads.svc.cluster.local:15002
             - name: KSA_TOKEN_PATH
               value: /var/run/secrets/tokens/apigee-ksa/token
             - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
@@ -110,7 +110,7 @@ spec:
               value: enterprise-sovereign
             - name: SOVEREIGN_MODEL_NAME
               value: google/gemma-4-31B-it
-          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:0.3.0@sha256:54ea633d9acc08af4f9a4c4d951b65f2fd9cc0b6cd445a93db10a1d4669d158a
+          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:v0.5.6@sha256:11e9f4a3f56b166e118aa2184af31deb7ce9a656b0ed3c3a2ab567f10e31b95f
           livenessProbe:
             httpGet:
               path: /healthz

@@ -31,7 +31,6 @@ spec:
         values:
           - agent-ingress-proxy
           - agent-egress-proxy
-          - ops-egress-proxy
 ---
 apiVersion: monitoring.googleapis.com/v1
 kind: PodMonitoring

@@ -15,7 +15,7 @@
 # Negative verification Job for unauthorized A2A callers:
 #   1. Calling /a2a/sovereign via agent-egress-envoy (:15001) injects an API key
 #      that is NOT entitled to the a2a-sovereign-callers API product -> 401/403.
-#   2. Calling /a2a/sovereign via ops-egress-envoy (:15001) injects an entitled
+#   2. Calling /a2a/sovereign via agent-egress-envoy (:15002) injects an entitled
 #      API key, but presents ServiceAccount/a2a-rogue's projected KSA JWT, which
 #      Apigee VerifyJWT rejects because sub != adk-ops-orchestrator -> 401/403.
 apiVersion: v1
@@ -41,13 +41,15 @@ spec:
     - ports:
         - port: 15001
           protocol: TCP
+        - port: 15002
+          protocol: TCP
       to:
-        - podSelector:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agent-workloads
+          podSelector:
             matchLabels:
               app.kubernetes.io/component: agent-egress-proxy
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/component: ops-egress-proxy
   podSelector:
     matchLabels:
       app.kubernetes.io/component: a2a-rogue-probe
@@ -64,19 +66,20 @@ metadata:
 spec:
   ingress:
     - from:
-        - podSelector:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agent-workloads
+          podSelector:
             matchLabels:
               app.kubernetes.io/component: a2a-rogue-probe
       ports:
         - port: 15001
           protocol: TCP
+        - port: 15002
+          protocol: TCP
   podSelector:
-    matchExpressions:
-      - key: app.kubernetes.io/component
-        operator: In
-        values:
-          - agent-egress-proxy
-          - ops-egress-proxy
+    matchLabels:
+      app.kubernetes.io/component: agent-egress-proxy
   policyTypes:
     - Ingress
 ---
@@ -134,7 +137,7 @@ spec:
                   ),
                   (
                       "unauthorized_ksa_subject",
-                      "http://ops-egress-envoy.agent-workloads.svc.cluster.local:15001/a2a/sovereign",
+                      "http://agent-egress-envoy.agent-workloads.svc.cluster.local:15002/a2a/sovereign",
                   ),
               ]
               results = {}
@@ -158,7 +161,7 @@ spec:
               }
               print(json.dumps(summary, sort_keys=True))
               sys.exit(1 if failed else 0)
-          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:0.3.0@sha256:54ea633d9acc08af4f9a4c4d951b65f2fd9cc0b6cd445a93db10a1d4669d158a
+          image: registry.hybrid-agents.internal/hybrid-cloud-agents/adk-ops-orchestrator:v0.5.6@sha256:11e9f4a3f56b166e118aa2184af31deb7ce9a656b0ed3c3a2ab567f10e31b95f
           name: rogue-probe
           resources:
             limits:

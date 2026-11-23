@@ -34,6 +34,10 @@ apigeeApp:
   costCenter: CC-FAB-410
   developerEmail: hybrid-agents-platform@example.com
   name: sovereign-agents-app
+egressProxy:
+  endpoint: http://agent-egress-envoy.agent-workloads.svc.cluster.local:15001
+  port: 15001
+  service: agent-egress-envoy
 exposedMcpServers:
   - mcp-toolbox
 kubernetesIdentity:

@@ -48,4 +48,4 @@ steps:
 substitutions:
   _AR_LOCATION: us-central1
   _AR_REPOSITORY: hybrid-cloud-agents
-  _IMAGE_TAG: v0.5.5
+  _IMAGE_TAG: v0.5.6

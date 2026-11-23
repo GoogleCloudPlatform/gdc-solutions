@@ -98,6 +98,7 @@ seen_agent_names: dict[str, str] = {}
 seen_app_names: dict[str, str] = {}
 seen_secrets: dict[str, str] = {}
 seen_jwt_subjects: dict[str, str] = {}
+seen_egress_ports: dict[int, str] = {}
 referenced_cards: dict[str, str] = {}
 seen_urls: dict[str, str] = {}
 
@@ -183,6 +184,30 @@ for agent_path in agent_files:
     )
   else:
     seen_jwt_subjects[jwt_sub] = rel_path
+
+  egress_proxy = obj.get("egressProxy")
+  if egress_proxy is not None:
+    if not isinstance(egress_proxy, dict):
+      errors.append(f"{rel_path}: 'egressProxy' must be a mapping")
+    else:
+      egress_port = egress_proxy.get("port")
+      egress_ep = str(egress_proxy.get("endpoint") or "").strip()
+      if not isinstance(egress_port, int) or isinstance(egress_port, bool) or not (1024 <= egress_port <= 65535):
+        errors.append(
+            f"{rel_path}: 'egressProxy.port' must be an integer between 1024 and 65535"
+        )
+      elif egress_port in seen_egress_ports:
+        errors.append(
+            f"{rel_path}: duplicate egressProxy.port '{egress_port}' (already assigned in {seen_egress_ports[egress_port]})"
+        )
+      else:
+        seen_egress_ports[egress_port] = rel_path
+      if not egress_ep:
+        errors.append(f"{rel_path}: missing required 'egressProxy.endpoint'")
+      elif isinstance(egress_port, int) and f":{egress_port}" not in egress_ep:
+        errors.append(
+            f"{rel_path}: egressProxy.endpoint '{egress_ep}' does not match egressProxy.port '{egress_port}'"
+        )
 
 for card_path in card_files:
   rel_card = f"cards/{card_path.name}"

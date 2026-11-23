@@ -20,7 +20,7 @@ Security and architectural invariants:
   1. Zero code execution or shell tools: `code_executor=None`, no subprocess/exec/skill-script tools.
   2. Strict proxy mediation: all outbound LLM (`ApigeeLlm` OpenAI `/v1/chat/completions` facade and native `Gemini` `/v1beta` facade),
      MCP (`/mcp-bigquery`, `/mcp-storage`, `/mcp`), and peer A2A JSON-RPC (`message/send`) calls target ONLY
-     the local Envoy egress proxy (`http://ops-egress-envoy.agent-workloads.svc.cluster.local:15001`),
+     the local Envoy egress proxy (`http://agent-egress-envoy.agent-workloads.svc.cluster.local:15002`),
      injecting `adk-ops-orchestrator`'s projected KSA JWT (`x-agent-ksa-token`) and W3C `traceparent`.
   3. Deploy-time target resolution: resolves `adk-sovereign-agent`'s A2A URL from a read-only
      ConfigMap (`/etc/adk-config/peer-agents.json`) seeded from Agent Registry metadata at deploy time,
@@ -81,7 +81,7 @@ KSA_TOKEN_PATH = Path(
 )
 EGRESS_PROXY_BASE = os.getenv(
     "EGRESS_PROXY_BASE",
-    "http://ops-egress-envoy.agent-workloads.svc.cluster.local:15001",
+    "http://agent-egress-envoy.agent-workloads.svc.cluster.local:15002",
 ).rstrip("/")
 OTLP_TRACES_ENDPOINT = os.getenv(
     "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",

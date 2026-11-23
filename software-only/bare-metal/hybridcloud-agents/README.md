@@ -89,7 +89,6 @@ hybridcloud-agents/
 │       │   ├── kustomization.yaml
 │       │   ├── namespace.yaml
 │       │   ├── network-policies.yaml
-│       │   ├── ops-egress-envoy.yaml
 │       │   └── pod-monitoring.yaml
 │       ├── components/
 │       │   └── otel-collector/
