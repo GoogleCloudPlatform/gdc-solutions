@@ -13,9 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Renders the DRY Kustomize overlays (agents and gateway-tools by default) into
-# the WET variant bundles that Config Delivery packages. Run it from any
-# directory and commit the results with the DRY change in the same pull request.
+# Renders the DRY Kustomize overlays (agents-platform, gateway-tools-platform,
+# and agents by default) into the WET variant bundles that Config Delivery
+# packages. Run it from any directory and commit the results with the DRY change
+# in the same pull request.
 
 set -o errexit
 set -o nounset
@@ -27,7 +28,7 @@ REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel 2> /dev/null || (c
 if [[ $# -gt 0 ]]; then
   VARIANTS=("$@")
 else
-  VARIANTS=("agents" "gateway-tools")
+  VARIANTS=("agents-platform" "gateway-tools-platform" "agents")
 fi
 
 for VARIANT in "${VARIANTS[@]}"; do

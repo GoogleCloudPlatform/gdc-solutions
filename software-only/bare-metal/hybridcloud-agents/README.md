@@ -75,9 +75,11 @@ hybridcloud-agents/
 │   ├── environments/
 │   │   ├── agents/
 │   │   │   └── manifests.yaml
-│   │   └── gateway-tools/
+│   │   ├── agents-platform/
+│   │   │   └── manifests.yaml
+│   │   └── gateway-tools-platform/
 │   │       └── manifests.yaml
-│   ├── fleetpackage-gateway-tools.yaml
+│   ├── fleetpackage-platform.yaml
 │   ├── fleetpackage.yaml
 │   ├── render.sh
 │   └── src/
@@ -87,7 +89,6 @@ hybridcloud-agents/
 │       │   ├── agent-egress-envoy.yaml
 │       │   ├── envoy-mtls-ingress-config.yaml
 │       │   ├── kustomization.yaml
-│       │   ├── namespace.yaml
 │       │   ├── network-policies.yaml
 │       │   └── pod-monitoring.yaml
 │       ├── components/
@@ -97,7 +98,10 @@ hybridcloud-agents/
 │       └── overlays/
 │           ├── agents/
 │           │   └── kustomization.yaml
-│           └── gateway-tools/
+│           ├── agents-platform/
+│           │   ├── agent-workloads-platform.yaml
+│           │   └── kustomization.yaml
+│           └── gateway-tools-platform/
 │               ├── kustomization.yaml
 │               └── mcp-toolbox.yaml
 ├── registry/
@@ -159,16 +163,30 @@ hybridcloud-agents/
   resolve backend hosts through `TargetServers`, environment settings through
   `propertyset.hybrid_agents_env.*`, and expected Kubernetes service account JWT
   subjects plus OIDC JWKS dynamically from the `agent-jwt-subjects` KVM.
-- `fleet-package/` contains the Google Cloud Config Delivery (`FleetPackage`)
-  specifications (`fleetpackage.yaml` for `cluster-role=agents` and
-  `fleetpackage-gateway-tools.yaml` for `cluster-role=gateway-tools`; two
-  specifications are provided because Config Delivery's `LabelSelector` schema
-  supports `matchLabels` only and rejects `matchExpressions`), least-privilege
-  `RootSync` RBAC manifest, DRY Kustomize sources (`src/base/`, shared
-  `src/components/otel-collector/`, and `src/overlays/`), render script
-  (`render.sh`), and rendered plain-KRM variant bundles
-  (`environments/agents/manifests.yaml` and
-  `environments/gateway-tools/manifests.yaml`).
+- `fleet-package/` contains the two Google Cloud Config Delivery
+  (`FleetPackage`) specifications, least-privilege `RootSync` RBAC manifest, DRY
+  Kustomize sources (`src/base/`, shared `src/components/otel-collector/`, and
+  `src/overlays/`), render script (`render.sh`), and rendered plain-KRM variant
+  bundles (`environments/agents-platform/manifests.yaml`,
+  `environments/gateway-tools-platform/manifests.yaml`, and
+  `environments/agents/manifests.yaml`). **Deploy in strict order:**
+  1. **PLATFORM first (`fleetpackage-platform.yaml`,
+     `FleetPackage/hybridcloud-agents-platform`):** selects both the Agents and
+     Gateway-and-Tools clusters via the shared membership label
+     `hybrid-agents-platform=enabled` and expands
+     `${membership.labels['cluster-role']}-platform` to deploy `agents-platform`
+     (`Namespace/agent-workloads`, baseline `default-deny-all` and
+     `allow-dns-egress` `NetworkPolicy` objects, and `otel-system` OpenTelemetry
+     Collector) to `cluster-role=agents` and `gateway-tools-platform`
+     (`mcp-tools` MCP Toolbox sample and `otel-system` OpenTelemetry Collector)
+     to `cluster-role=gateway-tools`.
+  2. **AGENTS second (`fleetpackage.yaml`, `FleetPackage/hybridcloud-agents`):**
+     selects `cluster-role=agents` and deploys the `agents` variant (Envoy mTLS
+     ingress and consolidated multi-listener egress proxies, ADK agent
+     `Deployment`s, per-agent `NetworkPolicy` objects, `PodMonitoring`, and
+     per-agent `ExternalSecret`s) into the `agent-workloads` namespace owned by
+     the PLATFORM package, with zero overlapping objects between the two
+     `RootSync`s.
 - `registry/` contains per-agent identity and quota manifests
   (`agents/<agent>/agent.yaml`), generic A2A Agent Card definitions
   (`cards/*.json`), local MCP server tool specifications (`mcp-servers/*.yaml`),
@@ -204,6 +222,7 @@ trigger substitutions before you deploy:
 | `YOUR_PUBLISHER_SA_NAME`        | Service account name used by Config Delivery / Cloud Build to package releases                   |
 | `YOUR_GATEWAY_FQDN`             | Internal FQDN of the Apigee hybrid ingress gateway substituted into Agent Registry cards         |
 | `YOUR_AGENTS_INGRESS_VIP`       | MetalLB `LoadBalancer` IP (`spec.loadBalancerIP`) pinned on `Service/agent-ingress-envoy`        |
+| `YOUR_GATEWAY_INGRESS_VIP`      | Apigee hybrid ingress gateway VIP permitted on TCP `443` egress from `agent-egress-envoy`        |
 | `YOUR_AGENTS_INGRESS_HOST`      | IP or hostname of the Agents cluster Envoy mTLS ingress gateway (`gdcso-agent-ingress`)          |
 | `YOUR_VLLM_INGRESS_HOST`        | IP or hostname of the Model cluster sovereign vLLM ingress gateway (`gdcso-local-vllm`)          |
 | `YOUR_PGVECTOR_HOST`            | IP or hostname of your external PostgreSQL + `pgvector` endpoint (`sovereign-pgvector` source)   |
@@ -243,17 +262,17 @@ project- and resource-scoped IAM roles (no `roles/apigee.admin`, no
 
 ## Bring your own database for the MCP Toolbox sample
 
-The `gateway-tools` overlay
-(`fleet-package/src/overlays/gateway-tools/mcp-toolbox.yaml`) ships a sample
-`sovereign-pgvector` PostgreSQL source (`host: YOUR_PGVECTOR_HOST` with
+The `gateway-tools-platform` overlay
+(`fleet-package/src/overlays/gateway-tools-platform/mcp-toolbox.yaml`) ships a
+sample `sovereign-pgvector` PostgreSQL source (`host: YOUR_PGVECTOR_HOST` with
 `sslmode: verify-full`), `ExternalSecret/pgvector-db-creds` (referencing Secret
 Manager key `hybrid-agents-pgvector-creds` with JSON properties `PG_DATABASE`,
 `PG_USER`, and `PG_PASSWORD`), and a `:5432` egress rule
 (`cidr: YOUR_DATA_SYSTEMS_CIDR`) in `NetworkPolicy/allow-mcp-toolbox`. The
 package does **not** deploy a PostgreSQL database.
 
-Before deploying `fleet-package/fleetpackage-gateway-tools.yaml`, choose one of
-the following options:
+Before deploying `fleet-package/fleetpackage-platform.yaml`, choose one of the
+following options:
 
 1. **Point at your own external PostgreSQL + `pgvector` instance:** Create the
    `hybrid-agents-pgvector-creds` secret in Secret Manager with JSON keys

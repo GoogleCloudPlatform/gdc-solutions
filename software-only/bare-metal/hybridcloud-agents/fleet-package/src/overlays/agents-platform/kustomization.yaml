@@ -12,13 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    app.kubernetes.io/part-of: hybrid-cloud-agents
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/enforce: restricted
-    pod-security.kubernetes.io/warn: restricted
-    tier: agents
-  name: agent-workloads
+apiVersion: kustomize.config.k8s.io/v1beta1
+components:
+  - ../../components/otel-collector
+kind: Kustomization
+resources:
+  - agent-workloads-platform.yaml

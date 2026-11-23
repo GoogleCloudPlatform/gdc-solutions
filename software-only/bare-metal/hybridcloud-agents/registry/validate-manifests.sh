@@ -15,10 +15,11 @@
 
 # Preflight static validator (Step #0 in cloudbuild-register.yaml) that checks
 # Git tag syntax, referential integrity between registry/agents/*/agent.yaml and
-# registry/cards/*.json, and uniqueness of agent names, Apigee DeveloperApp
-# names, Secret Manager secret IDs, Kubernetes JWT subjects, A2A Agent Card
-# interface URLs, and MCP Server interface URLs before any Apigee, Secret
-# Manager, or Agent Registry API mutation runs.
+# registry/cards/*.json, uniqueness of agent names, Apigee DeveloperApp names,
+# Secret Manager secret IDs, Kubernetes JWT subjects, A2A Agent Card interface
+# URLs, and MCP Server interface URLs, plus zero KRM object overlap between the
+# PLATFORM (agents-platform) and AGENTS (agents) FleetPackage renders before any
+# Apigee, Secret Manager, or Agent Registry API mutation runs.
 
 set -o errexit
 set -o nounset
@@ -28,6 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGENTS_DIR="${AGENTS_DIR:-${SCRIPT_DIR}/agents}"
 CARDS_DIR="${CARDS_DIR:-${SCRIPT_DIR}/cards}"
 MCP_SERVERS_DIR="${MCP_SERVERS_DIR:-${SCRIPT_DIR}/mcp-servers}"
+FLEET_ENV_DIR="${FLEET_ENV_DIR:-${SCRIPT_DIR}/../fleet-package/environments}"
 TAG_NAME="${TAG_NAME:-}"
 
 if [[ -n "${TAG_NAME}" ]]; then
@@ -54,17 +56,17 @@ if [[ -z "${PYTHON_BIN}" || ! -x "${PYTHON_BIN}" ]]; then
   exit 1
 fi
 
-"${PYTHON_BIN}" - "${SCRIPT_DIR}" "${AGENTS_DIR}" "${CARDS_DIR}" "${MCP_SERVERS_DIR}" "${TAG_NAME}" << 'EOF'
+"${PYTHON_BIN}" - "${SCRIPT_DIR}" "${AGENTS_DIR}" "${CARDS_DIR}" "${MCP_SERVERS_DIR}" "${FLEET_ENV_DIR}" "${TAG_NAME}" << 'EOF'
 import json
 import os
 from pathlib import Path
 import sys
 
 
-def load_yaml(text: str):
+def _import_yaml_loader():
   try:
     import yaml as pyyaml
-    return pyyaml.safe_load(text)
+    return pyyaml.safe_load, lambda t: list(pyyaml.safe_load_all(t))
   except Exception:
     for p in (
         os.environ.get("CLOUDSDK_THIRD_PARTY", ""),
@@ -74,14 +76,19 @@ def load_yaml(text: str):
       if p and os.path.isdir(p) and p not in sys.path:
         sys.path.insert(0, p)
     from ruamel import yaml as ryaml
-    return ryaml.YAML(typ="safe").load(text)
+    loader = ryaml.YAML(typ="safe")
+    return loader.load, lambda t: list(loader.load_all(t))
+
+
+load_yaml, load_yaml_all = _import_yaml_loader()
 
 
 script_dir = Path(sys.argv[1])
 agents_dir = Path(sys.argv[2])
 cards_dir = Path(sys.argv[3])
 mcp_dir = Path(sys.argv[4])
-tag_name = sys.argv[5]
+fleet_env_dir = Path(sys.argv[5])
+tag_name = sys.argv[6]
 
 errors: list[str] = []
 
@@ -290,6 +297,63 @@ for mcp_path in mcp_files:
   else:
     seen_urls[url] = rel_mcp
 
+fleet_summary = ""
+if fleet_env_dir.is_dir():
+  expected_variants = ("agents-platform", "gateway-tools-platform", "agents")
+  variant_objects: dict[str, set[tuple[str, str, str, str]]] = {}
+
+  for variant in expected_variants:
+    manifest_path = fleet_env_dir / variant / "manifests.yaml"
+    if not manifest_path.is_file():
+      errors.append(
+          f"fleet-package/environments/{variant}/manifests.yaml: missing rendered variant bundle"
+      )
+      continue
+    try:
+      docs = load_yaml_all(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+      errors.append(
+          f"fleet-package/environments/{variant}/manifests.yaml: invalid YAML: {exc}"
+      )
+      continue
+    objects: set[tuple[str, str, str, str]] = set()
+    for doc in docs:
+      if not isinstance(doc, dict):
+        continue
+      api_version = str(doc.get("apiVersion") or "").strip()
+      group = api_version.split("/", 1)[0] if "/" in api_version else ""
+      kind = str(doc.get("kind") or "").strip()
+      meta = doc.get("metadata") or {}
+      name = str(meta.get("name") or "").strip()
+      ns = str(meta.get("namespace") or "").strip()
+      key = (group, kind, ns, name)
+      if key in objects:
+        errors.append(
+            f"fleet-package/environments/{variant}/manifests.yaml: duplicate object {group or 'core'}/{kind} {ns}/{name}"
+        )
+      objects.add(key)
+      if variant == "agents" and kind == "Namespace":
+        errors.append(
+            f"fleet-package/environments/agents/manifests.yaml: AGENTS package must not declare Namespace/{name} (owned by PLATFORM)"
+        )
+    variant_objects[variant] = objects
+
+  overlap = sorted(
+      variant_objects.get("agents-platform", set())
+      & variant_objects.get("agents", set())
+  )
+  for group, kind, ns, name in overlap:
+    errors.append(
+        f"Cross-package overlap between agents-platform and agents: {group or 'core'}/{kind} {ns or '<cluster>'}/{name}"
+    )
+
+  if all(v in variant_objects for v in expected_variants):
+    fleet_summary = (
+        f", fleet variants (agents-platform={len(variant_objects['agents-platform'])}, "
+        f"gateway-tools-platform={len(variant_objects['gateway-tools-platform'])}, "
+        f"agents={len(variant_objects['agents'])}, overlap={len(overlap)})"
+    )
+
 if errors:
   print("Preflight manifest validation FAILED:", file=sys.stderr)
   for err in errors:
@@ -299,6 +363,7 @@ if errors:
 print(
     f"Preflight manifest validation PASSED: {len(agent_files)} agent(s), "
     f"{len(card_files)} card(s), {len(mcp_files)} MCP server(s)"
+    f"{fleet_summary}"
     + (f", tag={tag_name}" if tag_name else "")
     + "."
 )
