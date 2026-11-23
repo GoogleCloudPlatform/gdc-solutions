@@ -30,7 +30,7 @@ tools:
     inputSchema:
       properties:
         category:
-          description: Policy category filter (for example data-residency or model-governance).
+          description: Policy category filter (for example residency, network, identity, observability, or burst).
           type: string
       required:
         - category
@@ -42,13 +42,17 @@ tools:
       openWorldHint: false
       readOnlyHint: true
       title: Semantic Search Sovereign Policies
-    description: Performs pgvector cosine-distance similarity search over on-premises sovereign policy embeddings.
+    description: Performs pgvector cosine-distance similarity search over on-premises sovereign policy 8-dimensional embeddings.
     inputSchema:
       properties:
         query_embedding:
-          description: Bracketed 768-dimensional float vector string.
+          description: Bracketed 8-dimensional float vector string (for example '[0.9,0.1,0.05,0.1,0.1,0.05,0.05,0.2]').
           type: string
+        top_k:
+          description: Maximum number of nearest-neighbor policies to return (1 to 5).
+          type: integer
       required:
         - query_embedding
+        - top_k
       type: object
     name: semantic_search_sovereign_policies
