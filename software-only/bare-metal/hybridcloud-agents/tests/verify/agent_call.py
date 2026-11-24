@@ -11,8 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-# cspell:words urllib urlopen
 
 """In-pod HTTP helper matching the Solution User Guide `agent_call` semantics.
 

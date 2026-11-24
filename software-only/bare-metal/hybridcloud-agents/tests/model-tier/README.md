@@ -12,37 +12,35 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
-cspell:words bfloat dcgm dshm istio nvidia prefill vllm
 -->
 
-# Sample Sovereign Model-Tier (`gdc-so-model`) Test Cluster Manifests
+# Sample Sovereign Model-Tier Test Cluster Manifests
 
 Optional, self-contained Kubernetes manifests for deploying the `vLLM`
 (`google/gemma-4-31B-it`) model-serving tier and bundled HTTPS `Ingress` on a
-sample `gdc-so-model` GPU test cluster alongside the
+sample GPU model test cluster (`YOUR_MODEL_CLUSTER_NAME`) alongside the
 [Open model serving on Distributed Cloud software only](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/solutions/open-model-serving-sw-only)
 guide.
 
-These manifests are applied directly with `kubectl` on `gdc-so-model` and are
+These manifests are applied directly with `kubectl` on the model cluster and are
 **not** managed by Google Cloud Config Delivery (`FleetPackage`).
 
 ## Prerequisites
 
-Before applying these manifests on `gdc-so-model`, verify that the following
+Before applying these manifests on the model cluster, verify that the following
 cluster prerequisites are in place:
 
-- **NVIDIA GPU Operator:** Installed and running on `gdc-so-model`, providing
+- **NVIDIA GPU Operator:** Installed and running on the model cluster, providing
   `runtimeClassName: nvidia`, allocatable `nvidia.com/gpu` capacity, and the
   `gpu-operator` namespace for DCGM exporter metrics.
-- **`local-shared` StorageClass:** Configured on `gdc-so-model` so
+- **`local-shared` StorageClass:** Configured on the model cluster so
   `PersistentVolumeClaim/model-cache-pvc` binds to a local shared volume.
-- **Google Cloud Managed Service for Prometheus:** Enabled on `gdc-so-model`
+- **Google Cloud Managed Service for Prometheus:** Enabled on the model cluster
   (providing the `monitoring.googleapis.com/v1` `PodMonitoring` CRD).
 - **`Secret/vllm-ingress-tls` in `namespace: gke-system`:** Issued by
   `ClusterIssuer/hybrid-agents-ca` on the Gateway and Tools cluster with your
-  `gdc-so-model` `ingressVIP` in `spec.ipAddresses` and copied into
-  `namespace: gke-system` on `gdc-so-model`, as described in the Solution
+  model cluster's `ingressVIP` in `spec.ipAddresses` and copied into
+  `namespace: gke-system` on the model cluster, as described in the Solution
   Reference Implementation step **Expose the model tier over HTTPS**.
 
 ## Contents
@@ -66,8 +64,8 @@ cluster prerequisites are in place:
 
 ## Deployment steps
 
-1. Create `namespace: gemma-serving` and the Hugging Face token secret on
-   `gdc-so-model`:
+1. Create `namespace: gemma-serving` and the Hugging Face token secret on the
+   model cluster:
 
    ```bash
    kubectl create namespace gemma-serving
@@ -77,9 +75,9 @@ cluster prerequisites are in place:
 
 2. Ensure `Secret/vllm-ingress-tls` (issued on the Gateway and Tools cluster per
    the Solution Reference Implementation step **Expose the model tier over
-   HTTPS**) is present in `namespace: gke-system` on `gdc-so-model`.
+   HTTPS**) is present in `namespace: gke-system` on the model cluster.
 
-3. Apply the model-tier manifests on `gdc-so-model`:
+3. Apply the model-tier manifests on the model cluster:
 
    ```bash
    kubectl apply -f tests/model-tier/vllm-pvc.yaml

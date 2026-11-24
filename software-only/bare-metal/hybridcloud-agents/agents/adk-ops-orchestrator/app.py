@@ -11,8 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-# cspell:words genai httpx jsonrpc opentelemetry pydantic streamable subcall subcalls tokenquota toolsets tracecontext traceparent vllm vertexai
 
 """Hardened Google ADK Operations Orchestrator Agent for Distributed Cloud software only (v0.3.0).
 
@@ -26,7 +24,7 @@ Security and architectural invariants:
      ConfigMap (`/etc/adk-config/peer-agents.json`) seeded from Agent Registry metadata at deploy time,
      requiring zero pod egress to `agentregistry.googleapis.com`.
   4. Sovereign telemetry hygiene: extracts incoming W3C `traceparent` headers and
-     propagates them across A2A and MCP subcalls while disabling GenAI and ADK message/tool content capture
+     propagates them across A2A and MCP sub-calls while disabling GenAI and ADK message/tool content capture
      (`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=false` and `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false`).
   5. AI Gateway capabilities: virtual model aliases (`CLOUD_MODEL_ALIAS=enterprise-flash`,
      `SOVEREIGN_MODEL_ALIAS=enterprise-sovereign`), first-party ADK dual SDK facade (`ADK_CLIENT_MODE=apigee_openai|google_genai`

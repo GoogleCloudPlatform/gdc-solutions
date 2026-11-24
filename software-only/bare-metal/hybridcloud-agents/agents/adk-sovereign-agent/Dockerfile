@@ -11,8 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-# cspell:words adkagent importlib isvertexai nologin pythondontwritebytecode pythonunbuffered uvicorn
 
 # Hardened Google ADK Sovereign Policy Agent Container (v0.2.0)
 # Security & runtime invariants:

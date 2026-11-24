@@ -12,8 +12,6 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
-cspell:words creds dbname hostnossl hostssl initdb pgdata pgpassword pgvector scram snated sslmode sslrootcert statefulset
 -->
 
 # Sample PostgreSQL + `pgvector` Data-Tier Test Cluster Manifests

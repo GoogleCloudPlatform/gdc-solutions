@@ -11,8 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-# cspell:words genai httpx jsonrpc opentelemetry pydantic streamable subcall subcalls tokenquota toolsets tracecontext traceparent vllm vertexai
 
 """Hardened Google ADK Sovereign Policy Agent for Distributed Cloud software only (v0.2.0).
 

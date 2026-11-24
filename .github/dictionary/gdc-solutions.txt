@@ -1,6 +1,7 @@
 abmra
 addgroup
 adduser
+adkagent
 agentgateway
 agentregistry
 aiplatform
@@ -21,6 +22,7 @@ apihub
 apiproduct
 apiproducts
 apiproxy
+apods
 artifactregistry
 asmcli
 automap
@@ -56,6 +58,7 @@ configmap
 configsync
 containerd
 containerscanning
+cooldown
 coreutils
 crds
 creds
@@ -69,6 +72,7 @@ devcontainers
 dockerconfigjson
 dockerio
 dotall
+dsem
 dshm
 dstport
 dtype
@@ -137,6 +141,7 @@ isdir
 isinstance
 isort
 isready
+isvertexai
 iterdir
 jdbc
 jinja
@@ -144,6 +149,8 @@ jsonattack
 jsontpl
 jupyterhub
 kagent
+kbase
+kcache
 keycloak
 keygen
 keyrings
@@ -170,6 +177,7 @@ litellm
 localpv
 logwriter
 lstrip
+mcps
 mdformat
 metamathqa
 metricwriter
@@ -178,6 +186,7 @@ millis
 mktemp
 modelarmor
 moreutils
+mpods
 multicloud
 multiline
 netblock
@@ -185,6 +194,7 @@ netpol
 networkmanagement
 networkpolicies
 nohup
+nologin
 noninteractive
 nopasswd
 nounset
@@ -228,6 +238,8 @@ publickey
 pycache
 pyenv
 pyload
+pythondontwritebytecode
+pythonunbuffered
 pyyaml
 qwen
 ratelimit
@@ -258,6 +270,7 @@ seqs
 serviceaccount
 serviceaccounts
 serviceusage
+settimeout
 shellcheck
 shellformat
 shfmt
@@ -276,12 +289,16 @@ sslmode
 sslrootcert
 stackdriver
 startswith
+statefulset
 storageclass
+streamable
 subcall
 subfolders
+subjectaccessreviews
 subnetworks
 subshell
 sug
+svcs
 targetservers
 templatefile
 terraservice
@@ -299,6 +316,7 @@ toolset
 toolsets
 toplevel
 toupper
+tracecontext
 traceparent
 transactionhistory
 truststore
@@ -315,9 +333,12 @@ urllib
 urlmap
 urlopen
 usecases
+usename
 usermod
 userservice
+uvicorn
 verifyapikey
+vertexai
 virtualenv
 virtualhost
 virtualhosts
@@ -325,5 +346,6 @@ vllm
 vllmsse
 vxlan
 writestr
+xport
 xtrace
 zipfile

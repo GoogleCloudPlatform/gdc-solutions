@@ -12,11 +12,6 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
-cspell:words agentregistry apigee bursty cloudtrace connectgateway cooldown
-cspell:words externalsecrets failover gcloud hybridcloud jsonrpc kubectl
-cspell:words netpol pgvector podmonitoring psql rootsync sar subcall
-cspell:words subjectaccessreviews unauth undeployed vllm xport
 -->
 
 # Optional Repeat-Validation Suite (`tests/verify/`)
@@ -42,7 +37,7 @@ cluster manifests in [`../model-tier/`](../model-tier/) and
 - `verify.sh` — Main entrypoint with subcommands `smoke`, `step1`, `step2`,
   `step3`, `step4`, and `status`. Prints a `PASS`/`FAIL`/`SKIP` summary table
   and exits non-zero on any `FAIL`. Includes an automatic 65-second cooldown
-  between bursty Gemini batches to respect Apigee's `PromptTokenLimit-Burst`
+  between rapid Gemini batches to respect Apigee's `PromptTokenLimit-Burst`
   (`2400pm`) policy.
 - `agent_call.py` — Python 3 standard-library helper executed inside an agent
   pod (`kubectl exec -i deploy/<agent> -- python3 -`) using the exact SUG
@@ -74,26 +69,26 @@ cluster manifests in [`../model-tier/`](../model-tier/) and
 
 <!-- mdformat off -->
 
-| Variable                  | Required | Default / Example                                        | Purpose                                                                                      |
-| :------------------------ | :------- | :------------------------------------------------------- | :------------------------------------------------------------------------------------------- |
-| `PROJECT_ID`              | Yes      | `YOUR_PROJECT_ID`                                        | Fleet host and Google Cloud project ID                                                       |
-| `AGENTS_CLUSTER`          | Yes      | `YOUR_AGENTS_CLUSTER_NAME`                               | Fleet membership name of the Agents cluster                                                  |
-| `GATEWAY_CLUSTER`         | Yes      | `YOUR_GATEWAY_CLUSTER_NAME`                              | Fleet membership name of the Gateway and Tools cluster                                       |
-| `REGION`                  | No       | `us-central1`                                            | Config Delivery, Cloud Build, and Agent Registry location                                    |
-| `APIGEE_ORG`              | No       | `${PROJECT_ID}`                                          | Apigee organization ID                                                                       |
-| `APIGEE_ENV`              | No       | `hybrid-agents-env`                                      | Apigee environment name                                                                      |
-| `GATEWAY_FQDN`            | No       | `api.hybrid-agents.internal`                             | Apigee ingress FQDN (used by optional workstation unauthenticated `curl` check)              |
-| `CTX_AGENTS`              | No       | `connectgateway_${PROJECT_ID}_global_${AGENTS_CLUSTER}`  | `kubectl` context for the Agents cluster                                                     |
-| `CTX_GATEWAY`             | No       | `connectgateway_${PROJECT_ID}_global_${GATEWAY_CLUSTER}` | `kubectl` context for the Gateway and Tools cluster                                          |
-| `SOLUTION_HOME`           | No       | `${HOME}/gdcso-solutions/hybridcloud-agents`             | Directory holding `hybrid-agents-root-ca.crt` for optional unauthenticated `curl` checks     |
-| `PGVECTOR_HOST`           | No       | Unset (`SKIP` when unset)                                | PostgreSQL IP for the optional direct `:5432` pod-egress block check                         |
-| `DIRECT_DB_TARGETS`       | No       | `${PGVECTOR_HOST}`                                       | Comma-separated IPs for the optional direct `:5432` pod-egress block check                   |
-| `CTX_DATA`                | No       | Unset (`SKIP` when unset)                                | Optional data-tier test cluster context for `pg_stat_ssl` TLS 1.3 verification               |
-| `GEMINI_COOLDOWN_SECONDS` | No       | `65`                                                     | Cooldown between bursty Gemini batches to respect Apigee `PromptTokenLimit-Burst` (`2400pm`) |
-| `TRACE_FLUSH_SECONDS`     | No       | `15`                                                     | OTel collector flush wait before querying Cloud Trace in `step3`                             |
-| `TRACE_MIN_SPANS`         | No       | `20`                                                     | Minimum span count required by `S3-CLOUD-TRACE`                                              |
-| `TRACE_EXPECTED_CLUSTERS` | No       | `${AGENTS_CLUSTER}`                                      | Comma-separated `k8s.cluster.name` values required in Cloud Trace spans                      |
-| `KUBECTL_CACHE_DIR`       | No       | Unset (kubectl default)                                  | Optional custom `kubectl --cache-dir` path                                                   |
+| Variable                  | Required | Default / Example                                        | Purpose                                                                                     |
+| :------------------------ | :------- | :------------------------------------------------------- | :------------------------------------------------------------------------------------------ |
+| `PROJECT_ID`              | Yes      | `YOUR_PROJECT_ID`                                        | Fleet host and Google Cloud project ID                                                      |
+| `AGENTS_CLUSTER`          | Yes      | `YOUR_AGENTS_CLUSTER_NAME`                               | Fleet membership name of the Agents cluster                                                 |
+| `GATEWAY_CLUSTER`         | Yes      | `YOUR_GATEWAY_CLUSTER_NAME`                              | Fleet membership name of the Gateway and Tools cluster                                      |
+| `REGION`                  | No       | `us-central1`                                            | Config Delivery, Cloud Build, and Agent Registry location                                   |
+| `APIGEE_ORG`              | No       | `${PROJECT_ID}`                                          | Apigee organization ID                                                                      |
+| `APIGEE_ENV`              | No       | `hybrid-agents-env`                                      | Apigee environment name                                                                     |
+| `GATEWAY_FQDN`            | No       | `api.hybrid-agents.internal`                             | Apigee ingress FQDN (used by optional workstation unauthenticated `curl` check)             |
+| `CTX_AGENTS`              | No       | `connectgateway_${PROJECT_ID}_global_${AGENTS_CLUSTER}`  | `kubectl` context for the Agents cluster                                                    |
+| `CTX_GATEWAY`             | No       | `connectgateway_${PROJECT_ID}_global_${GATEWAY_CLUSTER}` | `kubectl` context for the Gateway and Tools cluster                                         |
+| `SOLUTION_HOME`           | No       | `${HOME}/gdcso-solutions/hybridcloud-agents`             | Directory holding `hybrid-agents-root-ca.crt` for optional unauthenticated `curl` checks    |
+| `PGVECTOR_HOST`           | No       | Unset (`SKIP` when unset)                                | PostgreSQL IP for the optional direct `:5432` pod-egress block check                        |
+| `DIRECT_DB_TARGETS`       | No       | `${PGVECTOR_HOST}`                                       | Comma-separated IPs for the optional direct `:5432` pod-egress block check                  |
+| `CTX_DATA`                | No       | Unset (`SKIP` when unset)                                | Optional data-tier test cluster context for `pg_stat_ssl` TLS 1.3 verification              |
+| `GEMINI_COOLDOWN_SECONDS` | No       | `65`                                                     | Cooldown between rapid Gemini batches to respect Apigee `PromptTokenLimit-Burst` (`2400pm`) |
+| `TRACE_FLUSH_SECONDS`     | No       | `15`                                                     | OTel collector flush wait before querying Cloud Trace in `step3`                            |
+| `TRACE_MIN_SPANS`         | No       | `20`                                                     | Minimum span count required by `S3-CLOUD-TRACE`                                             |
+| `TRACE_EXPECTED_CLUSTERS` | No       | `${AGENTS_CLUSTER}`                                      | Comma-separated `k8s.cluster.name` values required in Cloud Trace spans                     |
+| `KUBECTL_CACHE_DIR`       | No       | Unset (kubectl default)                                  | Optional custom `kubectl --cache-dir` path                                                  |
 
 <!-- mdformat on -->
 

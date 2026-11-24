@@ -12,13 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-# cspell:words agentregistry apigee apods bursty cacert cloudtrace connectgateway
-# cspell:words cooldown datname dsem externalsecret externalsecrets failclosed
-# cspell:words failover gcloud healthz hybridcloud inet jsonpath jsonrpc kbase
-# cspell:words kcache kube kubectl kustomize mcps mpods netpol pipefail
-# cspell:words podmonitoring psql rootsync saas sar settimeout sslmode subcall
-# cspell:words tokenquota traceparent unauth undeployed usename vllm xport
 
 # Optional repeat-validation helper for Hybrid Cloud AI Agents on Distributed
 # Cloud software only. Mirrors the Solution User Guide (SUG) verification steps
@@ -73,7 +66,7 @@ Options:
   --include-a2a-quota    For step3: run the 6-call A2A per-caller quota burst
                          (exhausts the 4/2m A2A quota window).
   --no-cooldown          Skip the PromptTokenLimit-Burst cooldown (65s default)
-                         between bursty Gemini batches.
+                         between rapid Gemini batches.
   --check-workstation-tls
                          Require unauthenticated curl check against GATEWAY_FQDN
                          using ${SOLUTION_HOME}/hybrid-agents-root-ca.crt.
