@@ -156,14 +156,19 @@ hybridcloud-agents/
     │   ├── 01-postgres-pgvector.yaml
     │   ├── 02-network-policies.yaml
     │   └── README.md
-    └── model-tier/
+    ├── model-tier/
+    │   ├── README.md
+    │   ├── gpu-pod-monitoring.yaml
+    │   ├── vllm-deployment.yaml
+    │   ├── vllm-https-ingress.yaml
+    │   ├── vllm-pod-monitoring.yaml
+    │   ├── vllm-pvc.yaml
+    │   └── vllm-service.yaml
+    └── verify/
         ├── README.md
-        ├── gpu-pod-monitoring.yaml
-        ├── vllm-deployment.yaml
-        ├── vllm-https-ingress.yaml
-        ├── vllm-pod-monitoring.yaml
-        ├── vllm-pvc.yaml
-        └── vllm-service.yaml
+        ├── agent_call.py
+        ├── check_control_plane.py
+        └── verify.sh
 ```
 
 - `agents/` contains sanitized Python source code (`app.py`), `Dockerfile`
@@ -228,6 +233,8 @@ hybridcloud-agents/
   (`tests/data-tier/`) and a sample `vLLM` (`google/gemma-4-31B-it`) model tier
   with bundled HTTPS `Ingress` on a `gdc-so-model` GPU test cluster
   (`tests/model-tier/`) for end-to-end evaluation.
+- `tests/verify/` provides an optional verification helper; it does not replace
+  the Solution User Guide (SUG) steps.
 
 ## Configuration
 
