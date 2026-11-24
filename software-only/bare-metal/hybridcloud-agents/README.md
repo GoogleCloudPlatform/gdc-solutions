@@ -401,7 +401,9 @@ The following table lists who manages each solution component:
   verifies its client certificate because cross-cluster
   [SNAT](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/lb-network-mode#snat-load-balancing)
   masks pod IPs. Envoy egress injects the agent's gateway credential and routes
-  egress over mTLS to Apigee.
+  egress over mTLS to Apigee. Trade-off: the shared egress proxy holds every
+  agent's gateway key, mitigated by per-agent listeners, port-scoped network
+  policies, Secret Manager sync, credential overwrite, and Apigee JWT binding.
 - **Apigee AI and MCP gateway:**
   [Apigee hybrid 1.17](https://docs.cloud.google.com/apigee/docs/hybrid/v1.17/what-is-hybrid)
   verifies caller credentials and KSA JWTs and routes logical model names to
