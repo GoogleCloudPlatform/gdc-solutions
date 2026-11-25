@@ -42,7 +42,7 @@ set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 EXEC_DIR="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
-TRANSCRIPT_FILE="${EXEC_DIR}/docs/demo_runner_transcript.md"
+TRANSCRIPT_FILE="${TRANSCRIPT_FILE:-/tmp/demo_runner_transcript.md}"
 
 # Formatting helpers
 BOLD="\033[1m"

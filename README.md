@@ -13,7 +13,9 @@
 
 ## Federated Learning for Edge AI
 
-- [Federated Learning for Edge AI on Distributed Cloud Software Only](/software-only/bare-metal/fed-lora/README.md)
+- [Federated Learning for Edge AI on Distributed Cloud software only Reference Architecture](/software-only/bare-metal/fed-lora/README.md)
+  - [Federated Learning for Edge AI Reference Implementation](/software-only/bare-metal/fed-lora/docs/reference-implementation.md)
+  - [Federated Learning for Edge AI User Guide](/software-only/bare-metal/fed-lora/docs/user-guide.md)
 
 ## ARCHIVED Solutions
 
