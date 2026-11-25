@@ -289,8 +289,8 @@ for store_name in "Store 1" "Store 2"; do
 
     sn_ready=$(kubectl --context="${ctx}" -n fed-lora-poc get deployment flwr-supernode -o jsonpath='{.status.readyReplicas}' 2> /dev/null || echo "0")
     tr_ready=$(kubectl --context="${ctx}" -n fed-lora-poc get deployment flwr-trainer -o jsonpath='{.status.readyReplicas}' 2> /dev/null || echo "0")
-    sn_wait=$(kubectl --context="${ctx}" -n fed-lora-poc get pods -l app=flwr-supernode -o jsonpath='{.items[0].status.containerStatuses[0].state.waiting.reason}' 2> /dev/null || echo "")
-    tr_wait=$(kubectl --context="${ctx}" -n fed-lora-poc get pods -l app=flwr-trainer -o jsonpath='{.items[0].status.containerStatuses[0].state.waiting.reason}{.items[0].status.initContainerStatuses[0].state.waiting.reason}' 2> /dev/null || echo "")
+    sn_wait=$(kubectl --context="${ctx}" -n fed-lora-poc get pods -l app=flwr-supernode --field-selector=status.phase=Running -o jsonpath='{.items[0].status.containerStatuses[0].state.waiting.reason}' 2> /dev/null || echo "")
+    tr_wait=$(kubectl --context="${ctx}" -n fed-lora-poc get pods -l app=flwr-trainer --field-selector=status.phase=Running -o jsonpath='{.items[0].status.containerStatuses[0].state.waiting.reason}{.items[0].status.initContainerStatuses[0].state.waiting.reason}' 2> /dev/null || echo "")
     svc_port=$(kubectl --context="${ctx}" -n fed-lora-poc get svc flwr-supernode-service -o jsonpath='{.spec.ports[0].port}' 2> /dev/null || echo "")
     if [[ ${sn_ready} -ge 1 && ${tr_ready} -ge 1 && -z ${sn_wait} && -z ${tr_wait} && ${svc_port} == "9094" ]]; then
       record_pass "${store_name}: 3-Pod Split active: flwr-supernode (${sn_ready}/1 CPU), flwr-trainer (${tr_ready}/1 GPU slice #2), flwr-supernode-service:${svc_port}."

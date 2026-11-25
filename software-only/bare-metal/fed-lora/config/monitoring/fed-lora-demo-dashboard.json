@@ -237,7 +237,7 @@
                       "groupByFields": ["resource.label.\"cluster_name\""],
                       "perSeriesAligner": "ALIGN_MEAN"
                     },
-                    "filter": "metric.type=\"prometheus.googleapis.com/vllm:gpu_cache_usage_perc/gauge\" resource.type=\"prometheus_target\""
+                    "filter": "metric.type=\"prometheus.googleapis.com/vllm:kv_cache_usage_perc/gauge\" resource.type=\"prometheus_target\""
                   }
                 }
               },
