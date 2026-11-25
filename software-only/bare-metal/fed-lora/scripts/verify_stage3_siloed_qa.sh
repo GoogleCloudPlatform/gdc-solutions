@@ -18,7 +18,7 @@
 # ==============================================================================
 # Strictly READ-ONLY verification script for Stage 3 Pre-Federation Siloed QA:
 # Executes deterministic Stage 3 Pre-Federation Verification cURL queries against
-# Store 1 (10.200.0.131:8000) and Store 2 (10.200.0.163:8000) to confirm
+# Store 1 (YOUR_STORE_1_VLLM_LB_IP:8000) and Store 2 (YOUR_STORE_2_VLLM_LB_IP:8000) to confirm
 # Asymmetric Siloed Knowledge before federated aggregation:
 #
 #   - Test 1 (Store 1 - model: store1-local-adapter - Fact A Query: Return Policy):
@@ -75,8 +75,8 @@ export REGION="${REGION:-us-central1}"
 export ZONE="${ZONE:-us-central1-b}"
 export STORE1_CONTEXT="${STORE1_CONTEXT:-connectgateway_${PROJECT_ID}_global_YOUR_STORE_1_CLUSTER}"
 export STORE2_CONTEXT="${STORE2_CONTEXT:-connectgateway_${PROJECT_ID}_global_YOUR_STORE_2_CLUSTER}"
-export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-10.200.0.131}"
-export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-10.200.0.163}"
+export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-YOUR_STORE_1_VLLM_LB_IP}"
+export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-YOUR_STORE_2_VLLM_LB_IP}"
 export BASE_MODEL_ID="${BASE_MODEL_ID:-google/gemma-4-E2B-it}"
 
 DRY_RUN=false
@@ -224,9 +224,9 @@ log_info "Starting Stage 3 Siloed QA Verification (DRY_RUN=${DRY_RUN})..."
 if [[ ${DRY_RUN} != "true" ]]; then
   echo "------------------------------------------------------------------------------"
   log_info "[Check 1/4] Inspecting vLLM Live Runtime Registry (GET /v1/models)..."
-  echo "--- Store 1 (10.200.0.131:8000/v1/models) ---"
+  echo "--- Store 1 (${STORE1_VLLM_LB_IP}:8000/v1/models) ---"
   vllm_http_get "${STORE1_VLLM_LB_IP}" "/v1/models" | jq . || vllm_http_get "${STORE1_VLLM_LB_IP}" "/v1/models"
-  echo "--- Store 2 (10.200.0.163:8000/v1/models) ---"
+  echo "--- Store 2 (${STORE2_VLLM_LB_IP}:8000/v1/models) ---"
   vllm_http_get "${STORE2_VLLM_LB_IP}" "/v1/models" | jq . || vllm_http_get "${STORE2_VLLM_LB_IP}" "/v1/models"
 
   echo "------------------------------------------------------------------------------"

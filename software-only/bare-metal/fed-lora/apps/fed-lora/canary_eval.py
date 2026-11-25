@@ -820,12 +820,13 @@ def query_vllm_chat(
         last_exc = RuntimeError(f"Direct endpoint {endpoint} marked unroutable")
 
     # 2. Local Kubernetes port-forward on operator workstation (18081/18082 or 18001/18002)
+    store2_lb_ip = os.environ.get("STORE2_VLLM_LB_IP", "YOUR_STORE_2_VLLM_LB_IP")
+    is_store2 = str(store_id) == "2" or (
+        bool(store2_lb_ip) and store2_lb_ip in vllm_url
+    )
     candidate_ports = (
         [os.environ.get("STORE2_PF_PORT", "18082"), "18082", "18002"]
-        if str(store_id) == "2"
-        or "10.200.0.163" in vllm_url
-        or "18082" in vllm_url
-        or "18002" in vllm_url
+        if is_store2 or "18082" in vllm_url or "18002" in vllm_url
         else [os.environ.get("STORE1_PF_PORT", "18081"), "18081", "18001"]
     )
     for pf_port in dict.fromkeys(candidate_ports):
@@ -857,7 +858,7 @@ def query_vllm_chat(
     project_id = os.environ.get("PROJECT_ID", "YOUR_PROJECT_ID")
     ctx = (
         f"connectgateway_{project_id}_global_YOUR_STORE_2_CLUSTER"
-        if str(store_id) == "2" or "10.200.0.163" in vllm_url
+        if is_store2
         else f"connectgateway_{project_id}_global_YOUR_STORE_1_CLUSTER"
     )
     in_cluster_url = (

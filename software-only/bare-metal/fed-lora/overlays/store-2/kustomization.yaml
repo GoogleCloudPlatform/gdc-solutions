@@ -39,7 +39,7 @@ patches:
   - patch: |-
       - op: add
         path: /spec/loadBalancerIP
-        value: 10.200.0.163
+        value: YOUR_STORE_2_VLLM_LB_IP
     target:
       kind: Service
       name: vllm-service

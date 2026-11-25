@@ -18,17 +18,17 @@
 # ==============================================================================
 # Orchestrates Stage 4 Central Federated Averaging across Store 1 and Store 2
 # using the modern Flower Next-Gen Architecture (SuperLink & SuperNodes):
-#   1. Step 1/6: Verify `flwr-superlink` on GKE (10.200.0.50:9092,9093) and
+#   1. Step 1/6: Verify `flwr-superlink` on GKE (YOUR_SUPERLINK_ILB_IP:9092,9093) and
 #      registered `flwr-supernode` daemons on Store 1 & Store 2.
 #   2. Step 2/6: Verify SuperNode health and registration status via Flower CLI:
-#      `flwr list-nodes --insecure 10.200.0.50:9093`
+#      `flwr list-nodes --insecure YOUR_SUPERLINK_ILB_IP:9093`
 #   3. Step 3/6: Trigger Federated Round 1 centrally via Flower ExecAPI / Flower App:
 #      `flwr run apps/fed-lora gke-superlink --run-config mode="federated"`
 #      SuperLink coordinates FedAvg across lora_B weights and broadcasts global weights!
 #   4. Step 4/6: Verify global checkpoint archived to GCS:
 #      `gs://YOUR_GCS_BUCKET/checkpoints/round-1/lora_b_aggregated.npz`
 #   5. Step 5/6: Verify `store-fed-lora-round-1` adapter loaded into vLLM via
-#      `GET /v1/models` across both Store 1 (10.200.0.131) and Store 2 (10.200.0.163).
+#      `GET /v1/models` across both Store 1 (YOUR_STORE_1_VLLM_LB_IP) and Store 2 (YOUR_STORE_2_VLLM_LB_IP).
 #   6. Step 6/6: Verify zero container restarts and GPU memory stability.
 #
 # Usage:
@@ -79,9 +79,9 @@ export GCS_BUCKET="${GCS_BUCKET:-YOUR_GCS_BUCKET}"
 export STORE1_CONTEXT="${STORE1_CONTEXT:-connectgateway_${PROJECT_ID}_global_YOUR_STORE_1_CLUSTER}"
 export STORE2_CONTEXT="${STORE2_CONTEXT:-connectgateway_${PROJECT_ID}_global_YOUR_STORE_2_CLUSTER}"
 export GKE_CONTEXT="${GKE_CONTEXT:-gke_${PROJECT_ID}_${ZONE}_${GKE_CLUSTER_NAME:-YOUR_AGGREGATOR_CLUSTER}}"
-export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-10.200.0.131}"
-export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-10.200.0.163}"
-export SUPERLINK_IP="${SUPERLINK_IP:-10.200.0.50}"
+export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-YOUR_STORE_1_VLLM_LB_IP}"
+export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-YOUR_STORE_2_VLLM_LB_IP}"
+export SUPERLINK_IP="${SUPERLINK_IP:-${FLWR_SERVER_INTERNAL_LB_IP:-YOUR_SUPERLINK_ILB_IP}}"
 export SUPERLINK_EXEC_PORT="${SUPERLINK_EXEC_PORT:-9093}"
 export GLOBAL_LORA_NAME="${GLOBAL_LORA_NAME:-store-fed-lora-round-1}"
 
@@ -98,7 +98,7 @@ Usage: $0 [--dry-run] [--help]
 Orchestrates Stage 4 Central Federated Averaging (FedAvg) using Flower SuperLink:
   1. Verifies GKE SuperLink and edge SuperNodes
   2. Verifies SuperNode registration via 'flwr list-nodes'
-  3. Triggers Flower App centrally with mode='federated' via ExecAPI (10.200.0.50:9093)
+  3. Triggers Flower App centrally with mode='federated' via ExecAPI (${SUPERLINK_IP}:9093)
   4. Verifies global checkpoint archived to GCS (round-1)
   5. Verifies 'store-fed-lora-round-1' loaded into vLLM via GET /v1/models
   6. Confirms zero pod restarts and memory stability

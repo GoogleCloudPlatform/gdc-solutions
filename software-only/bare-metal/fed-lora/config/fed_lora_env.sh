@@ -106,11 +106,11 @@ ensure_k8s_port_forwards() {
   fi
 }
 
-# Resolve target store VIP (10.200.0.131 / 10.200.0.163) to local Kubernetes port-forward URL
+# Resolve target store VIP (YOUR_STORE_1_VLLM_LB_IP / YOUR_STORE_2_VLLM_LB_IP) to local Kubernetes port-forward URL
 resolve_vllm_pf_url() {
   local target_ip="$1"
   local path="${2:-}"
-  if [[ ${target_ip} == *"${STORE2_VLLM_LB_IP:-10.200.0.163}"* ]]; then
+  if [[ ${target_ip} == *"${STORE2_VLLM_LB_IP:-YOUR_STORE_2_VLLM_LB_IP}"* ]]; then
     ensure_k8s_port_forwards
     echo "http://127.0.0.1:${STORE2_PF_PORT}${path}"
   else

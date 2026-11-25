@@ -20,14 +20,14 @@
 # using the modern Flower Next-Gen Architecture (SuperLink & SuperNodes):
 #   1. Step 1/6: Verify asymmetric synthetic JSONL datasets on store-local PVCs
 #      (`/mnt/models/edge-data/store-{1,2}/train.jsonl`).
-#   2. Step 2/6: Verify `flwr-superlink` on GKE (10.200.0.50) and `flwr-supernode`
+#   2. Step 2/6: Verify `flwr-superlink` on GKE (YOUR_SUPERLINK_ILB_IP) and `flwr-supernode`
 #      on Store 1 & Store 2 with GPU Slice #2 pre-allocated.
 #   3. Step 3/6: Trigger Stage 2 Local SFT centrally via Flower ExecAPI / Flower App:
 #      `flwr run apps/fed-lora gke-superlink --run-config mode="local-sft"`
 #      SuperNodes train on local datasets and hot-swap local adapters into vLLM;
 #      NoOpAggregationStrategy ensures zero model parameters leave the store!
 #   4. Step 4/6: Verify idempotent REST hot-swap against each store's vLLM
-#      LoadBalancer (`10.200.0.131:8000` and `10.200.0.163:8000`).
+#      LoadBalancer (`YOUR_STORE_1_VLLM_LB_IP:8000` and `YOUR_STORE_2_VLLM_LB_IP:8000`).
 #   5. Step 5/6: Query `GET /v1/models` on Store 1 and Store 2 to verify
 #      `store1-local-adapter` and `store2-local-adapter` are active.
 #   6. Step 6/6: Query GPU memory utilization (`nvidia-smi`) and container restart
@@ -81,9 +81,9 @@ export GCS_BUCKET="${GCS_BUCKET:-YOUR_GCS_BUCKET}"
 export STORE1_CONTEXT="${STORE1_CONTEXT:-connectgateway_${PROJECT_ID}_global_YOUR_STORE_1_CLUSTER}"
 export STORE2_CONTEXT="${STORE2_CONTEXT:-connectgateway_${PROJECT_ID}_global_YOUR_STORE_2_CLUSTER}"
 export GKE_CONTEXT="${GKE_CONTEXT:-gke_${PROJECT_ID}_${ZONE}_${GKE_CLUSTER_NAME:-YOUR_AGGREGATOR_CLUSTER}}"
-export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-10.200.0.131}"
-export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-10.200.0.163}"
-export SUPERLINK_IP="${SUPERLINK_IP:-10.200.0.50}"
+export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-YOUR_STORE_1_VLLM_LB_IP}"
+export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-YOUR_STORE_2_VLLM_LB_IP}"
+export SUPERLINK_IP="${SUPERLINK_IP:-${FLWR_SERVER_INTERNAL_LB_IP:-YOUR_SUPERLINK_ILB_IP}}"
 export SUPERLINK_EXEC_PORT="${SUPERLINK_EXEC_PORT:-9093}"
 export SUPERLINK_LOCAL_PORT="${SUPERLINK_LOCAL_PORT:-19093}"
 export BASE_MODEL_ID="${BASE_MODEL_ID:-google/gemma-4-E2B-it}"
@@ -119,7 +119,7 @@ Usage: $0 [--min-clients N] [--dry-run] [--help]
 Orchestrates Stage 2 Siloed Local Fine-Tuning (QLoRA) using Flower SuperLink/SuperNode:
   1. Stages or verifies asymmetric training datasets in GCS (${GCS_BUCKET})
   2. Ensures 'flwr-supernode' is active on Store 1 & Store 2 and 'flwr-superlink' on GKE
-  3. Triggers Flower App centrally via ExecAPI (10.200.0.50:9093) with mode='local-sft'
+  3. Triggers Flower App centrally via ExecAPI (${SUPERLINK_IP}:9093) with mode='local-sft'
      and requires canary_pass=1 for every participating store
   4. Verifies/executes REST calls to load 'store1-local-adapter' and 'store2-local-adapter'
   5. Queries 'GET /v1/models' on online stores to verify active local adapters

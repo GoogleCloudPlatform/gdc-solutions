@@ -14,7 +14,7 @@
 
 # Flower SuperLink Aggregator Deployment (Pre-Baked Image)
 # Cluster: YOUR_AGGREGATOR_CLUSTER (Namespace: fed-lora-aggregator)
-# Exposes FleetAPI (port 9092) and ExecAPI (port 9093) via Internal LoadBalancer (10.200.0.50)
+# Exposes FleetAPI (port 9092) and ExecAPI (port 9093) via Internal LoadBalancer (YOUR_SUPERLINK_ILB_IP)
 
 apiVersion: v1
 kind: Namespace

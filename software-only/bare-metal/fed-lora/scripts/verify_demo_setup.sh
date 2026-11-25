@@ -80,9 +80,9 @@ export GKE_CLUSTER_NAME="${GKE_CLUSTER_NAME:-YOUR_AGGREGATOR_CLUSTER}"
 export STORE1_CONTEXT="${STORE1_CONTEXT:-connectgateway_${PROJECT_ID}_global_YOUR_STORE_1_CLUSTER}"
 export STORE2_CONTEXT="${STORE2_CONTEXT:-connectgateway_${PROJECT_ID}_global_YOUR_STORE_2_CLUSTER}"
 export GKE_CONTEXT="${GKE_CONTEXT:-gke_${PROJECT_ID}_${ZONE}_${GKE_CLUSTER_NAME}}"
-export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-10.200.0.131}"
-export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-10.200.0.163}"
-export FLWR_SERVER_INTERNAL_LB_IP="${FLWR_SERVER_INTERNAL_LB_IP:-10.200.0.50}"
+export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-YOUR_STORE_1_VLLM_LB_IP}"
+export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-YOUR_STORE_2_VLLM_LB_IP}"
+export FLWR_SERVER_INTERNAL_LB_IP="${FLWR_SERVER_INTERNAL_LB_IP:-YOUR_SUPERLINK_ILB_IP}"
 export BASE_MODEL_ID="${BASE_MODEL_ID:-google/gemma-4-E2B-it}"
 
 DRY_RUN=false
@@ -102,7 +102,7 @@ Validates all pre-deployed cluster resources across GKE and GDC in under 60 seco
   3. Base vLLM Serving Readiness (1/1 ready on Store 1 & Store 2)
   4. Edge Worker Daemon Readiness (flwr-client 1/1 ready on Store 1 & Store 2)
   5. Central Aggregator Readiness (flwr-server 1/1 ready on GKE, port 8080)
-  6. MetalLB & ILB VIP Assignments (Store 1: 10.200.0.131, Store 2: 10.200.0.163, GKE: 10.200.0.50)
+  6. MetalLB & ILB VIP Assignments (Store 1: ${STORE1_VLLM_LB_IP}, Store 2: ${STORE2_VLLM_LB_IP}, GKE: ${FLWR_SERVER_INTERNAL_LB_IP})
   7. Base Model Discovery & Clean Baseline Check (GET /v1/models via 3-tier fallback)
 
 Options:
@@ -321,9 +321,9 @@ fi
 # ------------------------------------------------------------------------------
 log_info "[Check 6/8] Auditing LoadBalancer VIP routing assignments..."
 if [[ ${DRY_RUN} == "true" ]]; then
-  record_pass "Store 1: Service vllm-service has External IP 10.200.0.131:8000."
-  record_pass "Store 2: Service vllm-service has External IP 10.200.0.163:8000."
-  record_pass "Central GKE: Service flwr-superlink-service has Internal IP 10.200.0.50 (FleetAPI: 9092, ExecAPI: 9093)."
+  record_pass "Store 1: Service vllm-service has External IP ${STORE1_VLLM_LB_IP}:8000."
+  record_pass "Store 2: Service vllm-service has External IP ${STORE2_VLLM_LB_IP}:8000."
+  record_pass "Central GKE: Service flwr-superlink-service has Internal IP ${FLWR_SERVER_INTERNAL_LB_IP} (FleetAPI: 9092, ExecAPI: 9093)."
 else
   s1_ip=$(kubectl --context="${STORE1_CONTEXT}" -n fed-lora-poc get svc vllm-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2> /dev/null || echo "")
   s2_ip=$(kubectl --context="${STORE2_CONTEXT}" -n fed-lora-poc get svc vllm-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2> /dev/null || echo "")
@@ -489,7 +489,7 @@ with open(pyproject_path, "rb") as f:
     base_cfg = tomllib.load(f)["tool"]["flwr"]["app"]["config"]
 
 run_configs = [
-    'mode="local-sft" local-epochs=5 learning-rate=0.0006 kl-coef=0.1 proximal-mu=0.1 target-loss=0.35',
+    'mode="local-sft" local-epochs=6 learning-rate=0.001 kl-coef=0.1 proximal-mu=0.0 target-loss=0.05',
     'mode="federated" num-server-rounds=1 local-epochs=4 aggregation-mode="ties" trim-quantile=0.2 scaling-lambda=1.0 residual-gamma=0.56',
     'mode="federated" num-server-rounds=3 local-epochs=2 aggregation-mode="subspace_resid" residual-gamma=0.85 round2-gamma=0.85 proximal-mu=0.35 kl-temperature=2.0 kl-alpha=0.5',
     'mode="federated" num-server-rounds=1 local-epochs=1 aggregation-mode="subspace_resid" residual-gamma=0.85',

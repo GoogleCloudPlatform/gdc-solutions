@@ -15,7 +15,7 @@
 # Flower SuperNode Control Daemon Deployment (GDC Edge Clusters)
 # Lightweight CPU-only pod (100m CPU, 256Mi RAM, 0 GPU, no /mnt/models mount)
 # holding the store's federation identity, outbound FleetAPI connection
-# to Central GKE SuperLink (10.200.0.50:9092), and internal ClientAppIo API (:9094).
+# to Central GKE SuperLink (YOUR_SUPERLINK_ILB_IP:9092), and internal ClientAppIo API (:9094).
 
 apiVersion: apps/v1
 kind: Deployment
@@ -59,7 +59,7 @@ spec:
             - flower-supernode
           env:
             - name: SUPERLINK_ADDRESS
-              value: 10.200.0.50:9092
+              value: YOUR_SUPERLINK_ILB_IP:9092
             - name: STORE_ID
               value: "1"
           image: flwr/supernode:1.36.0

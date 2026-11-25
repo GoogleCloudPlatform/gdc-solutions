@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Flower SuperLink Internal LoadBalancer Service
-# Exposes FleetAPI (port 9092) and ExecAPI (port 9093) at static internal IP 10.200.0.50
+# Exposes FleetAPI (port 9092) and ExecAPI (port 9093) at static internal IP YOUR_SUPERLINK_ILB_IP
 
 apiVersion: v1
 kind: Service
@@ -28,7 +28,7 @@ metadata:
   name: flwr-superlink-service
   namespace: fed-lora-aggregator
 spec:
-  loadBalancerIP: 10.200.0.50
+  loadBalancerIP: YOUR_SUPERLINK_ILB_IP
   loadBalancerSourceRanges:
     - YOUR_STORE_CIDR
   ports:

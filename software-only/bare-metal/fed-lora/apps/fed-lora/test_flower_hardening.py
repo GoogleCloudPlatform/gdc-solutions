@@ -1215,7 +1215,8 @@ class FlowerHardeningTest(unittest.TestCase):
         ) as f:
             local_sft_toml = f.read()
         self.assertIn("min-clients = 2", local_sft_toml)
-        self.assertIn("learning-rate = 0.0006", local_sft_toml)
+        self.assertIn("learning-rate = 0.001", local_sft_toml)
+        self.assertIn("target-loss = 0.05", local_sft_toml)
         self.assertIn("local-epochs = 6", local_sft_toml)
         self.assertIn("kl-coef = 0.1", local_sft_toml)
         self.assertIn("kl-alpha = 0.0", local_sft_toml)
@@ -1859,13 +1860,13 @@ class FlowerHardeningTest(unittest.TestCase):
         self.assertEqual(parsed["mode"], "local-sft")
         self.assertEqual(parsed["min-clients"], 2)
         self.assertEqual(parsed["local-epochs"], 6)
-        self.assertAlmostEqual(parsed["learning-rate"], 0.0006)
+        self.assertAlmostEqual(parsed["learning-rate"], 0.001)
         self.assertAlmostEqual(parsed["weight-decay"], 0.01)
         self.assertAlmostEqual(parsed["kl-coef"], 0.1)
         self.assertAlmostEqual(parsed["kl-alpha"], 0.0)
         self.assertAlmostEqual(parsed["kl-temperature"], 2.0)
         self.assertAlmostEqual(parsed["proximal-mu"], 0.0)
-        self.assertAlmostEqual(parsed["target-loss"], 0.35)
+        self.assertAlmostEqual(parsed["target-loss"], 0.05)
         self.assertTrue(parsed["canary-gate"])
 
         ctxt_local = Context(
@@ -2037,7 +2038,8 @@ class FlowerHardeningTest(unittest.TestCase):
                 override_toml = tomllib.loads(f.read())
             self.assertEqual(override_toml["min-clients"], 1)
             self.assertEqual(override_toml["local-epochs"], 6)
-            self.assertAlmostEqual(override_toml["learning-rate"], 0.0006)
+            self.assertAlmostEqual(override_toml["learning-rate"], 0.001)
+            self.assertAlmostEqual(override_toml["target-loss"], 0.05)
             self.assertAlmostEqual(override_toml["proximal-mu"], 0.0)
 
             with open(captured_cfg_path_record, "r", encoding="utf-8") as f:

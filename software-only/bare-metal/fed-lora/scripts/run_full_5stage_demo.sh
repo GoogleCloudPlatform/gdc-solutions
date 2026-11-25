@@ -88,9 +88,9 @@ export GKE_CLUSTER_NAME="${GKE_CLUSTER_NAME:-YOUR_AGGREGATOR_CLUSTER}"
 export STORE1_CONTEXT="${STORE1_CONTEXT:-connectgateway_${PROJECT_ID}_global_YOUR_STORE_1_CLUSTER}"
 export STORE2_CONTEXT="${STORE2_CONTEXT:-connectgateway_${PROJECT_ID}_global_YOUR_STORE_2_CLUSTER}"
 export GKE_CONTEXT="${GKE_CONTEXT:-gke_${PROJECT_ID}_${ZONE}_${GKE_CLUSTER_NAME}}"
-export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-10.200.0.131}"
-export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-10.200.0.163}"
-export FLWR_SERVER_INTERNAL_LB_IP="${FLWR_SERVER_INTERNAL_LB_IP:-10.200.0.50}"
+export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-YOUR_STORE_1_VLLM_LB_IP}"
+export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-YOUR_STORE_2_VLLM_LB_IP}"
+export FLWR_SERVER_INTERNAL_LB_IP="${FLWR_SERVER_INTERNAL_LB_IP:-YOUR_SUPERLINK_ILB_IP}"
 export BASE_MODEL_ID="${BASE_MODEL_ID:-google/gemma-4-E2B-it}"
 export GCS_BUCKET="${GCS_BUCKET:-YOUR_GCS_BUCKET}"
 
@@ -354,7 +354,7 @@ if [[ ${TARGET_STAGE} -eq 0 || ${TARGET_STAGE} -eq 4 ]]; then
   stage4_summary=$(
     cat << 'EOF'
 Stage 4 Federated Cross-Subspace Residual Projection Results (Run 4: 15989409084762325520):
-• Control Plane: Flower SuperLink ExecAPI (:9093) + FleetAPI (:9092) (10.200.0.50).
+• Control Plane: Flower SuperLink ExecAPI (:9093) + FleetAPI (:9092) (YOUR_SUPERLINK_ILB_IP).
 • Server-Side Init: <1ms initial_parameters seed loaded from gs://YOUR_GCS_BUCKET/adapters/gemma4-e2b/round-0/.
 • Aggregation Algorithm: Energy-Balanced Cross-Subspace Residual Projection (subspace_resid, gamma=0.85, gains=1.40x/1.30x, ||B_merged||_F=19.44).
 • SuperNodes Aggregated: 2/2 (Store 1 & Store 2 across 3 rounds: R1=0.5137 -> R2=4.0511 -> R3=4.0113, 14/14 [100.00%] PROMOTE).

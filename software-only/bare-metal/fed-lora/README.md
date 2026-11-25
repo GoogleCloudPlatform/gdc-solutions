@@ -99,9 +99,6 @@ orchestration and execution of AI workloads across hybrid infrastructure:
 
 ![Edge AI Inference with Federated Learning - Target Architecture](docs/images/fed-lora_architecture_diagram.png)
 
-📄 A vector copy for zoom is available at
-[`docs/images/fed-lora_architecture_diagram.pdf`](docs/images/fed-lora_architecture_diagram.pdf).
-
 ---
 
 ## 2. Five-Stage Demonstration Lifecycle
@@ -221,8 +218,8 @@ proceeds through 5 core verification and execution stages (plus Stage 0 / Stage
 │   ├── Dockerfile.trainer                      # Edge QLoRA / vLLM trainer container image
 │   └── cloudbuild-images.yaml                  # Cloud Build config pushing to YOUR_AR_REPO
 ├── overlays/                                   # [DRY] Cluster-specific customization overlays & datasets
-│   ├── store-1/                                # Store 1 VIP (10.200.0.131), environment & data/train.jsonl
-│   ├── store-2/                                # Store 2 VIP (10.200.0.163), environment & data/train.jsonl
+│   ├── store-1/                                # Store 1 VIP (YOUR_STORE_1_VLLM_LB_IP), environment & data/train.jsonl
+│   ├── store-2/                                # Store 2 VIP (YOUR_STORE_2_VLLM_LB_IP), environment & data/train.jsonl
 │   └── central-aggregator/                     # Central GKE aggregator overlay
 ├── prerequisites/                              # One-time Phase A platform-admin cluster prerequisites
 │   └── gpu-time-slicing/                       # GPU Time-Slicing ConfigMap, ClusterPolicy & detach guide
@@ -234,8 +231,7 @@ proceeds through 5 core verification and execution stages (plus Stage 0 / Stage
 │   └── render.sh                               # Deterministic Kustomize-to-FleetPackage renderer
 ├── docs/                                       # Solution documentation & demo runbooks
 │   ├── images/                                 # Architecture diagrams & schematics
-│   │   ├── fed-lora_architecture_diagram.png   # High-resolution Target Architecture diagram (3000 x 1688)
-│   │   └── fed-lora_architecture_diagram.pdf   # Vector PDF copy of the same diagram (for zoom)
+│   │   └── fed-lora_architecture_diagram.png   # High-resolution Target Architecture diagram (3000 x 1688)
 │   ├── fed-lora_poc_implementation_guide.md    # End-to-end lab deployment & verification guide
 │   ├── fed-lora_poc_demo_script.md             # Master demo runbook & interactive talking points
 │   ├── verify_demo_setup_cheat_sheet.md        # Quick reference setup cheat sheet (25 checks)
@@ -310,7 +306,7 @@ All cluster-side Kubernetes manifests are authored under `base/` and
     `ar-pull-secret` every 30 minutes) plus `Stackdriver` and `PodMonitoring`
     observability resources.
   - Central Flower SuperLink aggregator (`flwr-superlink` on GKE with internal
-    LoadBalancer `10.200.0.50` restricted to edge store CIDRs via
+    LoadBalancer `YOUR_SUPERLINK_ILB_IP` restricted to edge store CIDRs via
     `spec.loadBalancerSourceRanges: [YOUR_STORE_CIDR]`).
 
 ### 4.2. Runtime Dynamic Fine-Tuning & Adapter Hot-Swapping
@@ -354,6 +350,9 @@ public fork):
 | `YOUR_STORE_2_CLUSTER`    | Fleet membership name of GDC Software-Only edge cluster 2                                                       |
 | `YOUR_AGGREGATOR_CLUSTER` | Fleet membership name of the central GKE aggregator cluster                                                     |
 | `YOUR_STORE_CIDR`         | Source IPv4 CIDR of edge store clusters allowed by SuperLink internal LoadBalancer (`loadBalancerSourceRanges`) |
+| `YOUR_SUPERLINK_ILB_IP`   | Static RFC 1918 internal LoadBalancer IP for `flwr-superlink-service`                                           |
+| `YOUR_STORE_1_VLLM_LB_IP` | MetalLB LoadBalancer IP for Store 1 `vllm-service`                                                              |
+| `YOUR_STORE_2_VLLM_LB_IP` | MetalLB LoadBalancer IP for Store 2 `vllm-service`                                                              |
 
 <!-- mdformat on -->
 
@@ -364,11 +363,9 @@ public fork):
   Both `serverapp.py` and `clientapp.py` resolve the canonical `round-0` PEFT
   template and round checkpoint prefixes from `gcs-bucket`.
 
-📌 **NOTE:** Sample manifests use RFC 1918 private VIPs on `10.200.0.0/24`
-(`10.200.0.50` for the central SuperLink internal LoadBalancer restricted by
-`spec.loadBalancerSourceRanges: [YOUR_STORE_CIDR]`, and `10.200.0.131` /
-`10.200.0.163` for Store 1 and Store 2 `vLLM` LoadBalancers). Adjust VIPs in
-`base/` and `overlays/` if your environment uses a different VPC CIDR.
+📌 **NOTE:** Substitute `YOUR_SUPERLINK_ILB_IP`, `YOUR_STORE_1_VLLM_LB_IP`, and
+`YOUR_STORE_2_VLLM_LB_IP` alongside `YOUR_STORE_CIDR` in `base/` and `overlays/`
+before running `./fleet-package/render.sh`.
 
 ---
 
@@ -399,7 +396,7 @@ readiness audit (`25/25` checks):
 [PASS] Check 2/25: Store 2 Connect Gateway connectivity (YOUR_STORE_2_CLUSTER)
 [PASS] Check 3/25: Central GKE Connect Gateway connectivity (YOUR_AGGREGATOR_CLUSTER)
 [PASS] Check 4/25: Central Aggregator Flower SuperLink deployment healthy
-[PASS] Check 5/25: Central Aggregator ILB service active (10.200.0.50:9092, 9093)
+[PASS] Check 5/25: Central Aggregator ILB service active (YOUR_SUPERLINK_ILB_IP:9092, 9093)
 [PASS] Check 6/25: Central Aggregator Cloud Storage bucket accessible (gs://YOUR_GCS_BUCKET)
 [PASS] Check 7/25: Store 1 GPU time-slicing configured (2 slices on NVIDIA RTX PRO 6000)
 [PASS] Check 8/25: Store 2 GPU time-slicing configured (2 slices on NVIDIA RTX PRO 6000)
@@ -407,10 +404,10 @@ readiness audit (`25/25` checks):
 [PASS] Check 10/25: Store 2 shared-model-pvc bound
 [PASS] Check 11/25: Store 1 vLLM serving deployment healthy
 [PASS] Check 12/25: Store 2 vLLM serving deployment healthy
-[PASS] Check 13/25: Store 1 vLLM endpoint reachable (10.200.0.131:8000/v1/models)
-[PASS] Check 14/25: Store 2 vLLM endpoint reachable (10.200.0.163:8000/v1/models)
-[PASS] Check 15/25: Store 1 Flower SuperNode & SuperExec Trainer pods healthy (connected to 10.200.0.50:9092)
-[PASS] Check 16/25: Store 2 Flower SuperNode & SuperExec Trainer pods healthy (connected to 10.200.0.50:9092)
+[PASS] Check 13/25: Store 1 vLLM endpoint reachable (YOUR_STORE_1_VLLM_LB_IP:8000/v1/models)
+[PASS] Check 14/25: Store 2 vLLM endpoint reachable (YOUR_STORE_2_VLLM_LB_IP:8000/v1/models)
+[PASS] Check 15/25: Store 1 Flower SuperNode & SuperExec Trainer pods healthy (connected to YOUR_SUPERLINK_ILB_IP:9092)
+[PASS] Check 16/25: Store 2 Flower SuperNode & SuperExec Trainer pods healthy (connected to YOUR_SUPERLINK_ILB_IP:9092)
 [PASS] Check 17/25: Store 1 & Store 2 local training datasets verified on store-local PVCs (/mnt/models/edge-data/store-{1,2}/train.jsonl)
 [PASS] Check 18/25: Store 1 & Store 2 flwr-trainer pod securityContext (fsGroup: 2000 & writable /mnt/models)
 [PASS] Check 19/25: GCS round-0 canonical seed adapter (240 keys, 120 non-zero lora_A, 120 zero lora_B, r=16, alpha=64)
@@ -492,7 +489,7 @@ politely abstaining on Store 2's VIP discount, proving strict privacy isolation 
 
 ```text
 Stage 4 Federated Aggregation Results (Run 4: 15989409084762325520):
-• Control Plane: Flower SuperLink ExecAPI (:9093) + FleetAPI (:9092) (10.200.0.50).
+• Control Plane: Flower SuperLink ExecAPI (:9093) + FleetAPI (:9092) (YOUR_SUPERLINK_ILB_IP).
 • Server-Side Init: <1ms initial_parameters seed loaded from gs://YOUR_GCS_BUCKET/adapters/gemma4-e2b/round-0/.
 • SuperNodes Aggregated: 2/2 (Store 1 & Store 2 across 3 federated rounds: 20 samples/store, R1 loss=0.5137 -> R2=4.0511 -> R3=4.0113).
 • Aggregation Strategy: Energy-Balanced Cross-Subspace Residual Projection (subspace_resid, gamma=0.85, gains=1.40x/1.30x, ||B_merged||_F=19.44).

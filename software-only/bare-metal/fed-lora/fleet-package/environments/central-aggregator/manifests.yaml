@@ -735,7 +735,7 @@ metadata:
   name: flwr-superlink-service
   namespace: fed-lora-aggregator
 spec:
-  loadBalancerIP: 10.200.0.50
+  loadBalancerIP: YOUR_SUPERLINK_ILB_IP
   loadBalancerSourceRanges:
     - YOUR_STORE_CIDR
   ports:

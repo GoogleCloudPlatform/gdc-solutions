@@ -71,7 +71,7 @@ spec:
             - name: CLUSTER_NAME
               value: YOUR_STORE_1_CLUSTER
             - name: SUPERLINK_ADDRESS
-              value: 10.200.0.50:9092
+              value: YOUR_SUPERLINK_ILB_IP:9092
             - name: VLLM_SERVER_URL
               value: http://vllm-service.fed-lora-poc.svc.cluster.local:8000
             - name: BASE_MODEL_NAME

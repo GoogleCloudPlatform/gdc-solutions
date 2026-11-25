@@ -18,7 +18,7 @@
 # ==============================================================================
 # Strictly READ-ONLY verification script for Stage 5 Post-Federation QA:
 # Executes deterministic Stage 5 Post-Federation Verification cURL queries against
-# Store 1 (10.200.0.131:8000) and Store 2 (10.200.0.163:8000) targeting
+# Store 1 (YOUR_STORE_1_VLLM_LB_IP:8000) and Store 2 (YOUR_STORE_2_VLLM_LB_IP:8000) targeting
 # model: "store-fed-lora-round-1" to confirm Bidirectional Cross-Silo Knowledge
 # Transfer after Round 1 Federated Averaging (FedAvg):
 #
@@ -72,8 +72,8 @@ export REGION="${REGION:-us-central1}"
 export ZONE="${ZONE:-us-central1-b}"
 export STORE1_CONTEXT="${STORE1_CONTEXT:-connectgateway_${PROJECT_ID}_global_YOUR_STORE_1_CLUSTER}"
 export STORE2_CONTEXT="${STORE2_CONTEXT:-connectgateway_${PROJECT_ID}_global_YOUR_STORE_2_CLUSTER}"
-export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-10.200.0.131}"
-export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-10.200.0.163}"
+export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-YOUR_STORE_1_VLLM_LB_IP}"
+export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-YOUR_STORE_2_VLLM_LB_IP}"
 export GLOBAL_ADAPTER_NAME="${GLOBAL_ADAPTER_NAME:-store-fed-lora-round-1}"
 export GLOBAL_ADAPTER_DIR="${GLOBAL_ADAPTER_DIR:-/mnt/models/store-fed-lora-round-1}"
 

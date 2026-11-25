@@ -13,11 +13,12 @@
 # limitations under the License.
 
 # Run configuration for Stage 2 Siloed Local SFT (Layer A Hallucination Controls)
+# Calibrated for two-store convergence (learning-rate = 0.001, target-loss = 0.05).
 mode = "local-sft"
 # Set to the number of online edge stores participating in Stage 2 SFT.
 min-clients = 2
 local-epochs = 6
-learning-rate = 0.0006
+learning-rate = 0.001
 weight-decay = 0.01
 lora-r = 16
 lora-alpha = 64
@@ -26,5 +27,5 @@ kl-coef = 0.1
 kl-alpha = 0.0
 kl-temperature = 2.0
 proximal-mu = 0.0
-target-loss = 0.35
+target-loss = 0.05
 canary-gate = true

@@ -22,10 +22,10 @@
 #      `YOUR_STORE_1_CLUSTER` and `YOUR_STORE_2_CLUSTER` is synced.
 #   2. Check 2/5: MetalLB External LoadBalancer IP Assignment - Verify
 #      `kubectl get svc vllm-service -n fed-lora-poc` reports
-#      `EXTERNAL-IP: 10.200.0.131` on Store 1 and `10.200.0.163` on Store 2.
+#      `EXTERNAL-IP: YOUR_STORE_1_VLLM_LB_IP` on Store 1 and `YOUR_STORE_2_VLLM_LB_IP` on Store 2.
 #   3. Check 3/5: vLLM Serving Endpoint & Model Discovery (`GET /v1/models`) -
-#      Query `GET http://10.200.0.131:8000/v1/models` and
-#      `GET http://10.200.0.163:8000/v1/models` and assert that
+#      Query `GET http://YOUR_STORE_1_VLLM_LB_IP:8000/v1/models` and
+#      `GET http://YOUR_STORE_2_VLLM_LB_IP:8000/v1/models` and assert that
 #      `google/gemma-4-E2B-it` is returned.
 #   4. Check 4/5: Stage 1 Baseline Fact A Test (Supermarket Return Policy) -
 #      Query `POST /v1/chat/completions` on both Store 1 and Store 2 asking:
@@ -71,8 +71,8 @@ export REGION="${REGION:-us-central1}"
 export ZONE="${ZONE:-us-central1-b}"
 export STORE1_CONTEXT="${STORE1_CONTEXT:-connectgateway_${PROJECT_ID}_global_YOUR_STORE_1_CLUSTER}"
 export STORE2_CONTEXT="${STORE2_CONTEXT:-connectgateway_${PROJECT_ID}_global_YOUR_STORE_2_CLUSTER}"
-export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-10.200.0.131}"
-export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-10.200.0.163}"
+export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-YOUR_STORE_1_VLLM_LB_IP}"
+export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-YOUR_STORE_2_VLLM_LB_IP}"
 export BASE_MODEL_ID="${BASE_MODEL_ID:-google/gemma-4-E2B-it}"
 
 DRY_RUN=false
@@ -88,7 +88,7 @@ Usage: $0 [--dry-run] [--help]
 Read-only verification script for Stage 1 Baseline vLLM Serving.
 Performs 5 structured verification checks without modifying any cluster or repository state:
   1. Config Sync RootSync Status ('root-sync' / 'fed-lora-edge-package')
-  2. MetalLB External LoadBalancer IP Assignment ('10.200.0.131' & '10.200.0.163')
+  2. MetalLB External LoadBalancer IP Assignment ('${STORE1_VLLM_LB_IP}' & '${STORE2_VLLM_LB_IP}')
   3. vLLM Serving Endpoint & Model Discovery ('GET /v1/models' -> 'google/gemma-4-E2B-it')
   4. Stage 1 Baseline Fact A Test (Supermarket Return Policy - absence of '45 days')
   5. Stage 1 Baseline Fact B Test (Supermarket VIP Gold Promo Code - absence of 'STORE-VIP-99')
@@ -119,7 +119,7 @@ record_fail() {
   FAIL_COUNT=$((FAIL_COUNT + 1))
 }
 
-# Helper function to execute HTTP cURL requests against vLLM endpoints (10.200.0.131:8000 / 10.200.0.163:8000)
+# Helper function to execute HTTP cURL requests against vLLM endpoints (YOUR_STORE_1_VLLM_LB_IP:8000 / YOUR_STORE_2_VLLM_LB_IP:8000)
 # via Kubernetes Port-Forwarding (127.0.0.1:18001 / 127.0.0.1:18002) or Connect Gateway kubectl exec.
 vllm_http_get() {
   local target_ip="$1"

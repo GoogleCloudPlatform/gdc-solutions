@@ -57,8 +57,8 @@ if [[ -f "${SCRIPT_DIR}/../config/fed_lora_env.sh" ]]; then
 fi
 
 export PROJECT_ID="${PROJECT_ID:-YOUR_PROJECT_ID}"
-export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-10.200.0.131}"
-export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-10.200.0.163}"
+export STORE1_VLLM_LB_IP="${STORE1_VLLM_LB_IP:-YOUR_STORE_1_VLLM_LB_IP}"
+export STORE2_VLLM_LB_IP="${STORE2_VLLM_LB_IP:-YOUR_STORE_2_VLLM_LB_IP}"
 export BASE_MODEL_ID="${BASE_MODEL_ID:-google/gemma-4-E2B-it}"
 export GLOBAL_ADAPTER_NAME="${GLOBAL_ADAPTER_NAME:-store-fed-lora-round-1}"
 
