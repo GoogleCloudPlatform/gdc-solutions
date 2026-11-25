@@ -705,15 +705,16 @@ kubectl --context="${CTX_AGENTS}" -n agent-workloads get secret hybrid-agents-ro
 
 Confirm that the commands return `2` and `1`.
 
-[Cloud Console Verification] In the Google Cloud console, confirm that
-`hybrid-agents-c1-intermediate-ca` has an enabled version and grants
-`roles/secretmanager.secretAccessor` only to `ESO_PRINCIPAL` on the **Security >
-Secret Manager** page
-(`https://console.cloud.google.com/security/secret-manager?project=${PROJECT_ID}`).
-Confirm that `agent-envoy-ingress-tls` and `hybrid-agents-root-ca-bundle` appear
-under **Kubernetes Engine > Secrets & ConfigMaps**
-(`https://console.cloud.google.com/kubernetes/config?project=${PROJECT_ID}`) in
-namespace `agent-workloads`.
+[Cloud Console Verification] In the Google Cloud console, confirm:
+
+- **Security > Secret Manager**
+  (`https://console.cloud.google.com/security/secret-manager?project=${PROJECT_ID}`):
+  `hybrid-agents-c1-intermediate-ca` has an enabled version and grants
+  `roles/secretmanager.secretAccessor` only to `ESO_PRINCIPAL`.
+- **Kubernetes Engine > Secrets & ConfigMaps**
+  (`https://console.cloud.google.com/kubernetes/config?project=${PROJECT_ID}`):
+  `agent-envoy-ingress-tls` and `hybrid-agents-root-ca-bundle` appear in
+  namespace `agent-workloads`.
 
 ### Expose the model tier over HTTPS
 
@@ -760,12 +761,14 @@ kubectl --context="${CTX_MODEL}" apply -f "${SOLUTION_HOME}/vllm-https-ingress.y
 returns the model list with strict TLS verification. Probe the URL rather than
 the `Ingress` status: the bundled ingress leaves `.status.loadBalancer` empty.
 
-[Cloud Console Verification] In the Google Cloud console, confirm that
-`vllm-https-ingress` exists under **Kubernetes Engine > Services & Ingress**
-(`https://console.cloud.google.com/kubernetes/discovery?project=${PROJECT_ID}`).
-Confirm that `vllm-ingress-tls` exists in namespace `gke-system` under
-**Kubernetes Engine > Secrets & ConfigMaps**
-(`https://console.cloud.google.com/kubernetes/config?project=${PROJECT_ID}`).
+[Cloud Console Verification] In the Google Cloud console, confirm:
+
+- **Kubernetes Engine > Services & Ingress**
+  (`https://console.cloud.google.com/kubernetes/discovery?project=${PROJECT_ID}`):
+  `vllm-https-ingress` exists.
+- **Kubernetes Engine > Secrets & ConfigMaps**
+  (`https://console.cloud.google.com/kubernetes/config?project=${PROJECT_ID}`):
+  `vllm-ingress-tls` exists in namespace `gke-system`.
 
 ## Step 2: Install Apigee hybrid 1.17.3 through the Connect Gateway Helm pipeline
 
@@ -1038,13 +1041,14 @@ apigeeenvironment.apigee.cloud.google.com/example-org-hybrid-agents-env running 
 running
 ```
 
-[Cloud Console Verification] In the Google Cloud console, open **Kubernetes
-Engine > Workloads**
-(`https://console.cloud.google.com/kubernetes/workload?project=${PROJECT_ID}`,
-filtered by namespace `apigee`) to confirm the Apigee hybrid pods are healthy.
-Open **Apigee > Management > Environments** to confirm `hybrid-agents-env` is
-attached to `hybrid-agents-envgroup`. Apigee custom resource `running` states
-stay a `kubectl` check.
+[Cloud Console Verification] In the Google Cloud console, confirm:
+
+- **Kubernetes Engine > Workloads**
+  (`https://console.cloud.google.com/kubernetes/workload?project=${PROJECT_ID}`,
+  filtered by namespace `apigee`): the Apigee hybrid pods are healthy.
+- **Apigee > Management > Environments**: `hybrid-agents-env` is attached to
+  `hybrid-agents-envgroup` (Apigee custom resource `running` states stay a
+  `kubectl` check).
 
 ## Step 3: Create the Apigee TLS keystores and references
 
@@ -1088,11 +1092,12 @@ shred -u "${WORK}/client.key"
 
 <!-- mdformat on -->
 
-[Cloud Console Verification] In the Google Cloud console, go to **Apigee >
-Management > Environments** and select `hybrid-agents-env`. Confirm both
-keystores (with aliases `hybrid-agents-root-ca` and `envoy-client`) and both
-entries on the **References** tab (`hybrid-agents-truststore-ref` and
-`apigee-envoy-client-keystore-ref`).
+[Cloud Console Verification] In the Google Cloud console, confirm:
+
+- **Apigee > Management > Environments** (`hybrid-agents-env`): both keystores
+  exist (with aliases `hybrid-agents-root-ca` and `envoy-client`), and both
+  entries appear on the **References** tab (`hybrid-agents-truststore-ref` and
+  `apigee-envoy-client-keystore-ref`).
 
 To create the `hybrid-agents-cloud-burst-armor` Model Armor template, grant
 `APIGEE_SA` read access to `gs://${MCP_BUCKET}` and BigQuery datasets, and
@@ -1260,12 +1265,14 @@ gcloud iam service-accounts describe "${REGISTRAR_SA}" --project="${PROJECT_ID}"
 gcloud artifacts repositories describe "${AR_REPOSITORY}" --location="${REGION}" --project="${PROJECT_ID}" --format="value(name)"
 ```
 
-[Cloud Console Verification] In the Google Cloud console, open **Cloud Build >
-Repositories (2nd gen)** (region `us-central1`) to confirm `${GIT_REPOSITORY}`
-is linked under `${GIT_CONNECTION}`. Open **Artifact Registry > Repositories**
-(region `us-central1`) to confirm `${AR_REPOSITORY}` exists with
-`roles/artifactregistry.writer` granted to `BUILD_SA`. Confirm `REGISTRAR_SA`
-under **IAM & Admin > Service Accounts**.
+[Cloud Console Verification] In the Google Cloud console, confirm:
+
+- **Cloud Build > Repositories (2nd gen)** (region `us-central1`):
+  `${GIT_REPOSITORY}` is linked under `${GIT_CONNECTION}`.
+- **Artifact Registry > Repositories** (region `us-central1`):
+  `${AR_REPOSITORY}` exists with `roles/artifactregistry.writer` granted to
+  `BUILD_SA`.
+- **IAM & Admin > Service Accounts**: `REGISTRAR_SA` exists.
 
 The `hybridcloud-agents-registry-sync` Cloud Build trigger is created in the
 [SUG](user-guide.md#step-1-prerequisites-model-armor-orchestrator-secret-trigger-and-agent-images)
@@ -1672,10 +1679,11 @@ done
 Confirm that the publisher email prints and both clusters return
 `hybridcloud-agents-reconciler`.
 
-[Cloud Console Verification] In the Google Cloud console, confirm `PUBLISHER_SA`
-under **IAM & Admin > Service Accounts**. Confirm Config Sync is installed on
-both clusters under **Kubernetes Engine > Features > Config** (verify
-`ClusterRole/hybridcloud-agents-reconciler` with `kubectl`).
+[Cloud Console Verification] In the Google Cloud console, confirm:
+
+- **IAM & Admin > Service Accounts**: `PUBLISHER_SA` exists.
+- **Kubernetes Engine > Features > Config**: Config Sync is installed on both
+  clusters (verify `ClusterRole/hybridcloud-agents-reconciler` with `kubectl`).
 
 Proceed to [Step 7](#step-7-deploy-the-platform-fleet-package) to render the
 bundles, push the first release tag (`v1.0.0`), create
