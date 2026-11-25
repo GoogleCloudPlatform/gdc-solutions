@@ -1,0 +1,31 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Run configuration for Stage 2 Siloed Local SFT (Layer A Hallucination Controls)
+# Calibrated for two-store convergence (learning-rate = 0.001, target-loss = 0.05).
+mode = "local-sft"
+# Set to the number of online edge stores participating in Stage 2 SFT.
+min-clients = 2
+local-epochs = 6
+learning-rate = 0.001
+weight-decay = 0.01
+lora-r = 16
+lora-alpha = 64
+lora-dropout = 0.1
+kl-coef = 0.1
+kl-alpha = 0.0
+kl-temperature = 2.0
+proximal-mu = 0.0
+target-loss = 0.05
+canary-gate = true
