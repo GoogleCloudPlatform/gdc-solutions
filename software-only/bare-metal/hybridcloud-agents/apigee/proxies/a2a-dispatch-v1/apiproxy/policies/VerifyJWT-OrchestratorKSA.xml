@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<VerifyJWT continueOnError="false" enabled="true" name="VerifyJWT-OrchestratorKSA">
+  <DisplayName>Verify Projected Orchestrator KSA JWT Subject via KVM</DisplayName>
+  <Algorithm>RS256</Algorithm>
+  <Source>request.header.x-agent-ksa-token</Source>
+  <IgnoreUnresolvedVariables>false</IgnoreUnresolvedVariables>
+  <PublicKey>
+    <JWKS ref="private.agents_cluster_oidc_jwks"/>
+  </PublicKey>
+  <Subject ref="private.expected_ksa_jwt_sub">__UNREGISTERED_APP_SUBJECT__</Subject>
+  <Issuer ref="propertyset.hybrid_agents_env.k8s_jwt_issuer">https://kubernetes.default.svc.cluster.local</Issuer>
+  <Audience ref="propertyset.hybrid_agents_env.gateway_jwt_audience">api.hybrid-agents.internal</Audience>
+</VerifyJWT>

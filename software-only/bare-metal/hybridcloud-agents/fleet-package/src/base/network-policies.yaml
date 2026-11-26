@@ -1,0 +1,112 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Shared Envoy NetworkPolicy baselines. Per-agent ingress/egress port rules are
+# added dynamically by fleet-package/render.sh from active
+# registry/agents/*/agent.yaml.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: allow-envoy-ingress-proxy
+  namespace: agent-workloads
+spec:
+  egress:
+    - ports:
+        - port: 4317
+          protocol: TCP
+        - port: 4318
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: otel-collector
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: YOUR_GATEWAY_NODE_CIDR
+      ports:
+        - port: 8443
+          protocol: TCP
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gmp-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              managed-by: stackdriver
+      ports:
+        - port: 19000
+          protocol: TCP
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agent-ingress-proxy
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: allow-agent-egress-proxy
+  namespace: agent-workloads
+spec:
+  egress:
+    - ports:
+        - port: 443
+          protocol: TCP
+      to:
+        - ipBlock:
+            cidr: YOUR_GATEWAY_INGRESS_VIP/32
+    - ports:
+        - port: 4317
+          protocol: TCP
+        - port: 4318
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: otel-collector
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gmp-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              managed-by: stackdriver
+      ports:
+        - port: 19000
+          protocol: TCP
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agent-egress-proxy
+  policyTypes:
+    - Ingress
+    - Egress

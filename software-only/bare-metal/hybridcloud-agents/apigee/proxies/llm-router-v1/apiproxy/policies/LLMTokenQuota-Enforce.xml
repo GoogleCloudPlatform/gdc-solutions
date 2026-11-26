@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<LLMTokenQuota continueOnError="false" enabled="true" name="LLMTokenQuota-Enforce" type="flexi">
+  <DisplayName>LLM Token Budget Enforce</DisplayName>
+  <SharedName>hybrid-agents-llm-budget</SharedName>
+  <EnforceOnly>true</EnforceOnly>
+  <Distributed>true</Distributed>
+  <Synchronous>true</Synchronous>
+  <Identifier ref="verifyapikey.VerifyAPIKey-1.client_id"/>
+  <Allow count="500000" countRef="verifyapikey.VerifyAPIKey-1.apiproduct.llm_token_quota"/>
+  <Interval>1</Interval>
+  <TimeUnit>hour</TimeUnit>
+  <LLMModelSource>{resolved_llm_model}</LLMModelSource>
+</LLMTokenQuota>

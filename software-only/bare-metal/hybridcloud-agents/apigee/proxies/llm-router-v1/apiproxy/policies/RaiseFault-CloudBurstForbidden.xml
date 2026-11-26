@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RaiseFault-CloudBurstForbidden">
+  <DisplayName>Block Cloud Burst For Sovereign-Only Product</DisplayName>
+  <FaultResponse>
+    <Set>
+      <StatusCode>403</StatusCode>
+      <Payload contentType="application/json">{"error":{"code":"CLOUD_BURST_FORBIDDEN_FOR_PRODUCT","message":"API product does not permit cloud-eligible LLM burst."}}</Payload>
+    </Set>
+  </FaultResponse>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

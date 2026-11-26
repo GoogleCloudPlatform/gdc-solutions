@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<DataCapture continueOnError="true" enabled="true" name="DataCapture-FinOps">
+  <DisplayName>Multi-Business-Unit FinOps Token Attribution</DisplayName>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+  <ThrowExceptionOnLimit>false</ThrowExceptionOnLimit>
+  <Capture>
+    <DataCollector>dc_business_unit</DataCollector>
+    <Collect ref="finops_business_unit" default="unassigned"/>
+  </Capture>
+  <Capture>
+    <DataCollector>dc_cost_center</DataCollector>
+    <Collect ref="finops_cost_center" default="unassigned"/>
+  </Capture>
+  <Capture>
+    <DataCollector>dc_resolved_model</DataCollector>
+    <Collect ref="finops_resolved_model" default="unknown"/>
+  </Capture>
+  <Capture>
+    <DataCollector>dc_routed_tier</DataCollector>
+    <Collect ref="finops_routed_tier" default="unknown"/>
+  </Capture>
+  <Capture>
+    <DataCollector>dc_total_tokens</DataCollector>
+    <Collect ref="finops_total_tokens" default="0"/>
+  </Capture>
+</DataCapture>

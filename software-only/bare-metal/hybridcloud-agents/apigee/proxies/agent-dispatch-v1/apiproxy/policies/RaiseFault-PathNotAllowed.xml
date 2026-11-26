@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RaiseFault-PathNotAllowed">
+  <DisplayName>Reject Disallowed Agent Dispatch Path or Method</DisplayName>
+  <FaultResponse>
+    <Set>
+      <StatusCode>404</StatusCode>
+      <ReasonPhrase>Not Found</ReasonPhrase>
+      <Payload contentType="application/json">{"error":{"code":404,"status":"NOT_FOUND","reason":"path_or_method_not_allowed","message":"Path suffix or HTTP method is not permitted on agent-dispatch-v1."}}</Payload>
+    </Set>
+  </FaultResponse>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

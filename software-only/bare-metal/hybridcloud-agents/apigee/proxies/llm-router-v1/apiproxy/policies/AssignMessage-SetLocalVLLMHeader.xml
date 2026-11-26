@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AssignMessage-SetLocalVLLMHeader">
+  <Set>
+    <Headers>
+      <Header name="X-LLM-Backend">{routed_tier_label}</Header>
+      <Header name="X-HCA-Resolved-Model">{resolved_llm_model}</Header>
+      <Header name="X-HCA-Routed-Tier">{routed_tier_label}</Header>
+    </Headers>
+  </Set>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+  <AssignTo createNew="false" transport="http" type="response"/>
+</AssignMessage>

@@ -11,6 +11,12 @@
   - [SFT Model Serving with Fleet Packages Reference Implementation](/software-only/bare-metal/sft-model-serving/docs/reference-implementation.md)
   - [SFT Model Serving with Fleet Packages User Guide](/software-only/bare-metal/sft-model-serving/docs/user-guide.md)
 
+## Hybrid Cloud AI Agents
+
+- [Hybrid Cloud AI Agents on Distributed Cloud software only Reference Architecture](/software-only/bare-metal/hybridcloud-agents/README.md)
+  - [Hybrid Cloud AI Agents Reference Implementation](/software-only/bare-metal/hybridcloud-agents/docs/reference-implementation.md)
+  - [Hybrid Cloud AI Agents User Guide](/software-only/bare-metal/hybridcloud-agents/docs/user-guide.md)
+
 ## ARCHIVED Solutions
 
 - [Google Distributed Cloud (software only) for bare metal reference architecture](/docs/software-only_bare-metal_reference-architecture/README.md)

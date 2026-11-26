@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<APIProxy revision="1" name="mcp-storage-v1">
+  <DisplayName>mcp-storage-v1</DisplayName>
+  <Description>Track B Cloud MCP proxy to Google Cloud Storage Managed MCP Server using keyless WIF GoogleAccessToken.</Description>
+  <ProxyOperationMode>MCP</ProxyOperationMode>
+  <BasePaths>/mcp-storage</BasePaths>
+  <Policies>
+    <Policy>JSONThreatProtection-Guard</Policy>
+    <Policy>AssignMessage-JSONThreat400</Policy>
+    <Policy>ParsePayload-MCP</Policy>
+    <Policy>VerifyAPIKey-1</Policy>
+    <Policy>SpikeArrest-Ingress</Policy>
+    <Policy>KeyValueMapOperations-ReadExpectedJwtSub</Policy>
+    <Policy>VerifyJWT-AgentKSA</Policy>
+    <Policy>Quota-PerToolLimit</Policy>
+    <Policy>AssignMessage-StripAuthCloudMCP</Policy>
+    <Policy>AssignMessage-SetGoogleUserProject</Policy>
+  </Policies>
+  <ProxyEndpoints>
+    <ProxyEndpoint>default</ProxyEndpoint>
+  </ProxyEndpoints>
+  <TargetEndpoints>
+    <TargetEndpoint>default</TargetEndpoint>
+  </TargetEndpoints>
+</APIProxy>

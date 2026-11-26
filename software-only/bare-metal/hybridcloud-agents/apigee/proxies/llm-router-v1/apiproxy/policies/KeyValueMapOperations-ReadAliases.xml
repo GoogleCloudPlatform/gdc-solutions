@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<KeyValueMapOperations async="false" continueOnError="true" enabled="true" name="KeyValueMapOperations-ReadAliases" mapIdentifier="ai-model-aliases">
+  <DisplayName>Read Virtual Model Aliases and Canary Weights</DisplayName>
+  <ExpiryTimeInSecs>5</ExpiryTimeInSecs>
+  <Scope>environment</Scope>
+  <Get assignTo="private.kvm_alias_sovereign" index="1">
+    <Key><Parameter>enterprise-sovereign</Parameter></Key>
+  </Get>
+  <Get assignTo="private.kvm_alias_flash" index="1">
+    <Key><Parameter>enterprise-flash</Parameter></Key>
+  </Get>
+  <Get assignTo="private.kvm_canary_weight" index="1">
+    <Key><Parameter>canary_weight</Parameter></Key>
+  </Get>
+  <Get assignTo="private.kvm_canary_target" index="1">
+    <Key><Parameter>canary_target</Parameter></Key>
+  </Get>
+</KeyValueMapOperations>

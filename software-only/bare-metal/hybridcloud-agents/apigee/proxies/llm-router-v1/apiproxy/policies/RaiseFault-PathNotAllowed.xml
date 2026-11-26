@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RaiseFault-PathNotAllowed">
+  <DisplayName>Reject Disallowed LLM Router Path or Method</DisplayName>
+  <FaultResponse>
+    <Set>
+      <StatusCode>404</StatusCode>
+      <ReasonPhrase>Not Found</ReasonPhrase>
+      <Payload contentType="application/json">{"error":{"code":404,"status":"NOT_FOUND","reason":"path_or_method_not_allowed","message":"Only POST /v1/chat/completions and GET /v1/models are permitted on llm-router-v1."}}</Payload>
+    </Set>
+  </FaultResponse>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

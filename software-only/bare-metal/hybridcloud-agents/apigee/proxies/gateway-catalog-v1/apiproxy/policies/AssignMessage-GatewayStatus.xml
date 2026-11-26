@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AssignMessage-GatewayStatus">
+  <Set>
+    <StatusCode>200</StatusCode>
+    <Payload contentType="application/json">{"gateway":"apigee-hybrid-1.17.3","topology":"Topology-C-3-Cluster","clusters":["{propertyset.hybrid_agents_env.agents_cluster_name}","{propertyset.hybrid_agents_env.gateway_cluster_name}","{propertyset.hybrid_agents_env.model_cluster_name}"],"mtls_enforced":true,"keyless_wif":true}</Payload>
+  </Set>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+  <AssignTo createNew="false" transport="http" type="response"/>
+</AssignMessage>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Quota continueOnError="false" enabled="true" name="Quota-PerToolLimit">
+  <DisplayName>Per-Tool MCP Quota</DisplayName>
+  <UseQuotaConfigInAPIProduct stepName="VerifyAPIKey-1"/>
+  <Distributed>true</Distributed>
+  <Synchronous>true</Synchronous>
+</Quota>

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ServiceCallout continueOnError="false" enabled="true" name="ServiceCallout-FailoverLocalVLLM">
+  <DisplayName>Automatic Failover to Local Sovereign vLLM TargetServer</DisplayName>
+  <Request clearPayload="true">
+    <Set>
+      <Verb>POST</Verb>
+      <Headers>
+        <Header name="Content-Type">application/json</Header>
+      </Headers>
+      <Payload contentType="application/json">{failover_vllm_payload}</Payload>
+    </Set>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+  </Request>
+  <Response>failoverVllmResp</Response>
+  <Timeout>120000</Timeout>
+  <HTTPTargetConnection>
+    <LoadBalancer>
+      <Algorithm>RoundRobin</Algorithm>
+      <Server name="gdcso-local-vllm"/>
+      <MaxFailures>3</MaxFailures>
+    </LoadBalancer>
+    <Path>/v1/chat/completions</Path>
+    <HealthMonitor>
+      <IsEnabled>true</IsEnabled>
+      <IntervalInSec>10</IntervalInSec>
+      <HTTPMonitor>
+        <Request>
+          <UseTargetServerSSLInfo>true</UseTargetServerSSLInfo>
+          <ConnectTimeoutInSec>5</ConnectTimeoutInSec>
+          <SocketReadTimeoutInSec>10</SocketReadTimeoutInSec>
+          <Port>443</Port>
+          <Verb>GET</Verb>
+          <Path>/health</Path>
+        </Request>
+        <SuccessResponse>
+          <ResponseCode>200</ResponseCode>
+        </SuccessResponse>
+      </HTTPMonitor>
+    </HealthMonitor>
+  </HTTPTargetConnection>
+</ServiceCallout>

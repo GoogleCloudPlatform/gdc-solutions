@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="false" enabled="true" timeLimit="200" name="JS-ExtractCloudBurstResponse">
+  <DisplayName>Extract Text or Tool-Call Payload for Model Armor Response Inspection</DisplayName>
+  <ResourceURL>jsc://extract_cloud_burst_response.js</ResourceURL>
+</Javascript>

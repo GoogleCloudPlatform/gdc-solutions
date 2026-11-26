@@ -1,0 +1,94 @@
+<!--
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+# Sample Sovereign Model-Tier Test Cluster Manifests
+
+Optional, self-contained Kubernetes manifests for deploying the `vLLM`
+(`google/gemma-4-31B-it`) model-serving tier and bundled HTTPS `Ingress` on a
+sample GPU model test cluster (`YOUR_MODEL_CLUSTER_NAME`) alongside the
+[Open model serving on Distributed Cloud software only](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/solutions/open-model-serving-sw-only)
+guide.
+
+These manifests are applied directly with `kubectl` on the model cluster and are
+**not** managed by Google Cloud Config Delivery (`FleetPackage`).
+
+## Prerequisites
+
+Before applying these manifests on the model cluster, verify that the following
+cluster prerequisites are in place:
+
+- **NVIDIA GPU Operator:** Installed and running on the model cluster, providing
+  `runtimeClassName: nvidia`, allocatable `nvidia.com/gpu` capacity, and the
+  `gpu-operator` namespace for DCGM exporter metrics.
+- **`local-shared` StorageClass:** Configured on the model cluster so
+  `PersistentVolumeClaim/model-cache-pvc` binds to a local shared volume.
+- **Google Cloud Managed Service for Prometheus:** Enabled on the model cluster
+  (providing the `monitoring.googleapis.com/v1` `PodMonitoring` CRD).
+- **`Secret/vllm-ingress-tls` in `namespace: gke-system`:** Issued by
+  `ClusterIssuer/hybrid-agents-ca` on the Gateway and Tools cluster with your
+  model cluster's `ingressVIP` in `spec.ipAddresses` and copied into
+  `namespace: gke-system` on the model cluster, as described in the Solution
+  Reference Implementation step **Expose the model tier over HTTPS**.
+
+## Contents
+
+- `vllm-pvc.yaml`: `PersistentVolumeClaim/model-cache-pvc` (`100Gi`,
+  `storageClassName: local-shared`) in `namespace: gemma-serving` for caching
+  Hugging Face model weights across restarts.
+- `vllm-deployment.yaml`: `Deployment/vllm-deployment` serving
+  `google/gemma-4-31B-it` with `--quantization=fp8` and the two flags required
+  for OpenAI-compatible ADK tool calling (`--enable-auto-tool-choice` and
+  `--tool-call-parser=gemma4`).
+- `vllm-service.yaml`: `Service/vllm-service` (`type: ClusterIP`, port `8000`).
+- `vllm-https-ingress.yaml`: `Ingress/vllm-https-ingress` exposing
+  `vllm-service:8000` over TLS on the cluster's `ingressVIP` (`:443`) using the
+  bundled `istio-ingress` proxy in `gke-system` and `Secret/vllm-ingress-tls`
+  (signed by `ClusterIssuer/hybrid-agents-ca`).
+- `vllm-pod-monitoring.yaml`: `PodMonitoring/vllm-pod-monitoring` scraping vLLM
+  metrics in `gemma-serving` for Google Cloud Managed Service for Prometheus.
+- `gpu-pod-monitoring.yaml`: `PodMonitoring/dcgm-gmp` scraping NVIDIA DCGM
+  exporter metrics in `gpu-operator`.
+
+## Deployment steps
+
+1. Create `namespace: gemma-serving` on the model cluster. Because
+   `google/gemma-4-31B-it` is published under the Apache 2.0 license and
+   publicly downloadable without gating on Hugging Face,
+   `Secret/hf-token-secret` is optional (`optional: true` in
+   `vllm-deployment.yaml`) and only needed if you want higher Hugging Face Hub
+   download rate limits:
+
+   ```bash
+   kubectl create namespace gemma-serving
+   # Optional: create hf-token-secret for higher Hugging Face Hub rate limits
+   kubectl -n gemma-serving create secret generic hf-token-secret \
+     --from-literal=token="${HF_TOKEN}"
+   ```
+
+2. Ensure `Secret/vllm-ingress-tls` (issued on the Gateway and Tools cluster per
+   the Solution Reference Implementation step **Expose the model tier over
+   HTTPS**) is present in `namespace: gke-system` on the model cluster.
+
+3. Apply the model-tier manifests on the model cluster:
+
+   ```bash
+   kubectl apply -f tests/model-tier/vllm-pvc.yaml
+   kubectl apply -f tests/model-tier/vllm-deployment.yaml
+   kubectl apply -f tests/model-tier/vllm-service.yaml
+   kubectl apply -f tests/model-tier/vllm-https-ingress.yaml
+   kubectl apply -f tests/model-tier/vllm-pod-monitoring.yaml
+   kubectl apply -f tests/model-tier/gpu-pod-monitoring.yaml
+   ```

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="true" enabled="true" timeLimit="200" name="JS-SetQuotaHeaders">
+  <DisplayName>Populate Token Quota Headers, Retry-After, and FinOps Variables</DisplayName>
+  <ResourceURL>jsc://set_quota_headers.js</ResourceURL>
+</Javascript>
