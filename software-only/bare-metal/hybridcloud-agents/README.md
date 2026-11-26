@@ -50,6 +50,15 @@ Gemma on a pre-deployed vLLM cluster) and
 The gateway routes requests by data classification with Model Armor screening,
 token quotas, and local failover.
 
+This solution is meant to be a proof of concept (MVP). It demonstrates the
+feasibility of a hybrid cloud agentic platform on Distributed Cloud software
+only. It provides test configurations for functional validation, not
+production-ready configurations of every component. For production-grade
+configurations, especially security, the customer would still need to work with
+Google sales and support specialists for products outside Distributed Cloud
+software only, such as Gemini Enterprise Agent Platform, Apigee hybrid, and
+Model Armor. For open-source components, community support would be required.
+
 <!-- prettier-ignore -->
 > [!IMPORTANT]
 > Deploying or upgrading the model cluster is out of scope; see [Open model
@@ -78,18 +87,20 @@ token quotas, and local failover.
 > for the [Google Open Source Software Vulnerability Rewards
 > Program](https://bughunters.google.com/open-source-security). This solution
 > does not include model weights: you must obtain any model you deploy yourself
-> and comply with its upstream license (for example, the [Gemma Terms of
-> Use](https://ai.google.dev/gemma/terms) before deploying Gemma 4 weights in
-> your environment). Organizations planning a deployment must independently
-> analyze, test, and validate all sizing, availability, security, and
-> operational considerations against their specific production requirements.
+> and comply with its upstream license (for example, the [Apache License
+> 2.0](https://ai.google.dev/gemma/docs/gemma_4_license) for Gemma 4 weights).
+> Organizations planning a deployment must independently analyze, test, and
+> validate all sizing, availability, security, and operational considerations
+> against their specific production requirements.
 
 ### Features and capabilities
 
 - **Hybrid model access:** Sovereign prompts stay on local vLLM with zero cloud
   bytes; cloud-eligible prompts route to Gemini on GEAP via
   [Model Armor](https://docs.cloud.google.com/model-armor/overview) with local
-  failover if needed.
+  failover if needed. Once a turn or session consumes sovereign data from a
+  sovereign agent or `mcp-toolbox`, sticky downgrade keeps later model calls on
+  local vLLM and blocks cloud MCP tools.
 - **Centralized gateway policy control:** The Apigee hybrid AI gateway governs
   all agent ingress, [Agent2Agent (A2A)](https://a2a-protocol.org/latest/)
   calls, and egress so no agent bypasses policy enforcement.
@@ -165,8 +176,10 @@ token quotas, and local failover.
 - **Shared platform services (agent and gateway-and-tool tiers):**
   - **Certificate and secret operators:** System-managed `cert-manager` issues
     internal TLS/mTLS certificates from a shared root CA.
-    [External Secrets Operator (ESO)](https://external-secrets.io/latest/) syncs
-    gateway keys, database credentials, and CA secrets from Secret Manager.
+    [External Secrets Operator (ESO)](https://external-secrets.io/latest/) uses
+    namespace-scoped `SecretStore` resources and per-namespace fleet WIF
+    principals to sync gateway keys, database credentials, and the public CA
+    bundle from Secret Manager.
   - **Telemetry collectors:**
     [Google-Built OpenTelemetry Collector](https://docs.cloud.google.com/stackdriver/docs/instrumentation/google-built-otel),
     Managed Service for Prometheus collectors, and cluster log forwarders.
@@ -174,7 +187,10 @@ token quotas, and local failover.
   - **Model-tier HTTPS ingress:** Bundled cluster ingress presenting a shared
     internal CA certificate for Apigee TLS verification.
   - **Pre-deployed vLLM server:** GPU-backed open-weight model server (for
-    example, Gemma 4) deployed per the companion guide.
+    example, Gemma 4) deployed per the companion guide. Gemma 4
+    (`google/gemma-4-31B-it`) is released under the
+    [Apache License 2.0](https://ai.google.dev/gemma/docs/gemma_4_license), and
+    the weights are not gated.
 - **On-premises data systems (validation data sources, customer managed):**
   - **Databases, vector stores, and APIs:** Customer-managed PostgreSQL, AlloyDB
     Omni with `pgvector`, search stores, and internal REST APIs. They run
@@ -257,11 +273,11 @@ Git workflow before runtime traffic occurs.
 
 ![MCP server registration and discovery flow](docs/images/mcp-registration-sequence.png)
 
-1. **Path 1 — Apigee MCP-mode proxy:** Pushing a release tag for an Apigee
+1. **Path 1 (Apigee MCP-mode proxy):** Pushing a release tag for an Apigee
    MCP-mode proxy bundle triggers Cloud Build to deploy the proxy revision;
    Apigee publishes metadata to API Hub, which automatically syncs the MCP
    server into GEAP Agent Registry.
-2. **Path 2 — Native and pass-through MCP servers:** This path covers MCP
+2. **Path 2 (Native and pass-through MCP servers):** This path covers MCP
    Toolbox and proxied cloud MCP servers. Pushing a release tag triggers Cloud
    Build to register the MCP server and tools in GEAP Agent Registry. The same
    tag builds the Config Delivery release, and updating the `FleetPackage` to
@@ -280,18 +296,21 @@ servers, and Cloud Observability; the numbered steps below match the diagram.
 
 1. **Client and A2A ingress (1):** Callers and peer agents send requests to the
    Apigee hybrid HTTPS ingress; the agent tier exposes no caller-facing
-   endpoints.
+   endpoints. Northbound caller dispatch proxies use a dedicated
+   `northbound-agent-callers` API Product, separate from internal agent egress
+   products.
 2. **Authenticated agent dispatch (2):** Apigee authenticates the caller,
    enforces quotas, and forwards the request over mTLS to the agent-tier Envoy
    ingress proxy. The proxy verifies the gateway certificate before routing to
    the ADK agent pod.
 3. **Mediated agent egress (3):** Default-deny `NetworkPolicy` forces all agent
-   egress through the local Envoy egress proxy, which attaches the agent's
-   gateway credential and projected KSA JWT over mTLS to Apigee.
-4. **Sovereign local inference (4):** For sovereign requests—and cloud-eligible
-   failover traffic—Apigee verifies agent identity and model entitlement,
-   enforces token budgets, and routes the prompt over TLS to the pre-deployed
-   vLLM model tier.
+   egress through the local Envoy egress proxy. The ADK client attaches the
+   projected KSA JWT in `x-agent-ksa-token`, and Envoy injects the agent's
+   `x-api-key` over mTLS to Apigee.
+4. **Sovereign local inference (4):** For sovereign requests and cloud-eligible
+   failover traffic, Apigee verifies agent identity and model entitlement. It
+   then enforces token budgets and routes the prompt over TLS to the
+   pre-deployed vLLM model tier.
 5. **Governed cloud model routing (5):** For cloud-eligible requests to Gemini
    on GEAP, Apigee screens prompts and responses through Model Armor and
    enforces token quotas. On service errors, it fails over automatically to
@@ -356,15 +375,16 @@ The following table lists who manages each solution component:
 
 <!-- mdformat off -->
 
-| Component                                                                                | Managed by   | Notes                                                                                                                                                                                                                                                                               |
-| :--------------------------------------------------------------------------------------- | :----------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Hosts, OS, storage, NTP, and VIPs**                                                    | **Customer** | Provisions bare-metal servers, storage, networking etc.                                                                                                                                                                                                                             |
-| **Pre-deployed vLLM, GPU Operator, and model-tier ingress**                              | **Joint**    | Google documents the reference deployment in [Open model serving on Distributed Cloud software only](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/solutions/open-model-serving-sw-only); customer operates the model cluster and GPU Operator. |
-| **Distributed Cloud software only (1.36.x+) and Config Sync**                            | **Joint**    | Google supports the platform under SLA; customer installs clusters in Step 0, runs the Config Delivery pipeline or documented Helm charts, and manages upgrades.                                                                                                                    |
-| **Apigee hybrid 1.17 runtime and control plane**                                         | **Joint**    | Google operates the control plane and supports Apigee hybrid 1.17 on certified bare-metal versions; customer operates the runtime Helm release and Cassandra data lifecycle.                                                                                                        |
-| **Config Delivery, Cloud Build, fleet WIF, Gemini on GEAP, Model Armor, and Cloud MCPs** | **Joint**    | Google operates the cloud services; customer configures IAM, API Products, triggers, and safety templates.                                                                                                                                                                          |
-| **Agent observability in Cloud Observability, API Hub, and GEAP Agent Registry**         | **Joint**    | Google operates the cloud backends; customer configures OpenTelemetry Collectors and the registration pipeline.                                                                                                                                                                     |
-| **Google ADK agents, MCP Toolbox, Envoy proxies, and External Secrets Operator**         | **Joint**    | Google provides deployment documentation and reference manifests as part of this solution; customer pins images and operates the workloads.                                                                                                                                         |
+| Component                                                                                      | Managed by   | Notes                                                                                                                                                                                                                                                                               |
+| :--------------------------------------------------------------------------------------------- | :----------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Hosts, OS, storage, NTP, and VIPs**                                                          | **Customer** | Provisions bare-metal servers, storage, networking etc.                                                                                                                                                                                                                             |
+| **Pre-deployed vLLM, GPU Operator, and model-tier ingress**                                    | **Joint**    | Google documents the reference deployment in [Open model serving on Distributed Cloud software only](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/solutions/open-model-serving-sw-only); customer operates the model cluster and GPU Operator. |
+| **Distributed Cloud software only (1.36.x+) and Config Sync**                                  | **Joint**    | Google supports the platform under SLA; customer installs clusters in Step 0, runs the Config Delivery pipeline or documented Helm charts, and manages upgrades.                                                                                                                    |
+| **Apigee hybrid 1.17 runtime and control plane**                                               | **Joint**    | Google operates the control plane and supports Apigee hybrid 1.17 on certified bare-metal versions; customer operates the runtime Helm release and Cassandra data lifecycle.                                                                                                        |
+| **Config Delivery, Cloud Build, fleet WIF, Gemini on GEAP, Model Armor, and Cloud MCPs**       | **Joint**    | Google operates the cloud services; customer configures IAM, API Products, triggers, and safety templates.                                                                                                                                                                          |
+| **Agent observability in Cloud Observability, API Hub, and GEAP Agent Registry**               | **Joint**    | Google operates the cloud backends; customer configures OpenTelemetry Collectors and the registration pipeline.                                                                                                                                                                     |
+| **Google ADK agents, MCP Toolbox, Envoy proxies, and External Secrets Operator**               | **Joint**    | Google provides deployment documentation and reference manifests as part of this solution; customer pins images and operates the workloads.                                                                                                                                         |
+| **Production sizing, HA, and security for components outside Distributed Cloud software only** | **Customer** | Production-grade sizing, high availability, and security configuration of all components outside Distributed Cloud software only, including open-source components. Engage Google sales and support for Google products such as Apigee hybrid and Model Armor.                      |
 
 <!-- mdformat on -->
 
@@ -410,6 +430,9 @@ The following table lists who manages each solution component:
   local vLLM or cloud Gemini. It filters MCP tools per API Product, enforces
   token budgets, and streams responses over
   [Server-Sent Events (SSE)](https://docs.cloud.google.com/apigee/docs/api-platform/develop/server-sent-events).
+  All agent model calls use one governed OpenAI-compatible facade
+  (`POST /v1/chat/completions` and `GET /v1/models`), with no per-request client
+  mode override.
 
 ### Observability and Google Cloud integration
 
@@ -451,8 +474,8 @@ The following table lists who manages each solution component:
   SSD storage and synchronized host clocks across data nodes to prevent
   compaction stalls and quota drift.
 - **Gateway tier node sizing:** One 16-vCPU node can host Apigee hybrid and MCP
-  Toolbox for functional testing. Multi-node layouts—at least two nodes, or
-  separate three-node data and runtime pools in production—provide headroom and
+  Toolbox for functional testing. Multi-node layouts (at least two nodes, or
+  separate three-node data and runtime pools in production) provide headroom and
   fault isolation.
 - **Gateway token budget enforcement:** Apigee enforces per-minute prompt token
   limits and rolling token quotas at the gateway, returning HTTP 429 before
@@ -482,7 +505,10 @@ The following table lists who manages each solution component:
   revisions, and Agent Registry entries in one workflow.
 - **Tiered internal PKI:** The gateway-and-tool tier holds the shared internal
   root CA private key, while other tiers receive scoped intermediate CA or leaf
-  secrets via Secret Manager and External Secrets.
+  secrets via Secret Manager and External Secrets. Agent-tier ingress restricts
+  port `8443` to the gateway node CIDR, and system-managed `cert-manager`
+  supports `nameConstraints` on the intermediate CA to restrict minted client
+  certificates.
 
 ### Security and compliance
 
@@ -495,8 +521,10 @@ The following table lists who manages each solution component:
   are built from audited source, locked to a SHA-256 digest, and have code
   execution disabled.
 - **Keyless pod authentication and secret injection:** Pods authenticate with
-  short-lived federated tokens rather than static cloud keys, and External
-  Secrets injects gateway and database credentials into memory-backed volumes.
+  short-lived federated tokens rather than static cloud keys. External Secrets
+  renders MCP Toolbox database credentials into a Kubernetes `Secret` mounted as
+  a memory-backed volume, with no `PG_*` environment variables. It also injects
+  gateway keys into Envoy memory-backed volumes.
 
 ## Design decisions
 
@@ -537,7 +565,7 @@ budgets, safety screening, and MCP tool access.
   on the gateway-and-tool tier, paired with local Envoy ingress/egress proxies
   and Dataplane V2 `NetworkPolicy` on the agent tier.
 - **Rationale:** Apigee hybrid 1.17 is supported on Distributed Cloud software
-  only 1.33.x–1.36.x bare metal
+  only 1.33.x to 1.36.x bare metal
   ([supported platforms](https://docs.cloud.google.com/apigee/docs/hybrid/supported-platforms)).
   It unifies API Products, built-in `/mcp` discovery with API Hub sync,
   [LLM token quotas](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/llm-token-quota-policy),
@@ -671,12 +699,32 @@ and External Secrets Operator) that rely on ordered Helm lifecycle hooks.
 
 - **Trusted, non-executing agent code only:** Runs reviewed, digest-pinned
   container images with dynamic code execution and skill scripts disabled;
-  untrusted or model-generated code execution is out of scope.
+  untrusted or model-generated code execution is out of scope. A fully secured
+  agent runtime based on Agent Substrate is the target evolution for a future
+  Distributed Cloud software only release.
 - **Empty key secret left on agent deletion:** Removing an agent revokes its key
   and destroys the key versions automatically, while the empty Secret Manager
   secret stays. For least privilege, the pipeline service account is limited to
   managing versions of each agent's own secret. Operators can delete the empty
   secret.
+- **Single-node Apigee hybrid validation layout:** A single-node Apigee hybrid
+  cluster validated the AI gateway. Production deployments require a
+  [multi-node layout](https://docs.cloud.google.com/apigee/docs/hybrid/v1.17/cluster-overview)
+  and separate per-component
+  [Apigee hybrid service accounts](https://docs.cloud.google.com/apigee/docs/hybrid/v1.17/install-service-accounts).
+- **Backend TLS posture:** Connections from Apigee to MCP Toolbox and to the
+  model-tier ingress use one-way TLS, `NetworkPolicy`, and API-key or JWT
+  checks. Mutual TLS to those backends is not configured.
+- **Model Armor input size cap:** Model Armor input screening inspects the full
+  conversation up to a configured size cap. Larger cloud-eligible prompts are
+  rejected with HTTP 413.
+- **Apigee runtime Model Armor logging:** The Apigee runtime can log Model Armor
+  request and response payloads for cloud-eligible traffic to Cloud Logging.
+  Plan Cloud Logging exclusions or retention policies for those entries.
+- **Test configurations outside the platform:** Configurations for components
+  outside Distributed Cloud software only are test configurations for functional
+  validation, not production-ready setups. See the proof of concept scope notice
+  in [Overview](#overview).
 
 ## What's next
 

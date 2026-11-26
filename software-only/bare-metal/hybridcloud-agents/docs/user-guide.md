@@ -37,12 +37,21 @@ design** in the
 Each step is shown explicitly for auditability and learning. Day-2 agent and MCP
 server changes are already automated by the release pipeline on each tag.
 
+Phase 1 of this solution is a proof of concept (MVP). It demonstrates the
+feasibility of a hybrid cloud agentic platform on Distributed Cloud software
+only. It provides test configurations for functional validation, not
+production-ready configurations of every component. For production-grade
+configurations, especially security, the customer still needs to work with
+Google sales and support specialists for products outside Distributed Cloud
+software only, such as Gemini Enterprise Agent Platform, Apigee hybrid, and
+Model Armor. For open-source components, community support is required.
+
 **How to use this guide:**
 
 - Start in [Before you begin](#before-you-begin) to load the SRI `.env` file,
   create the `agent_call` helper, and learn how to read an agent response
   (including `trace_id` and token-quota headers).
-- Run Steps 1–4 (`v1.1.0` → `v1.4.0`) in order; each step promotes one active
+- Run Steps 1 to 4 (`v1.1.0` → `v1.4.0`) in order; each step promotes one active
   declaration via `git mv`, renders the `agents` bundle, pushes a tag, and
   verifies both CLI and Google Cloud console surfaces.
 - Use
@@ -103,7 +112,7 @@ hub-synced `mcp-discovery-v1` entry stays present throughout.
   GitOps, and MCP variables (`APIGEE_ORG`, `APIGEE_ENV`, `APIGEE_SA`,
   `REGISTRAR_SA`, `PUBLISHER_SA`, `BUILD_SA`, `GIT_CONNECTION`,
   `GIT_REPOSITORY`, `REPO_DIR`, `PKG_DIR`, `AR_REPOSITORY`, `MCP_BUCKET`,
-  `MCP_DB_SECRET`, `MCP_DB_CREDS_FILE`, `ESO_PRINCIPAL`, `RELEASE_TAG`).
+  `MCP_DB_SECRET`, `MCP_DB_CREDS_FILE`, `ESO_AGENTS_PRINCIPAL`, `RELEASE_TAG`).
 - SRI Step 7 pushed `v1.0.0` with an empty active set. Each step below
   increments `RELEASE_TAG` (`v1.1.0` → `v1.2.0` → `v1.3.0` → `v1.4.0`) in
   `${SOLUTION_HOME}/.env` and pushes an immutable `vX.Y.Z` tag (no pre-release
@@ -220,7 +229,7 @@ below, inspect the error code in `body`:
 Every `agent_call <deployment> agent /invoke ...` call prints a single JSON
 object with the HTTP `status`, the `x-` response headers returned by Apigee and
 the agent, and the agent's JSON `body`. The following redacted sample shows the
-fields you check throughout Steps 1–3:
+fields you check throughout Steps 1 to 3:
 
 ```json
 {
@@ -276,7 +285,12 @@ How to use these fields during verification:
 Optional: the repository includes [`tests/verify/`](../tests/verify) to repeat
 the checks of each step with one command (`verify.sh step1` to `step4`, or
 `smoke`). It is provided for information and does not replace the steps in this
-guide.
+guide. It also runs security negative checks for mixed-case sovereign burst
+(403), retired `/v1beta` (404), non-chat `/v1/completions` (401), and
+`client_mode` overrides (400). Additional checks verify cross-agent path
+suffixes (404), northbound dispatch scope (401), unauthenticated
+`/gateway-catalog/status` (401), and missing or forged `/mcp` JWTs (401). Pass
+`--allow-failover-sim` only while `allow_failover_simulation` is enabled.
 
 ## Step 1: Configure the AI Gateway and onboard the first agent (v1.1.0)
 
@@ -285,13 +299,15 @@ into `registry/agents/`, create its key secret and the Cloud Build trigger,
 build the sample agent images, push tag `v1.1.0`, and create
 `FleetPackage/hybridcloud-agents`. Pushing `v1.1.0` configures the Apigee AI
 Gateway by deploying the core proxies: `llm-router-v1` (with Model Armor, token
-quotas, and local failover), `gemini-genai-v1`, `ops-agent-dispatch-v1`,
-`agent-dispatch-v1`, `a2a-dispatch-v1`, `gateway-catalog-v1`, and
-`mcp-discovery-v1`. Inactive MCP proxies such as `mcp-toolbox-v1` stay
-undeployed until activated. The trigger also creates `ops-orchestrator-app` and
-its `cloud-eligible-agents` and `a2a-sovereign-callers` products, writes the
-orchestrator API key to Secret Manager, and registers `adk-ops-orchestrator` in
-Agent Registry.
+quotas, and local failover), `ops-agent-dispatch-v1`, `agent-dispatch-v1`,
+`a2a-dispatch-v1`, `gateway-catalog-v1`, and `mcp-discovery-v1`. Inactive MCP
+proxies such as `mcp-toolbox-v1` stay undeployed until activated. The trigger
+also creates `ops-orchestrator-app` and its `cloud-eligible-agents` and
+`a2a-sovereign-callers` products, writes the orchestrator API key to Secret
+Manager, and registers `adk-ops-orchestrator` in Agent Registry. External
+northbound callers use a separate app subscribed to `northbound-agent-callers`
+so internal agent egress keys cannot invoke northbound dispatch proxies
+(returning 401).
 
 ### What the AI Gateway configures and where to learn more
 
@@ -301,15 +317,15 @@ does in the solution and where to read its Apigee configuration guide:
 
 <!-- mdformat off -->
 
-| Capability (proxy or policy)                                                                                                              | What it does in this solution                                                                                                                                                                                                   | Apigee documentation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| :---------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Model routing, aliases, canary, and failover** (`llm-router-v1`, `gemini-genai-v1`, `TargetServer`, `ServiceCallout-FailoverLocalVLLM`) | Routes `enterprise-flash` and `enterprise-sovereign` by `x-data-classification`, supports canary traffic splitting, and fails cloud-eligible requests over to local vLLM on cloud 5xx while keeping sovereign calls on-premises | [Build an AI gateway](https://docs.cloud.google.com/apigee/docs/api-platform/fundamentals/build-ai-gateway), [Load balancing across backend servers](https://docs.cloud.google.com/apigee/docs/api-platform/deploy/load-balancing-across-backend-servers)                                                                                                                                                                                                                                                   |
-| **LLM token quotas and prompt limits** (`LLMTokenQuota`, `PromptTokenLimit`)                                                              | Enforces per-product hourly LLM token budgets (`X-TokenQuota-*` headers) and per-minute prompt-token burst limits (`2400pm`) on cloud-eligible routes                                                                           | [LLMTokenQuota policy](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/llm-token-quota-policy), [PromptTokenLimit policy](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/prompt-token-limit-policy), [Using AI token policies](https://docs.cloud.google.com/apigee/docs/api-platform/tutorials/using-ai-token-policies)                                                                                                                               |
-| **Prompt and response screening** (`SanitizeUserPrompt`, `SanitizeModelResponse` via Model Armor)                                         | Screens cloud-eligible prompts, tool-call arguments, and responses pre- and post-inference, returning HTTP `400` on prompt-injection or RAI matches; skipped on sovereign and local-failover routes                             | [Model Armor in Apigee](https://docs.cloud.google.com/apigee/docs/api-platform/security/model-armor/model-armor-overview), [SanitizeUserPrompt policy](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/sanitize-user-prompt-policy), [SanitizeModelResponse policy](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/sanitize-llm-response-policy)                                                                                                       |
-| **API products, apps, keys, and traffic protection** (`VerifyAPIKey`, `Quota`, `SpikeArrest`, `JSONThreatProtection`)                     | Scopes each agent's `DeveloperApp` to entitled `APIProduct`s (allowed models, MCP tool scopes, and per-caller A2A quotas), enforces spike arrest (`30ps`), and rejects malformed JSON                                           | [What is an API product?](https://docs.cloud.google.com/apigee/docs/api-platform/publish/what-api-product), [Register apps and manage API keys](https://docs.cloud.google.com/apigee/docs/api-platform/publish/creating-apps-surface-your-api), [SpikeArrest policy](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/spike-arrest-policy), [JSONThreatProtection policy](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/json-threat-protection-policy) |
-| **Workload identity and dynamic config** (`VerifyJWT`, `KeyValueMapOperations`)                                                           | Verifies each agent pod's projected KSA JWT against the cluster JWKS and binds `sub` to the `agent-jwt-subjects` KVM; resolves model aliases and `canary_weight` from `ai-model-aliases`                                        | [VerifyJWT policy](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/verify-jwt-policy), [KeyValueMapOperations policy](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/key-value-map-operations-policy)                                                                                                                                                                                                                                                  |
-| **SSE streaming** (`<EventFlow>` and `LLMTokenQuota-Count-SSE` in `llm-router-v1`)                                                        | Streams responses incrementally while counting tokens from the final usage frame and screening cloud chunks in 25-word Model Armor windows                                                                                      | [Server-Sent Events (SSE) in Apigee](https://docs.cloud.google.com/apigee/docs/api-platform/develop/server-sent-events)                                                                                                                                                                                                                                                                                                                                                                                     |
-| **MCP proxies, API hub, and Agent Registry** (`mcp-toolbox-v1`, `mcp-discovery-v1`, `a2a-dispatch-v1`)                                    | Exposes on-premises and cloud MCP servers as governed proxies with per-product tool filtering and synchronizes MCP and agent metadata to API hub and Agent Registry                                                             | [Enable MCP in Apigee](https://docs.cloud.google.com/apigee/docs/api-platform/apigee-mcp/enable-mcp), [Manage MCP proxies in API hub](https://docs.cloud.google.com/apigee/docs/apihub/manage-mcp-proxies), [Agent Registry integration](https://docs.cloud.google.com/apigee/docs/apihub/manage-agent-registry-integration)                                                                                                                                                                                |
+| Capability (proxy or policy)                                                                                           | What it does in this solution                                                                                                                                                                                                   | Apigee documentation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| :--------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Model routing, aliases, canary, and failover** (`llm-router-v1`, `TargetServer`, `ServiceCallout-FailoverLocalVLLM`) | Routes `enterprise-flash` and `enterprise-sovereign` by `x-data-classification`, supports canary traffic splitting, and fails cloud-eligible requests over to local vLLM on cloud 5xx while keeping sovereign calls on-premises | [Build an AI gateway](https://docs.cloud.google.com/apigee/docs/api-platform/fundamentals/build-ai-gateway), [Load balancing across backend servers](https://docs.cloud.google.com/apigee/docs/api-platform/deploy/load-balancing-across-backend-servers)                                                                                                                                                                                                                                                   |
+| **LLM token quotas and prompt limits** (`LLMTokenQuota`, `PromptTokenLimit`)                                           | Enforces per-product hourly LLM token budgets (`X-TokenQuota-*` headers) and per-minute prompt-token burst limits (`2400pm`) on cloud-eligible routes                                                                           | [LLMTokenQuota policy](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/llm-token-quota-policy), [PromptTokenLimit policy](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/prompt-token-limit-policy), [Using AI token policies](https://docs.cloud.google.com/apigee/docs/api-platform/tutorials/using-ai-token-policies)                                                                                                                               |
+| **Prompt and response screening** (`SanitizeUserPrompt`, `SanitizeModelResponse` via Model Armor)                      | Screens cloud-eligible prompts, tool-call arguments, and responses pre- and post-inference, returning HTTP `400` on prompt-injection or RAI matches; skipped on sovereign and local-failover routes                             | [Model Armor in Apigee](https://docs.cloud.google.com/apigee/docs/api-platform/security/model-armor/model-armor-overview), [SanitizeUserPrompt policy](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/sanitize-user-prompt-policy), [SanitizeModelResponse policy](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/sanitize-llm-response-policy)                                                                                                       |
+| **API products, apps, keys, and traffic protection** (`VerifyAPIKey`, `Quota`, `SpikeArrest`, `JSONThreatProtection`)  | Scopes each agent's `DeveloperApp` to entitled `APIProduct`s (allowed models, MCP tool scopes, and per-caller A2A quotas), enforces spike arrest (`30ps`), and rejects malformed JSON                                           | [What is an API product?](https://docs.cloud.google.com/apigee/docs/api-platform/publish/what-api-product), [Register apps and manage API keys](https://docs.cloud.google.com/apigee/docs/api-platform/publish/creating-apps-surface-your-api), [SpikeArrest policy](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/spike-arrest-policy), [JSONThreatProtection policy](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/json-threat-protection-policy) |
+| **Workload identity and dynamic config** (`VerifyJWT`, `KeyValueMapOperations`)                                        | Verifies each agent pod's projected KSA JWT against the cluster JWKS and binds `sub` to the `agent-jwt-subjects` KVM; resolves model aliases and `canary_weight` from `ai-model-aliases`                                        | [VerifyJWT policy](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/verify-jwt-policy), [KeyValueMapOperations policy](https://docs.cloud.google.com/apigee/docs/api-platform/reference/policies/key-value-map-operations-policy)                                                                                                                                                                                                                                                  |
+| **SSE streaming** (`<EventFlow>` and `LLMTokenQuota-Count-SSE` in `llm-router-v1`)                                     | Streams responses incrementally while counting tokens from the final usage frame and screening cloud chunks in 25-word Model Armor windows                                                                                      | [Server-Sent Events (SSE) in Apigee](https://docs.cloud.google.com/apigee/docs/api-platform/develop/server-sent-events)                                                                                                                                                                                                                                                                                                                                                                                     |
+| **MCP proxies, API hub, and Agent Registry** (`mcp-toolbox-v1`, `mcp-discovery-v1`, `a2a-dispatch-v1`)                 | Exposes on-premises and cloud MCP servers as governed proxies with per-product tool filtering and synchronizes MCP and agent metadata to API hub and Agent Registry                                                             | [Enable MCP in Apigee](https://docs.cloud.google.com/apigee/docs/api-platform/apigee-mcp/enable-mcp), [Manage MCP proxies in API hub](https://docs.cloud.google.com/apigee/docs/apihub/manage-mcp-proxies), [Agent Registry integration](https://docs.cloud.google.com/apigee/docs/apihub/manage-agent-registry-integration)                                                                                                                                                                                |
 
 <!-- mdformat on -->
 
@@ -352,7 +368,7 @@ enabled.
 
 ```bash
 gcloud secrets create apigee-ops-orchestrator-api-key --replication-policy=automatic --project="${PROJECT_ID}"
-gcloud secrets add-iam-policy-binding apigee-ops-orchestrator-api-key --member="${ESO_PRINCIPAL}" \
+gcloud secrets add-iam-policy-binding apigee-ops-orchestrator-api-key --member="${ESO_AGENTS_PRINCIPAL}" \
   --role=roles/secretmanager.secretAccessor --project="${PROJECT_ID}"
 for ROLE in roles/secretmanager.secretVersionAdder roles/secretmanager.secretVersionManager; do
   gcloud secrets add-iam-policy-binding apigee-ops-orchestrator-api-key --member="serviceAccount:${REGISTRAR_SA}" \
@@ -369,15 +385,15 @@ succeeds.
 - **Security > Secret Manager**
   (`https://console.cloud.google.com/security/secret-manager?project=${PROJECT_ID}`):
   open `apigee-ops-orchestrator-api-key` and verify on the **Permissions** tab
-  that `ESO_PRINCIPAL` holds `Secret Manager Secret Accessor` and `REGISTRAR_SA`
-  holds `Secret Manager Secret Version Adder` and
+  that `ESO_AGENTS_PRINCIPAL` holds `Secret Manager Secret Accessor` and
+  `REGISTRAR_SA` holds `Secret Manager Secret Version Adder` and
   `Secret Manager Secret Version Manager`.
 
 3.  [Workstation] Create the Cloud Build tag trigger with the twelve solution
     substitutions per
     [Create and manage build triggers](https://docs.cloud.google.com/build/docs/automating-builds/create-manage-triggers).
-    Creating the trigger here—after the orchestrator secret exists and before
-    pushing `v1.1.0`—ensures the SRI `v1.0.0` platform tag did not fire
+    Creating the trigger here, after the orchestrator secret exists and before
+    pushing `v1.1.0`, ensures the SRI `v1.0.0` platform tag did not fire
     `sync-apigee-identity` before per-agent secrets were created. The trigger
     carries the agent cluster JWKS so Apigee's `VerifyJWT` policies can verify
     agent tokens without giving the pipeline service account cluster API access.
@@ -562,8 +578,9 @@ and pods mount a projected token (`audience: api.hybrid-agents.internal`,
 `expectedJwtSubject` in `agent.yaml`.
 
 - [Workstation] Activate `adk-ops-orchestrator`, render and validate the
-  `agents` bundle, push `v1.1.0`, and create `FleetPackage/hybridcloud-agents`.
-  Then bind its least-privilege reconciler role to `agent-workloads` (see SRI
+  `agents` bundle, commit `registry/`, `fleet-package/`, and `tests/a2a/`, push
+  `v1.1.0`, and create `FleetPackage/hybridcloud-agents`. Then bind its
+  least-privilege reconciler role to `agent-workloads` (see SRI
   [Create the platform FleetPackage and bind reconciler roles](reference-implementation.md#create-the-platform-fleetpackage-and-bind-reconciler-roles)
   for the `roleRefs` pattern) and inspect the rollout and Agent Registry.
 
@@ -576,7 +593,7 @@ git -C "${REPO_DIR}" mv \
 "${PKG_DIR}/fleet-package/render.sh" agents
 grep -rn 'YOUR_' "${PKG_DIR}/fleet-package/environments/agents/" && echo "Unrendered placeholders found; fix them before you tag."
 TAG_NAME="${RELEASE_TAG}" "${PKG_DIR}/registry/validate-manifests.sh"
-git -C "${REPO_DIR}" add software-only/bare-metal/hybridcloud-agents/registry/ software-only/bare-metal/hybridcloud-agents/fleet-package/
+git -C "${REPO_DIR}" add software-only/bare-metal/hybridcloud-agents/registry/ software-only/bare-metal/hybridcloud-agents/fleet-package/ software-only/bare-metal/hybridcloud-agents/tests/a2a/
 git -C "${REPO_DIR}" commit -m "Onboard adk-ops-orchestrator (${RELEASE_TAG})"
 git -C "${REPO_DIR}" push origin main
 git -C "${REPO_DIR}" tag -a "${RELEASE_TAG}" -m "Hybrid Cloud AI Agents ${RELEASE_TAG}"
@@ -609,7 +626,7 @@ gcloud agent-registry services list --location="${REGION}" --project="${PROJECT_
 <!-- prettier-ignore -->
 > [!NOTE]
 > `FleetPackage/hybridcloud-agents-platform` stays on `v1.0.0` throughout Steps
-> 1–4 because neither `agents-platform` nor `gateway-tools-platform` changes.
+> 1 to 4 because neither `agents-platform` nor `gateway-tools-platform` changes.
 
 - [Workstation] Inspect the `v1.1.0` Cloud Build trigger log and confirm that
   the restricted `hybridcloud-agents` reconciler cannot read `Secret` objects.
@@ -656,7 +673,7 @@ Expected:
 - **Cloud Build > History**
   (`https://console.cloud.google.com/cloud-build/builds?project=${PROJECT_ID}`,
   region `${REGION}`): the `v1.1.0` `hybridcloud-agents-registry-sync` build
-  shows `SUCCESS` across Steps `#0`–`#3`. (In **Logging > Logs Explorer**,
+  shows `SUCCESS` across Steps `#0` to `#3`. (In **Logging > Logs Explorer**,
   filter
   `resource.type="build" AND logName="projects/YOUR_PROJECT_ID/logs/cloudbuild"`
   to inspect the build stream.)
@@ -698,7 +715,7 @@ Expected: `401` (`steps.oauth.v2.FailedToResolveAPIKey`).
     registered in Agent Registry.
 
 ```bash
-gcloud alpha agent-registry mcp-servers list --location="${REGION}" --project="${PROJECT_ID}" --format=yaml
+gcloud agent-registry mcp-servers list --location="${REGION}" --project="${PROJECT_ID}" --format=yaml
 ```
 
 Expected: the MCP server list contains the API hub-synced `mcp-discovery-v1`
@@ -749,23 +766,32 @@ arguments that `ApigeeLlm` sends.
 
 - **Apigee > Proxy development > API proxies** → `llm-router-v1` → **Debug**:
   the `SanitizeUserPrompt` Model Armor policy blocked the injection
-  pre-inference. (Model Armor screening events appear in Apigee Debug and API
-  metrics rather than Cloud Logging unless Data Access audit logs are explicitly
-  enabled.)
+  pre-inference. Apigee hybrid 1.17.3 runtime logs Model Armor requests at INFO
+  level on stderr
+  (`com.apigee.steps.aiprotection.execution.ModelArmorExecution`) on cloud-burst
+  calls; no template setting disables them. To suppress them in Cloud Logging,
+  add an exclusion on
+  `resource.labels.container_name="apigee-runtime" AND jsonPayload.className="com.apigee.steps.aiprotection.execution.ModelArmorExecution"`.
 - **Apigee > Analytics > API metrics**: 200 and 400 counts reflect the benign
   and blocked requests.
 
-5.  **Cloud-to-local failover:** [Workstation] Simulate a cloud outage with the
-    solution's test header.
+5.  **Cloud-to-local failover:** [Workstation] By default, Apigee ignores
+    `x-simulate-cloud-burst-status`. Enable the test toggle with
+    `tests/fixtures/toggle-failover-simulation.sh true`, test failover, and
+    disable it afterward so the header is ignored again.
 
 ```bash
+"${PKG_DIR}/tests/fixtures/toggle-failover-simulation.sh" true
 agent_call adk-ops-orchestrator gateway /v1/chat/completions \
   '{"model": "enterprise-flash", "messages": [{"role": "user", "content": "Reply FAILOVER_OK."}]}' \
   "x-data-classification=cloud-eligible" "x-simulate-cloud-burst-status=503"
+"${PKG_DIR}/tests/fixtures/toggle-failover-simulation.sh" false
 ```
 
-Expected: `status` 200 with `x-hca-routed-tier: local-vllm-failover`. By design,
-cloud Model Armor does not re-screen the local fallback answer.
+Expected: valid non-streaming and SSE failover responses (`status` 200,
+`x-hca-routed-tier: local-vllm-failover`) with token quota counted. After
+toggling off, the failover hook is ignored again. By design, cloud Model Armor
+does not re-screen the local fallback answer.
 
 [Cloud Console Verification] In the Google Cloud console, confirm:
 
@@ -908,7 +934,7 @@ git -C "${REPO_DIR}" mv \
   software-only/bare-metal/hybridcloud-agents/registry/mcp-servers/mcp-toolbox.yaml
 "${PKG_DIR}/fleet-package/render.sh" agents
 TAG_NAME="${RELEASE_TAG}" "${PKG_DIR}/registry/validate-manifests.sh"
-git -C "${REPO_DIR}" add software-only/bare-metal/hybridcloud-agents/registry/ software-only/bare-metal/hybridcloud-agents/fleet-package/
+git -C "${REPO_DIR}" add software-only/bare-metal/hybridcloud-agents/registry/ software-only/bare-metal/hybridcloud-agents/fleet-package/ software-only/bare-metal/hybridcloud-agents/tests/a2a/
 git -C "${REPO_DIR}" commit -m "Onboard mcp-toolbox MCP server (${RELEASE_TAG})"
 git -C "${REPO_DIR}" push origin main
 git -C "${REPO_DIR}" tag -a "${RELEASE_TAG}" -m "Hybrid Cloud AI Agents ${RELEASE_TAG}"
@@ -1042,7 +1068,7 @@ automatically.
 
 ```bash
 gcloud secrets create apigee-sovereign-agent-api-key --replication-policy=automatic --project="${PROJECT_ID}"
-gcloud secrets add-iam-policy-binding apigee-sovereign-agent-api-key --member="${ESO_PRINCIPAL}" \
+gcloud secrets add-iam-policy-binding apigee-sovereign-agent-api-key --member="${ESO_AGENTS_PRINCIPAL}" \
   --role=roles/secretmanager.secretAccessor --project="${PROJECT_ID}"
 for ROLE in roles/secretmanager.secretVersionAdder roles/secretmanager.secretVersionManager; do
   gcloud secrets add-iam-policy-binding apigee-sovereign-agent-api-key --member="serviceAccount:${REGISTRAR_SA}" \
@@ -1058,8 +1084,8 @@ succeeds.
 
 - **Security > Secret Manager**
   (`https://console.cloud.google.com/security/secret-manager?project=${PROJECT_ID}`):
-  open `apigee-sovereign-agent-api-key` and verify the `ESO_PRINCIPAL` and
-  `REGISTRAR_SA` bindings on the **Permissions** tab.
+  open `apigee-sovereign-agent-api-key` and verify the `ESO_AGENTS_PRINCIPAL`
+  and `REGISTRAR_SA` bindings on the **Permissions** tab.
 
 ### Activate `adk-sovereign-agent` and deploy `v1.3.0`
 
@@ -1077,7 +1103,7 @@ git -C "${REPO_DIR}" mv \
 "${PKG_DIR}/fleet-package/render.sh" agents
 grep -rn 'YOUR_' "${PKG_DIR}/fleet-package/environments/agents/" && echo "Unrendered placeholders found; fix them before you tag."
 TAG_NAME="${RELEASE_TAG}" "${PKG_DIR}/registry/validate-manifests.sh"
-git -C "${REPO_DIR}" add software-only/bare-metal/hybridcloud-agents/registry/ software-only/bare-metal/hybridcloud-agents/fleet-package/
+git -C "${REPO_DIR}" add software-only/bare-metal/hybridcloud-agents/registry/ software-only/bare-metal/hybridcloud-agents/fleet-package/ software-only/bare-metal/hybridcloud-agents/tests/a2a/
 git -C "${REPO_DIR}" commit -m "Onboard adk-sovereign-agent (${RELEASE_TAG})"
 git -C "${REPO_DIR}" push origin main
 git -C "${REPO_DIR}" tag -a "${RELEASE_TAG}" -m "Hybrid Cloud AI Agents ${RELEASE_TAG}"
@@ -1141,8 +1167,8 @@ mcp-toolbox
 
 ### Verify Step 3 (`v1.3.0`)
 
-Run the per-caller A2A quota check (#5) last because it exhausts the
-orchestrator's A2A quota for two minutes.
+Run the per-caller A2A quota check (#5) last if you temporarily lower
+`a2a_quota_limit` below its `60/min` default to trigger HTTP 429.
 
 1.  **Sovereign flow (zero cloud bytes):** [Workstation] Confirm unauthenticated
     rejection and invoke `adk-sovereign-agent` end-to-end (MCP Toolbox + local
@@ -1184,9 +1210,10 @@ the cloud; if local vLLM is down, Apigee returns HTTP 503.
 - **Logging > Logs Explorer**
   (`https://console.cloud.google.com/logs/query?project=${PROJECT_ID}`): run
   `resource.type="k8s_container" AND resource.labels.cluster_name="YOUR_AGENTS_CLUSTER_NAME" AND resource.labels.namespace_name="agent-workloads" AND labels."k8s-pod/app.kubernetes.io/name"="adk-sovereign-agent"`
-  for sovereign agent logs, and run
-  `resource.type="k8s_container" AND resource.labels.cluster_name="YOUR_AGENTS_CLUSTER_NAME" AND resource.labels.namespace_name="agent-workloads" AND "YOUR_CANARY_STRING"`
-  to confirm zero prompt-leak hits.
+  for sovereign agent logs. Then run
+  `resource.type="k8s_container" AND "YOUR_CANARY_STRING"` across all fleet
+  clusters (including `MODEL_CLUSTER`, where vLLM runs without
+  `--enable-log-requests`) to confirm zero prompt-leak hits.
 - **Apigee > Analytics > API metrics**: 200, 401, and 403 counts match the
   sovereign and denied calls.
 
@@ -1229,9 +1256,11 @@ agent_call adk-ops-orchestrator agent /invoke \
 Expected: both calls return `status` 200 with an `a2a_subcall` showing
 `http_status: 200`, `peer_llm_backend: local-vllm`, `apigee_verified_sub` set to
 the orchestrator's service account, and matching `trace_id` and `peer_trace_id`
-(lab: 7 to 14 seconds); the first runs the orchestrator on Gemini
-(`vertex-gemini-*`), and the second keeps both agents on `local-vllm` with zero
-cloud bytes.
+(lab: 7 to 14 seconds). On the first (`cloud-eligible`) call, sovereign data
+triggers sticky downgrade (`sovereign_tainted: true`) so synthesis runs on local
+vLLM with zero sovereign canary hits in `apigee-runtime`, Vertex AI, or Model
+Armor logs. The second (`sovereign`) call keeps both agents on `local-vllm` with
+zero cloud bytes.
 
 [Cloud Console Verification] In the Google Cloud console, confirm:
 
@@ -1248,9 +1277,8 @@ cloud bytes.
 
 4.  **Rogue-caller rejection (`tests/a2a/`), cross-port isolation, and
     forged-key overwrite:** [Workstation] Run the self-pruning `tests/a2a/`
-    package, verify dual-direction port-scoped `NetworkPolicy` isolation on
-    `agent-egress-envoy`, and verify `credential_injector` `overwrite: true` on
-    both listeners.
+    package, bind its reconciler role, and wait for the Jobs to complete before
+    reading logs.
 
 ```bash
 sed -e "s/YOUR_PROJECT_ID/${PROJECT_ID}/g" -e "s/YOUR_CONNECTION/${GIT_CONNECTION}/" \
@@ -1259,6 +1287,23 @@ sed -e "s/YOUR_PROJECT_ID/${PROJECT_ID}/g" -e "s/YOUR_CONNECTION/${GIT_CONNECTIO
   "${PKG_DIR}/tests/a2a/fleetpackage.yaml" > "${SOLUTION_HOME}/fleetpackage-a2a-tests.yaml"
 gcloud container fleet packages create hybridcloud-agents-a2a-tests \
   --source="${SOLUTION_HOME}/fleetpackage-a2a-tests.yaml" --location="${REGION}" --project="${PROJECT_ID}"
+kubectl --context="${CTX_AGENTS}" wait --for=create rootsync/hybridcloud-agents-a2a-tests -n config-management-system --timeout=15m
+cat << 'EOF' | kubectl --context="${CTX_AGENTS}" apply --server-side --field-manager=platform-admin -f -
+apiVersion: configsync.gke.io/v1beta1
+kind: RootSync
+metadata:
+  name: hybridcloud-agents-a2a-tests
+  namespace: config-management-system
+spec:
+  override:
+    roleRefs:
+      - {kind: ClusterRole, name: hybridcloud-agents-reconciler}
+      - {kind: Role, name: hybridcloud-agents-reconciler, namespace: agent-workloads}
+EOF
+for JOB in a2a-rogue-probe a2a-direct-pod-bypass-probe a2a-mtls-ingress-bypass-probe; do
+  kubectl --context="${CTX_AGENTS}" wait --for=create "job/${JOB}" -n agent-workloads --timeout=10m
+  kubectl --context="${CTX_AGENTS}" wait --for=condition=complete "job/${JOB}" -n agent-workloads --timeout=5m
+done
 kubectl --context="${CTX_AGENTS}" get jobs -n agent-workloads
 kubectl --context="${CTX_AGENTS}" logs -n agent-workloads job/a2a-rogue-probe
 kubectl --context="${CTX_AGENTS}" logs -n agent-workloads job/a2a-direct-pod-bypass-probe
@@ -1266,6 +1311,9 @@ kubectl --context="${CTX_AGENTS}" logs -n agent-workloads job/a2a-mtls-ingress-b
 gcloud container fleet packages delete hybridcloud-agents-a2a-tests --force \
   --location="${REGION}" --project="${PROJECT_ID}"
 ```
+
+[Workstation] Then confirm that neither agent can reach the other agent's egress
+listener port, and that Envoy overwrites a forged `x-api-key` on both listeners.
 
 ```bash
 for PAIR in adk-sovereign-agent:15002 adk-ops-orchestrator:15001; do
@@ -1305,9 +1353,10 @@ Expected:
 - **Apigee > Proxy development > API proxies** → `a2a-dispatch-v1` → **Debug**:
   inspect 401 rejection details if diagnosing probe results.
 
-5.  **Per-caller A2A quotas (run last in Step 3):** [Workstation] Send six
-    orchestrator calls in a row to exercise the per-caller A2A quota of four
-    calls per two minutes.
+5.  **Per-caller A2A quotas (run last in Step 3):** [Workstation] By default,
+    `a2a_quota_limit` is `60/min` (avoiding spurious 429s). To demonstrate HTTP
+    429 exhaustion, temporarily lower `a2a_quota_limit` to `4`, send six
+    orchestrator calls in a row, and restore `60/min` afterward.
 
 ```bash
 for i in 1 2 3 4 5 6; do
@@ -1318,10 +1367,11 @@ for i in 1 2 3 4 5 6; do
 done
 ```
 
-Expected: calls 1 and 2 print `"status": 200` (each makes two A2A sub-calls);
-calls 3 to 6 print `"status": 429` (`a2a_gateway_rejected` in the body), and no
-rejected call reaches `adk-sovereign-agent`. Wait two minutes before rerunning
-any A2A check.
+Expected: with `a2a_quota_limit` lowered to `4`, calls 1 and 2 print
+`"status": 200` (each makes two A2A sub-calls); calls 3 to 6 print
+`"status": 429` (`a2a_gateway_rejected` in the body), and no rejected call
+reaches `adk-sovereign-agent`. Restore `a2a_quota_limit` to `60/min` before
+rerunning any A2A check.
 
 [Cloud Console Verification] In the Google Cloud console, confirm:
 
@@ -1353,9 +1403,9 @@ surfaces together before rolling back in Step 4:
 - **Logging > Logs Explorer**
   (`https://console.cloud.google.com/logs/query?project=${PROJECT_ID}`): run
   `resource.type="k8s_container" AND resource.labels.cluster_name="YOUR_AGENTS_CLUSTER_NAME" AND resource.labels.namespace_name="agent-workloads"`
-  to confirm healthy container logs, and
-  `resource.type="k8s_container" AND resource.labels.cluster_name="YOUR_AGENTS_CLUSTER_NAME" AND resource.labels.namespace_name="agent-workloads" AND "YOUR_CANARY_STRING"`
-  to confirm zero prompt-leak entries.
+  to confirm healthy container logs. Then run
+  `resource.type="k8s_container" AND "YOUR_CANARY_STRING"` across all fleet
+  clusters (including `MODEL_CLUSTER`) to confirm zero prompt-leak entries.
 
 ## Step 4: Forward rollback to the empty active set (v1.4.0)
 
@@ -1501,8 +1551,8 @@ pin-back with a forward release tag (as in Step 4 or
 
 ## Implementation: Day-2 agent and MCP server lifecycle
 
-Every Day-2 change uses the same active-set workflow demonstrated in Steps 1–4.
-Each pushed `vX.Y.Z` tag drives two independent paths:
+Every Day-2 change uses the same active-set workflow demonstrated in Steps 1
+to 4. Each pushed `vX.Y.Z` tag drives two independent paths:
 
 - **Registration pipeline (automatic):** the tag trigger runs
   `registry/cloudbuild-register.yaml` (`Step #0` validate → `Step #1`
@@ -1603,7 +1653,7 @@ custom agent:
 1.  Build the agent image with hash-pinned dependencies (`--require-hashes`,
     keeping `google-adk==1.39.1` pinned), mirror it where the agent nodes pull
     images, and pin it by digest.
-2.  Create the agent's key secret (`AGENT_SECRET`) with `ESO_PRINCIPAL`
+2.  Create the agent's key secret (`AGENT_SECRET`) with `ESO_AGENTS_PRINCIPAL`
     (`roles/secretmanager.secretAccessor`) and `REGISTRAR_SA`
     (`roles/secretmanager.secretVersionAdder`,
     `roles/secretmanager.secretVersionManager`)
@@ -1684,7 +1734,7 @@ kubectl --context="${CTX_AGENTS}" -n agent-workloads get pods \
 ```
 
 Expected: `update_success` increases by one for the rotated SDS secret
-(`apigee_ops_orchestrator_api_key` or `apigee_api_key`) on each
+(`apigee_ops_orchestrator_api_key` or `apigee_sovereign_api_key`) on each
 `agent-egress-envoy` pod, `update_failure` stays 0, and restarts stay 0.
 
 3.  After every `agent-egress-envoy` pod reloads,
@@ -1971,9 +2021,11 @@ afterwards.
 
 ### Monitoring
 
-The `agent-envoy-proxies-monitoring` (scraping `agent-ingress-proxy` and
-`agent-egress-proxy`) and `adk-agents-monitoring` `PodMonitoring` resources
-deployed by `FleetPackage/hybridcloud-agents` feed these PromQL queries:
+Each ADK agent exposes Prometheus metrics on `:9090/metrics` (`:8080/metrics`
+returns HTTP 404). The `agent-envoy-proxies-monitoring` (scraping
+`agent-ingress-proxy` and `agent-egress-proxy`) and `adk-agents-monitoring`
+`PodMonitoring` resources deployed by `FleetPackage/hybridcloud-agents` feed
+these PromQL queries:
 
 ```promql
 sum by (agent, classification, status) (rate(adk_agent_requests_total[5m]))
@@ -1993,23 +2045,26 @@ sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total{namespace="age
   agents are active, and `envoy_server_live` equals `1` across all four Envoy
   pods (`2` `agent-ingress-envoy` and `2` `agent-egress-envoy`; lab: all four
   queries returned data).
-- **Logging > Logs Explorer — Agent workloads**
+- **Logging > Logs Explorer, Agent workloads**
   (`https://console.cloud.google.com/logs/query?project=${PROJECT_ID}`; see
   [Logs Explorer](https://docs.cloud.google.com/logging/docs/view/logs-explorer-interface)):
   run
   `resource.type="k8s_container" AND resource.labels.cluster_name="YOUR_AGENTS_CLUSTER_NAME" AND resource.labels.namespace_name="agent-workloads"`
   (add `AND labels."k8s-pod/app.kubernetes.io/name"="adk-sovereign-agent"` or
   `"adk-ops-orchestrator"` to scope to one agent).
-- **Logging > Logs Explorer — Sovereign prompt-leak canary check (expect `0`
-  entries)**: run
-  `resource.type="k8s_container" AND resource.labels.cluster_name="YOUR_AGENTS_CLUSTER_NAME" AND resource.labels.namespace_name="agent-workloads" AND "YOUR_CANARY_STRING"`.
-- **Logging > Logs Explorer — Apigee hybrid runtime**: run
+- **Logging > Logs Explorer, Sovereign prompt-leak canary check (expect `0`
+  entries)**: run `resource.type="k8s_container" AND "YOUR_CANARY_STRING"`
+  across all fleet clusters (including `MODEL_CLUSTER`).
+- **Logging > Logs Explorer, Apigee hybrid runtime**: run
   `resource.type="k8s_container" AND resource.labels.cluster_name="YOUR_GATEWAY_CLUSTER_NAME" AND resource.labels.namespace_name="apigee" AND resource.labels.container_name="apigee-runtime"`.
-  (Model Armor screening events are inspected in Apigee **Debug** and
-  **Analytics > API metrics** unless Data Access audit logs are enabled.)
-- **Logging > Logs Explorer — MCP Toolbox**: run
+  Apigee hybrid 1.17.3 runtime logs Model Armor requests at INFO level on stderr
+  (`com.apigee.steps.aiprotection.execution.ModelArmorExecution`) on cloud-burst
+  calls; no template setting controls them. To exclude them in Cloud Logging,
+  filter
+  `resource.labels.container_name="apigee-runtime" AND jsonPayload.className="com.apigee.steps.aiprotection.execution.ModelArmorExecution"`.
+- **Logging > Logs Explorer, MCP Toolbox**: run
   `resource.type="k8s_container" AND resource.labels.cluster_name="YOUR_GATEWAY_CLUSTER_NAME" AND resource.labels.namespace_name="mcp-tools" AND labels."k8s-pod/app.kubernetes.io/name"="mcp-toolbox"`.
-- **Logging > Logs Explorer — Cloud Build registration pipeline**: run
+- **Logging > Logs Explorer, Cloud Build registration pipeline**: run
   `resource.type="build" AND logName="projects/YOUR_PROJECT_ID/logs/cloudbuild"`.
 
 GPU and vLLM metrics of the pre-deployed model tier follow the
@@ -2041,7 +2096,7 @@ the following cover gateway policy, active-set release, agent, and Day-2 issues.
 | Injection prompts get local answers instead of HTTP 400                                                  | A customized failover `FaultRule` also catches `FilterMatched`                                                                                                                                        | Exclude `steps.sanitize.user.prompt.FilterMatched` from failover.                                                                                                                                |
 | `X-TokenQuota-Limit: 9223372036854775807`                                                                | An LLM product has no `llmQuota`                                                                                                                                                                      | Add `llmQuota` to every LLM product.                                                                                                                                                             |
 | Back-to-back cloud-eligible test batches return HTTP 429 (`PromptTokenLimit-Burst`)                      | Cloud-eligible products enforce a `2400pm` prompt-token burst rate limit across rapid sequential test runs                                                                                            | Wait approximately 60 seconds for the rolling one-minute window to clear, then re-run; or increase `promptTokenRate` in `agent.yaml` and [publish a release](#publish-a-release).                |
-| HTTP 429 `a2a_gateway_rejected`                                                                          | Per-caller A2A quota reached                                                                                                                                                                          | Expected; tune the quota in `a2a-dispatch-v1`.                                                                                                                                                   |
+| HTTP 429 `a2a_gateway_rejected`                                                                          | Per-caller A2A quota reached                                                                                                                                                                          | Expected; adjust `a2a_quota_limit` on `a2a-sovereign-callers` (default `60/min`).                                                                                                                |
 | Storage MCP returns `Session terminated`                                                                 | Unknown bucket; the server has no bucket-list tool                                                                                                                                                    | Name the bucket in the prompt or instructions.                                                                                                                                                   |
 | A new agent gets HTTP 401 or 403 (JWT subject mismatch)                                                  | Its `EGRESS_PROXY_BASE` targets another agent's listener port on `agent-egress-envoy`                                                                                                                 | Give the agent a unique `egressProxy.port` in `agent.yaml`, match `EGRESS_PROXY_BASE` in its component, run `render.sh agents`, and [publish a release](#publish-a-release).                     |
 | Build fails at Step #0 `validate-registry-manifests`                                                     | Invalid tag, duplicate agent/app/secret/KSA/card URL/MCP server/`egressProxy.port`, agent present in both `agents/` and `available/agents/`, or unrendered `environments/agents/manifests.yaml` drift | Run `render.sh agents`, fix the reported manifest, and push a new `vX.Y.Z` tag; Steps #1 to #3 never ran.                                                                                        |
@@ -2108,12 +2163,11 @@ Continue with SRI [Clean up](reference-implementation.md#clean-up) to remove
 
 ## What's next
 
-- [Hybrid Cloud AI Agents reference implementation (SRI)](reference-implementation.md#overview):
+- [Solution Reference Implementation](reference-implementation.md#overview):
   Day-0 and Day-1 cluster, PKI, Apigee hybrid, Secret Manager, and base platform
   (`v1.0.0`) deployment steps.
-- [Hybrid Cloud AI Agents reference architecture (SRA)](../README.md): solution
-  architecture, component inventory, security model, sizing, and design
-  decisions.
+- [Solution Reference Architecture](../README.md): solution architecture,
+  component inventory, security model, sizing, and design decisions.
 - [Apigee hybrid 1.17 overview](https://docs.cloud.google.com/apigee/docs/hybrid/v1.17/what-is-hybrid):
   control-plane and runtime architecture, upgrade guidance, and operations for
   Apigee hybrid.

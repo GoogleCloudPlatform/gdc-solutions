@@ -3,8 +3,10 @@ addgroup
 adduser
 adkagent
 agentgateway
+agentic
 agentregistry
 aiplatform
+aiprotection
 allexport
 aname
 anthos
@@ -265,6 +267,8 @@ scrd
 seccomp
 secp
 secretmanager
+secretstore
+secretstores
 selfsigned
 seqs
 serviceaccount
@@ -325,6 +329,7 @@ ttft
 undeployed
 undeploys
 unenroll
+ungated
 unquantized
 unrendered
 untar

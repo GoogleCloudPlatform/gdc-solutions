@@ -30,6 +30,15 @@ platform `FleetPackage` (`hybridcloud-agents-platform`, delivering baseline
 the architecture, see **Architecture and design** in the
 [SRA](../README.md#high-level-architecture).
 
+Phase 1 of this solution is a proof of concept (MVP). It demonstrates the
+feasibility of a hybrid cloud agentic platform on Distributed Cloud software
+only. It provides test configurations for functional validation, not
+production-ready configurations of every component. For production-grade
+configurations, especially security, the customer still needs to work with
+Google sales and support specialists for products outside Distributed Cloud
+software only, such as Gemini Enterprise Agent Platform, Apigee hybrid, and
+Model Armor. For open-source components, community support is required.
+
 This solution includes a companion GitHub repository,
 [Hybrid Cloud AI Agents on Distributed Cloud software only (`GoogleCloudPlatform/gdc-solutions`)](https://github.com/GoogleCloudPlatform/gdc-solutions/tree/main/software-only/bare-metal/hybridcloud-agents)
 (folder `software-only/bare-metal/hybridcloud-agents`), which serves as a
@@ -38,8 +47,9 @@ Fleet packages, agent and Envoy Kubernetes Resource Model (KRM) manifests, and
 Apigee hybrid proxy bundles and environment configuration. It also includes
 Agent Registry declarations and Cloud Build synchronization scripts, sample ADK
 agent source code, and optional test harnesses (`tests/a2a/`,
-`tests/data-tier/`, `tests/model-tier/`, and `tests/verify/`). All code samples
-and repository paths linked below point to this companion repository.
+`tests/data-tier/`, `tests/fixtures/`, `tests/model-tier/`, and
+`tests/verify/`). All code samples and repository paths linked below point to
+this companion repository.
 
 This SRI covers Day-0 and Day-1 base platform resources and finishes with a
 running, observable platform (`FleetPackage/hybridcloud-agents-platform`, with
@@ -50,11 +60,11 @@ sample agent images and deploying the agent-specific `FleetPackage`
 (`hybridcloud-agents`), which ships the ADK agents, agent-tier Envoy proxies,
 and per-agent `NetworkPolicy` objects. All of those steps and end-to-end
 verification are covered in the
-[SUG](user-guide.md#step-1-configure-the-ai-gateway-and-onboard-the-first-agent-v110).
+[Solution User Guide (SUG)](user-guide.md#step-1-configure-the-ai-gateway-and-onboard-the-first-agent-v110).
 Each step is shown explicitly for auditability and learning. For production
-deployments, several of these steps, mainly the Google Cloud resources, could be
-automated with Terraform in the future. Run every step from a workstation that
-reaches all clusters through
+deployments, you can automate several of these steps, mainly the Google Cloud
+resources, with Terraform. Run every step from a workstation that reaches all
+clusters through
 [Connect Gateway](https://docs.cloud.google.com/kubernetes-engine/enterprise/multicluster-management/gateway/setup).
 
 <!-- prettier-ignore -->
@@ -108,6 +118,12 @@ reaches all clusters through
     arguments. Without these flags, ADK tool calls fail with HTTP 500. For a
     test model cluster, [`tests/model-tier/`](../tests/model-tier/README.md) in
     the companion repository provides an optional `kubectl` sample.
+  - Model logging and license: do not set `--enable-log-requests` on vLLM so
+    sovereign prompts never write to stdout or Cloud Logging
+    (`tests/model-tier/vllm-deployment.yaml` omits it). Gemma 4
+    (`google/gemma-4-31B-it`) uses the
+    [Apache License 2.0](https://ai.google.dev/gemma/docs/gemma_4_license),
+    weights are ungated, and `hf-token-secret` is optional (`optional: true`).
 - PostgreSQL with `pgvector` reachable from the gateway-and-tool cluster on
   TCP 5432. It requires a server certificate chained to the solution root CA
   with the `YOUR_PGVECTOR_HOST` value in its SANs, and a database-side
@@ -159,7 +175,7 @@ reaches all clusters through
     `roles/resourcemanager.projectIamAdmin`
     ([Configure permissions](https://docs.cloud.google.com/apigee/docs/hybrid/v1.17/precog-permissions)).
   - Config Delivery: `roles/configdelivery.admin`
-    ([fleet package permissions](https://docs.cloud.google.com/distributed-cloud/connected/latest/docs/fleet-packages-guide)).
+    ([Deploy fleet packages](https://docs.cloud.google.com/kubernetes-engine/config-sync/docs/how-to/fleet-packages)).
   - Cloud Build: `roles/cloudbuild.builds.editor`
     ([Cloud Build IAM roles](https://docs.cloud.google.com/build/docs/iam-roles-permissions)).
   - Model Armor and Agent Registry: `roles/modelarmor.admin`
@@ -171,15 +187,15 @@ reaches all clusters through
 
 <!-- mdformat off -->
 
-| Identity                                                                            | Roles and scope                                                                                                                                                                                                                                                                                                                   | Created in                            |
-| :---------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------ |
-| Apigee runtime service account (`APIGEE_SA`)                                        | Apigee non-prod profile roles, plus `roles/serviceusage.serviceUsageViewer`, `roles/aiplatform.user`, `roles/modelarmor.user`, `roles/mcp.toolUser`, `roles/bigquery.jobUser` (project); `roles/iam.serviceAccountTokenCreator` on itself; `roles/iam.workloadIdentityUser` for the `apigee` namespace                            | Step 2                                |
-| ESO fleet WIF principal (`ns/external-secrets/sa/eso-controller-sa`)                | `roles/secretmanager.secretAccessor` on each synced secret only                                                                                                                                                                                                                                                                   | Steps 1, 4 (per-agent secrets in SUG) |
-| Release pipeline service account (`REGISTRAR_SA`)                                   | `roles/agentregistry.editor`, `roles/apigee.apiAdminV2`, `roles/apigee.developerAdmin`, `roles/apigee.environmentAdmin`, `roles/logging.logWriter` (project); `roles/iam.serviceAccountUser` on `APIGEE_SA`; `roles/secretmanager.secretVersionAdder` and `roles/secretmanager.secretVersionManager` on each per-agent key secret | Step 5 (per-agent secrets in SUG)     |
-| Fleet package publisher (`PUBLISHER_SA`)                                            | `roles/configdelivery.resourceBundlePublisher`, `roles/artifactregistry.writer`, `roles/logging.logWriter`                                                                                                                                                                                                                        | Step 6                                |
-| Agent image build service account (`BUILD_SA`)                                      | `roles/artifactregistry.writer` on the `AR_REPOSITORY` repository only (project default build service account unless you pass `--service-account` to `gcloud builds submit`)                                                                                                                                                      | Step 5                                |
-| Config Delivery service agent                                                       | `Role/configdelivery-rootsync-manager` (`create`, `delete`, `get`, `patch` on `rootsyncs`) in `config-management-system`                                                                                                                                                                                                          | Step 6                                |
-| OpenTelemetry Collector fleet WIF principal (`ns/otel-system/sa/otel-collector-sa`) | `roles/cloudtrace.agent`, `roles/monitoring.metricWriter`, `roles/logging.logWriter`, `roles/telemetry.writer`                                                                                                                                                                                                                    | Step 4                                |
+| Identity                                                                                                                                            | Roles and scope                                                                                                                                                                                                                                                                                                                   | Created in                               |
+| :-------------------------------------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------- |
+| Apigee runtime service account (`APIGEE_SA`)                                                                                                        | Apigee non-prod profile roles, plus `roles/serviceusage.serviceUsageViewer`, `roles/aiplatform.user`, `roles/modelarmor.user`, `roles/mcp.toolUser`, `roles/bigquery.jobUser` (project); `roles/iam.serviceAccountTokenCreator` on itself; `roles/iam.workloadIdentityUser` for the `apigee` namespace                            | Step 2                                   |
+| Per-namespace ESO fleet WIF principals (`cert-manager/eso-cert-manager-sa`, `agent-workloads/eso-agent-workloads-sa`, `mcp-tools/eso-mcp-tools-sa`) | `roles/secretmanager.secretAccessor` scoped per namespace: intermediate CA key pair (`cert-manager`), public root CA bundle and per-agent API keys (`agent-workloads`), and `hybrid-agents-pgvector-creds` (`mcp-tools`)                                                                                                          | Steps 1, 4, 7 (per-agent secrets in SUG) |
+| Release pipeline service account (`REGISTRAR_SA`)                                                                                                   | `roles/agentregistry.editor`, `roles/apigee.apiAdminV2`, `roles/apigee.developerAdmin`, `roles/apigee.environmentAdmin`, `roles/logging.logWriter` (project); `roles/iam.serviceAccountUser` on `APIGEE_SA`; `roles/secretmanager.secretVersionAdder` and `roles/secretmanager.secretVersionManager` on each per-agent key secret | Step 5 (per-agent secrets in SUG)        |
+| Fleet package publisher (`PUBLISHER_SA`)                                                                                                            | `roles/configdelivery.resourceBundlePublisher`, `roles/artifactregistry.writer`, `roles/logging.logWriter`                                                                                                                                                                                                                        | Step 6                                   |
+| Agent image build service account (`BUILD_SA`)                                                                                                      | `roles/artifactregistry.writer` on the `AR_REPOSITORY` repository only (project default build service account unless you pass `--service-account` to `gcloud builds submit`)                                                                                                                                                      | Step 5                                   |
+| Config Delivery service agent                                                                                                                       | `Role/configdelivery-rootsync-manager` (`create`, `delete`, `get`, `patch` on `rootsyncs`) in `config-management-system`, plus `ClusterRole/fleet-packages-impersonator` letting `gke-connect/connect-agent-sa` impersonate the Config Delivery service agent over Connect Gateway                                                | Step 6                                   |
+| OpenTelemetry Collector fleet WIF principal (`ns/otel-system/sa/otel-collector-sa`)                                                                 | `roles/cloudtrace.agent`, `roles/monitoring.metricWriter`, `roles/logging.logWriter`, `roles/telemetry.writer`                                                                                                                                                                                                                    | Step 4                                   |
 
 <!-- mdformat on -->
 
@@ -230,7 +246,9 @@ reaches all clusters through
   WORK="${SOLUTION_HOME}/.work"
   FLEET_POOL="${PROJECT_ID}.svc.id.goog"
   WIF_PREFIX="principal://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${PROJECT_ID}.svc.id.goog/subject"
-  ESO_PRINCIPAL="${WIF_PREFIX}/ns/external-secrets/sa/eso-controller-sa"
+  ESO_CERT_MANAGER_PRINCIPAL="${WIF_PREFIX}/ns/cert-manager/sa/eso-cert-manager-sa"
+  ESO_AGENTS_PRINCIPAL="${WIF_PREFIX}/ns/agent-workloads/sa/eso-agent-workloads-sa"
+  ESO_MCP_TOOLS_PRINCIPAL="${WIF_PREFIX}/ns/mcp-tools/sa/eso-mcp-tools-sa"
   OTEL_PRINCIPAL="${WIF_PREFIX}/ns/otel-system/sa/otel-collector-sa"
   EOF
   ```
@@ -437,50 +455,66 @@ for CTX in "${CTX_AGENTS}" "${CTX_GATEWAY}"; do
 done
 ```
 
-- [Workstation] Create one keyless `ClusterSecretStore` per cluster. ESO
-  exchanges its projected token through fleet WIF; no Google service account or
-  key is involved
+- [Workstation] Create namespace-scoped `SecretStore` objects on the agent
+  cluster (`cert-manager` and `agent-workloads`), each backed by its own
+  `ServiceAccount` through fleet WIF
   ([Sync Secret Manager secrets to Kubernetes](https://docs.cloud.google.com/secret-manager/docs/sync-k8-secrets)).
+  Step 7 delivers the `mcp-tools` `SecretStore` on the gateway-and-tool cluster.
 
 ```bash
-for CLUSTER in "${AGENTS_CLUSTER}" "${GATEWAY_CLUSTER}"; do
-cat << EOF > "${SOLUTION_HOME}/css-${CLUSTER}.yaml" && echo "Successfully created." || echo "Failed to create!"
+kubectl --context="${CTX_AGENTS}" create namespace agent-workloads --dry-run=client -o yaml \
+  | kubectl --context="${CTX_AGENTS}" apply -f -
+kubectl --context="${CTX_AGENTS}" label namespace agent-workloads \
+  pod-security.kubernetes.io/enforce=restricted --overwrite
+for PAIR in "cert-manager:eso-cert-manager-sa" "agent-workloads:eso-agent-workloads-sa"; do
+  NS="${PAIR%%:*}"
+  SA="${PAIR##*:}"
+cat << EOF > "${SOLUTION_HOME}/ss-${NS}.yaml" && echo "Successfully created." || echo "Failed to create!"
+apiVersion: v1
+kind: ServiceAccount
+automountServiceAccountToken: false
+metadata:
+  name: ${SA}
+  namespace: ${NS}
+---
 apiVersion: external-secrets.io/v1
-kind: ClusterSecretStore
+kind: SecretStore
 metadata:
   name: gcp-secret-manager
+  namespace: ${NS}
 spec:
   provider:
     gcpsm:
       projectID: ${PROJECT_ID}
       auth:
         workloadIdentityFederation:
-          audience: "identitynamespace:${FLEET_POOL}:https://gkehub.googleapis.com/projects/${PROJECT_ID}/locations/global/memberships/${CLUSTER}"
+          audience: "identitynamespace:${FLEET_POOL}:https://gkehub.googleapis.com/projects/${PROJECT_ID}/locations/global/memberships/${AGENTS_CLUSTER}"
           serviceAccountRef:
-            name: eso-controller-sa
-            namespace: external-secrets
+            name: ${SA}
             audiences:
               - ${FLEET_POOL}
 EOF
-  kubectl --context="connectgateway_${PROJECT_ID}_global_${CLUSTER}" apply -f "${SOLUTION_HOME}/css-${CLUSTER}.yaml"
+  kubectl --context="${CTX_AGENTS}" apply -f "${SOLUTION_HOME}/ss-${NS}.yaml"
 done
 ```
 
 <!-- prettier-ignore -->
-> [!TIP]
+> [!NOTE]
 > All clusters share one fleet WIF pool, so equal namespace and service account
-> names map to one principal; name each cluster's ESO service account distinctly
-> for per-cluster isolation.
+> names map to one principal. Separate namespace-scoped `SecretStore` objects
+> (`eso-cert-manager-sa`, `eso-agent-workloads-sa`, `eso-mcp-tools-sa`) prevent
+> agent workloads from reading the intermediate CA private key or database
+> credentials.
 
 **Verify:**
-`kubectl --context="${CTX_GATEWAY}" get clustersecretstore gcp-secret-manager`
-reports `STATUS` `Valid` and `READY` `True` on both clusters.
+`kubectl --context="${CTX_AGENTS}" get secretstore gcp-secret-manager -n cert-manager`
+and `-n agent-workloads` both report `STATUS` `Valid` and `READY` `True`.
 
 [Cloud Console Verification] In the Google Cloud console, open **Kubernetes
 Engine > Workloads**
 (`https://console.cloud.google.com/kubernetes/workload?project=${PROJECT_ID}`)
 and filter by namespace `external-secrets`. Confirm that the ESO controller
-Deployments are healthy on both clusters. The `ClusterSecretStore` resource is a
+Deployments are healthy on both clusters. The `SecretStore` resource is a
 third-party CRD that might not appear in **Object Browser**, so check its
 `Valid` status with `kubectl`.
 
@@ -572,11 +606,33 @@ kubectl --context="${CTX_GATEWAY}" wait --for=condition=Ready -n cert-manager --
   certificate/hybrid-agents-root-ca certificate/hybrid-agents-c1-intermediate-ca certificate/model-tier-ingress
 ```
 
-- [Workstation] Publish only the intermediate key pair and the root certificate
-  to Secret Manager
-  ([add a secret version](https://docs.cloud.google.com/secret-manager/docs/add-secret-version)),
-  readable by the ESO principal alone. The root CA key never leaves the
-  gateway-and-tool cluster.
+- [Workstation] As an optional hardening step on system-managed `cert-manager`
+  (`v1.21.2-gke.0` or later), add critical `nameConstraints` to the agent-tier
+  intermediate CA. This excludes `apigee.hybrid-agents.internal` and permits
+  only the agent ingress and egress SANs plus `${AGENTS_INGRESS_VIP}/32`.
+
+```yaml
+nameConstraints:
+  critical: true
+  excluded:
+    dnsDomains:
+      - apigee.hybrid-agents.internal
+  permitted:
+    dnsDomains:
+      - ${AGENTS_INGRESS_FQDN}
+      - agent-workloads.svc.cluster.local
+      - agent-egress-envoy.agent-workloads.hybrid-agents.internal
+    ipRanges:
+      - ${AGENTS_INGRESS_VIP}/32
+```
+
+- [Workstation] Publish two Secret Manager secrets
+  ([add a secret version](https://docs.cloud.google.com/secret-manager/docs/add-secret-version)):
+  `hybrid-agents-c1-intermediate-ca` for the intermediate CA key pair and
+  `hybrid-agents-root-ca-bundle` for the public root CA. Grant read access only
+  to `ESO_CERT_MANAGER_PRINCIPAL` and `ESO_AGENTS_PRINCIPAL`, respectively. The
+  root CA key stays on the gateway-and-tool cluster, and `agent-workloads` has
+  no IAM access to any CA private key.
 
 ```bash
 mkdir -p "${WORK}" && chmod 700 "${WORK}"
@@ -593,7 +649,12 @@ jq -n --rawfile chain "${WORK}/chain.crt" --rawfile key "${WORK}/int.key" \
 gcloud secrets create hybrid-agents-c1-intermediate-ca --replication-policy=automatic --project="${PROJECT_ID}"
 gcloud secrets versions add hybrid-agents-c1-intermediate-ca --data-file="${WORK}/payload.json" --project="${PROJECT_ID}"
 gcloud secrets add-iam-policy-binding hybrid-agents-c1-intermediate-ca \
-  --member="${ESO_PRINCIPAL}" --role=roles/secretmanager.secretAccessor --project="${PROJECT_ID}"
+  --member="${ESO_CERT_MANAGER_PRINCIPAL}" --role=roles/secretmanager.secretAccessor --project="${PROJECT_ID}"
+gcloud secrets create hybrid-agents-root-ca-bundle --replication-policy=automatic --project="${PROJECT_ID}"
+gcloud secrets versions add hybrid-agents-root-ca-bundle \
+  --data-file="${SOLUTION_HOME}/hybrid-agents-root-ca.crt" --project="${PROJECT_ID}"
+gcloud secrets add-iam-policy-binding hybrid-agents-root-ca-bundle \
+  --member="${ESO_AGENTS_PRINCIPAL}" --role=roles/secretmanager.secretAccessor --project="${PROJECT_ID}"
 shred -u "${WORK}/int.key" "${WORK}/payload.json"
 ```
 
@@ -617,7 +678,7 @@ metadata:
   namespace: cert-manager
 spec:
   refreshInterval: 1h
-  secretStoreRef: {kind: ClusterSecretStore, name: gcp-secret-manager}
+  secretStoreRef: {kind: SecretStore, name: gcp-secret-manager}
   target:
     name: hybrid-agents-c1-intermediate-ca-secret
     creationPolicy: Owner
@@ -642,12 +703,12 @@ metadata:
   namespace: agent-workloads
 spec:
   refreshInterval: 1h
-  secretStoreRef: {kind: ClusterSecretStore, name: gcp-secret-manager}
+  secretStoreRef: {kind: SecretStore, name: gcp-secret-manager}
   target:
     name: hybrid-agents-root-ca-bundle
   data:
     - secretKey: ca.crt
-      remoteRef: {key: hybrid-agents-c1-intermediate-ca, property: root_ca_crt}
+      remoteRef: {key: hybrid-agents-root-ca-bundle}
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -709,8 +770,9 @@ Confirm that the commands return `2` and `1`.
 
 - **Security > Secret Manager**
   (`https://console.cloud.google.com/security/secret-manager?project=${PROJECT_ID}`):
-  `hybrid-agents-c1-intermediate-ca` has an enabled version and grants
-  `roles/secretmanager.secretAccessor` only to `ESO_PRINCIPAL`.
+  `hybrid-agents-c1-intermediate-ca` grants `roles/secretmanager.secretAccessor`
+  only to `ESO_CERT_MANAGER_PRINCIPAL`. Confirm `hybrid-agents-root-ca-bundle`
+  grants it only to `ESO_AGENTS_PRINCIPAL`.
 - **Kubernetes Engine > Secrets & ConfigMaps**
   (`https://console.cloud.google.com/kubernetes/config?project=${PROJECT_ID}`):
   `agent-envoy-ingress-tls` and `hybrid-agents-root-ca-bundle` appear in
@@ -886,6 +948,15 @@ kubectl --context="${CTX_GATEWAY}" apply -f "${SOLUTION_HOME}/apigee/apigee-cert
 > hard-codes.
 
 <!-- prettier-ignore -->
+> [!NOTE]
+> The lab validated the AI Gateway on a single-node Apigee hybrid cluster with a
+> shared service account setup. For production, follow the Apigee hybrid
+> installation guide for [multi-node cluster
+> sizing](https://docs.cloud.google.com/apigee/docs/hybrid/v1.17/install-create-cluster)
+> and [per-component service
+> accounts](https://docs.cloud.google.com/apigee/docs/hybrid/v1.17/sa-about).
+
+<!-- prettier-ignore -->
 > [!TIP]
 > For production, use three `apigee-data` and three `apigee-runtime` nodes,
 > `cassandra.replicaCount: 3`, and dedicated SSD or NVMe devices ([Cassandra for
@@ -1058,9 +1129,13 @@ configures the Apigee AI Gateway and sample MCP prerequisites. This covers the
 Model Armor template, Cloud Storage and BigQuery IAM bindings, proxies, API
 products, model routing, LLM token quotas, and Model Armor wiring. It also sets
 up key value maps, `TargetServer` objects, and developer apps. These definitions
-come from [`apigee/`](../apigee) in the companion repository. Create the
-environment TLS keystores and references first so that
-`apigee/environments/env-config.json` can reference them by name.
+come from [`apigee/`](../apigee) in the companion repository. Every MCP proxy
+(`mcp-toolbox-v1`, `mcp-bigquery-v1`, `mcp-storage-v1`, `mcp-discovery-v1`)
+enforces `VerifyJWT-AgentKSA` alongside API key validation. In addition,
+`gateway-catalog-v1` requires `VerifyAPIKey-1` while preserving `x-api-key` on
+the internal `/mcp` loopback. Create the environment TLS keystores and
+references first so that `apigee/environments/env-config.json` can reference
+them by name.
 
 - [Workstation] Export the root CA and the Apigee client certificate.
 
@@ -1121,13 +1196,13 @@ rollout whose objects reference missing pieces:
   roles.
 
 - [Workstation] Store the MCP Toolbox database credentials in Secret Manager,
-  readable by the ESO principal only
+  readable by `ESO_MCP_TOOLS_PRINCIPAL` only
   ([manage access to secrets](https://docs.cloud.google.com/secret-manager/docs/manage-access-to-secrets)).
 
 ```bash
 gcloud secrets create "${MCP_DB_SECRET}" --replication-policy=automatic --project="${PROJECT_ID}"
 gcloud secrets versions add "${MCP_DB_SECRET}" --data-file="${MCP_DB_CREDS_FILE}" --project="${PROJECT_ID}"
-gcloud secrets add-iam-policy-binding "${MCP_DB_SECRET}" --member="${ESO_PRINCIPAL}" \
+gcloud secrets add-iam-policy-binding "${MCP_DB_SECRET}" --member="${ESO_MCP_TOOLS_PRINCIPAL}" \
   --role=roles/secretmanager.secretAccessor --project="${PROJECT_ID}"
 shred -u "${MCP_DB_CREDS_FILE}"
 ```
@@ -1161,8 +1236,8 @@ returns the CRD on both clusters.
 Secret Manager**
 (`https://console.cloud.google.com/security/secret-manager?project=${PROJECT_ID}`)
 to confirm `${MCP_DB_SECRET}` has an enabled version and grants
-`roles/secretmanager.secretAccessor` only to `ESO_PRINCIPAL`. Confirm the
-`PodMonitoring` CRD with `kubectl`.
+`roles/secretmanager.secretAccessor` only to `ESO_MCP_TOOLS_PRINCIPAL`. Confirm
+the `PodMonitoring` CRD with `kubectl`.
 
 <!-- prettier-ignore -->
 > [!NOTE]
@@ -1176,6 +1251,19 @@ to confirm `${MCP_DB_SECRET}` has an enabled version and grants
 > `gateway-tools-platform` variant (`mcp-toolbox` and `otel-collector`) and
 > verifies both workloads.
 
+<!-- prettier-ignore -->
+> [!NOTE]
+> Enabling application logging ships `apigee-runtime` stderr logs to Cloud
+> Logging. On Apigee hybrid 1.17.3, logger class
+> `com.apigee.steps.aiprotection.execution.ModelArmorExecution`
+> (`createModelArmorRequest`) logs Model Armor request payloads at `INFO` level
+> on cloud-eligible calls. No Model Armor template or floor setting controls
+> these lines; sticky sovereign downgrade prevents sovereign prompts from
+> reaching Model Armor. To exclude cloud-eligible prompt text from Cloud
+> Logging, add a Cloud Logging exclusion filter on
+> `resource.labels.container_name="apigee-runtime" AND
+> jsonPayload.className="com.apigee.steps.aiprotection.execution.ModelArmorExecution"`.
+
 ## Step 5: Set up the Cloud Build release pipeline
 
 Each application release tag pushed in the
@@ -1187,12 +1275,12 @@ steps run in order:
 - `Step #0` `validate-registry-manifests` (`validate-manifests.sh`): checks the
   manifests and the tag before any change. It rejects duplicate card URLs or
   agent identities and tags that are not `vX.Y.Z`.
-- `Step #1` `sync-apigee-identity`: one developer app per `agent.yaml`, its API
-  products and quotas, a consumer key written to the agent's secret, and the
-  `agent-jwt-subjects` KVM entry.
-- `Step #2` `sync-apigee-proxies`: imports and deploys only the proxy bundles
+- `Step #1` `sync-apigee-proxies`: imports and deploys only the proxy bundles
   whose content changed, and reconciles `TargetServer` objects and the property
   set.
+- `Step #2` `sync-apigee-identity`: one developer app per `agent.yaml`, its API
+  products and quotas, a consumer key written to the agent's secret, and the
+  `agent-jwt-subjects` KVM entry.
 - `Step #3` `sync-agent-registry`: creates, updates, or prunes the A2A cards and
   MCP servers that the pipeline manages.
 
@@ -1321,7 +1409,6 @@ hybridcloud-agents/
 │       ├── a2a-dispatch-v1/
 │       ├── agent-dispatch-v1/
 │       ├── gateway-catalog-v1/
-│       ├── gemini-genai-v1/
 │       ├── llm-router-v1/
 │       ├── mcp-bigquery-v1/
 │       ├── mcp-discovery-v1/
@@ -1414,6 +1501,9 @@ hybridcloud-agents/
     │   ├── 01-postgres-pgvector.yaml
     │   ├── 02-network-policies.yaml
     │   └── README.md
+    ├── fixtures/
+    │   ├── README.md
+    │   └── toggle-failover-simulation.sh
     ├── model-tier/
     │   ├── README.md
     │   ├── gpu-pod-monitoring.yaml
@@ -1492,6 +1582,9 @@ hybridcloud-agents/
   `pgvector` backing database (`tests/data-tier/`) and a sample `vLLM`
   (`google/gemma-4-31B-it`) model tier with bundled HTTPS `Ingress` on a GPU
   test cluster (`tests/model-tier/`) for end-to-end evaluation.
+- [`tests/fixtures/`](../tests/fixtures/README.md) contains an optional
+  verification helper (`toggle-failover-simulation.sh`) for temporarily
+  simulating local vLLM unavailability during cloud failover testing.
 - [`tests/verify/`](../tests/verify/README.md) provides an optional
   repeat-validation helper; it does not replace the
   [Solution User Guide (SUG)](user-guide.md) steps.
@@ -1503,24 +1596,26 @@ trigger substitutions before you deploy:
 
 <!-- mdformat off -->
 
-| Placeholder                     | Description                                                                                      |
-| :------------------------------ | :----------------------------------------------------------------------------------------------- |
-| `YOUR_PROJECT_ID`               | Google Cloud fleet host and Apigee organization project ID                                       |
-| `YOUR_PROJECT_NUMBER`           | Numeric Google Cloud fleet host project number (for the Config Delivery service agent)           |
-| `YOUR_CONNECTION`               | Cloud Build 2nd-gen Git repository connection name in `us-central1`                              |
-| `YOUR_REPOSITORY`               | Linked repository resource name inside `YOUR_CONNECTION`                                         |
-| `YOUR_PUBLISHER_SA_NAME`        | Service account name used by Config Delivery / Cloud Build to package releases                   |
-| `YOUR_GATEWAY_FQDN`             | Internal FQDN of the Apigee hybrid ingress gateway substituted into Agent Registry cards         |
-| `YOUR_AGENTS_INGRESS_VIP`       | MetalLB `LoadBalancer` IP (`spec.loadBalancerIP`) pinned on `Service/agent-ingress-envoy`        |
-| `YOUR_GATEWAY_INGRESS_VIP`      | Apigee hybrid ingress gateway VIP permitted on TCP `443` egress from `agent-egress-envoy`        |
-| `YOUR_AGENTS_INGRESS_HOST`      | IP or hostname of the Agents cluster Envoy mTLS ingress gateway (`gdcso-agent-ingress`)          |
-| `YOUR_VLLM_INGRESS_HOST`        | IP or hostname of the Model cluster sovereign vLLM ingress gateway (`gdcso-local-vllm`)          |
-| `YOUR_PGVECTOR_HOST`            | IP or hostname of your external PostgreSQL + `pgvector` endpoint (`sovereign-pgvector` source)   |
-| `YOUR_DATA_SYSTEMS_CIDR`        | CIDR block (for example `<IP>/32`) of your external PostgreSQL + `pgvector` endpoint for `:5432` |
-| `YOUR_AGENTS_CLUSTER_NAME`      | Fleet membership name of the Agents cluster (`agents.cluster.name` in property set)              |
-| `YOUR_GATEWAY_CLUSTER_NAME`     | Fleet membership name of the Gateway cluster (`gateway.cluster.name` in property set)            |
-| `YOUR_MODEL_CLUSTER_NAME`       | Fleet membership name of the Model cluster (`model.cluster.name` in property set)                |
-| `_AGENTS_CLUSTER_OIDC_JWKS_B64` | Base64-encoded OIDC JWKS (`kubectl get --raw /openid/v1/jwks`) of the Agents cluster             |
+| Placeholder                     | Description                                                                                                       |
+| :------------------------------ | :---------------------------------------------------------------------------------------------------------------- |
+| `YOUR_PROJECT_ID`               | Google Cloud fleet host and Apigee organization project ID                                                        |
+| `YOUR_PROJECT_NUMBER`           | Numeric Google Cloud fleet host project number (for the Config Delivery service agent)                            |
+| `YOUR_CONNECTION`               | Cloud Build 2nd-gen Git repository connection name in `us-central1`                                               |
+| `YOUR_REPOSITORY`               | Linked repository resource name inside `YOUR_CONNECTION`                                                          |
+| `YOUR_PUBLISHER_SA_NAME`        | Service account name used by Config Delivery / Cloud Build to package releases                                    |
+| `YOUR_GATEWAY_FQDN`             | Internal FQDN of the Apigee hybrid ingress gateway substituted into Agent Registry cards                          |
+| `YOUR_AGENTS_INGRESS_VIP`       | MetalLB `LoadBalancer` IP (`spec.loadBalancerIP`) pinned on `Service/agent-ingress-envoy`                         |
+| `YOUR_GATEWAY_INGRESS_VIP`      | Apigee hybrid ingress gateway VIP permitted on TCP `443` egress from `agent-egress-envoy`                         |
+| `YOUR_GATEWAY_NODE_CIDR`        | Gateway-and-tool cluster node IP CIDR permitted on TCP `8443` ingress to `agent-ingress-envoy`                    |
+| `YOUR_GOOGLE_APIS_CIDR`         | CIDR permitted on TCP `443` egress from `otel-collector` (for example, `199.36.153.8/30` or your egress NAT CIDR) |
+| `YOUR_AGENTS_INGRESS_HOST`      | IP or hostname of the Agents cluster Envoy mTLS ingress gateway (`gdcso-agent-ingress`)                           |
+| `YOUR_VLLM_INGRESS_HOST`        | IP or hostname of the Model cluster sovereign vLLM ingress gateway (`gdcso-local-vllm`)                           |
+| `YOUR_PGVECTOR_HOST`            | IP or hostname of your external PostgreSQL + `pgvector` endpoint (`sovereign-pgvector` source)                    |
+| `YOUR_DATA_SYSTEMS_CIDR`        | CIDR block (for example `<IP>/32`) of your external PostgreSQL + `pgvector` endpoint for `:5432`                  |
+| `YOUR_AGENTS_CLUSTER_NAME`      | Fleet membership name of the Agents cluster (`agents.cluster.name` in property set)                               |
+| `YOUR_GATEWAY_CLUSTER_NAME`     | Fleet membership name of the Gateway cluster (`gateway.cluster.name` in property set)                             |
+| `YOUR_MODEL_CLUSTER_NAME`       | Fleet membership name of the Model cluster (`model.cluster.name` in property set)                                 |
+| `_AGENTS_CLUSTER_OIDC_JWKS_B64` | Base64-encoded OIDC JWKS (`kubectl get --raw /openid/v1/jwks`) of the Agents cluster                              |
 
 <!-- mdformat on -->
 
@@ -1536,14 +1631,14 @@ PostgreSQL + `pgvector` instance (or the optional
 [`tests/data-tier/`](../tests/data-tier/README.md) sample), remove the sample
 source before deploying `FleetPackage/hybridcloud-agents-platform`:
 
-1. Remove the `sovereign-pgvector` source and its tools from
-   `ConfigMap/mcp-toolbox-config` in
-   `fleet-package/src/overlays/gateway-tools-platform/mcp-toolbox.yaml`.
-2. Remove `ExternalSecret/pgvector-db-creds` and the `PG_DATABASE`, `PG_USER`,
-   and `PG_PASSWORD` `secretKeyRef` environment variables from
-   `Deployment/mcp-toolbox`.
-3. Remove the `:5432` egress rule from `NetworkPolicy/allow-mcp-toolbox`.
-4. Re-run `fleet-package/render.sh`.
+1. Replace `ExternalSecret/pgvector-db-creds` in
+   `fleet-package/src/overlays/gateway-tools-platform/mcp-toolbox.yaml` with a
+   `ConfigMap` or `ExternalSecret` containing your own `tools.yaml` without the
+   `sovereign-pgvector` source and tools, and point the `config` volume in
+   `Deployment/mcp-toolbox` at it.
+2. Remove the `:5432` egress rule (`YOUR_DATA_SYSTEMS_CIDR`) from
+   `NetworkPolicy/allow-mcp-toolbox`.
+3. Re-run `fleet-package/render.sh`.
 
 ## Step 6: Set up Config Delivery
 
@@ -1576,13 +1671,18 @@ creates the publisher identity so Step 7 can roll out
   gateway-and-tool memberships per
   [Deploy fleet packages](https://docs.cloud.google.com/kubernetes-engine/config-sync/docs/how-to/fleet-packages);
   Config Delivery delivers each release through a `RootSync` on the cluster.
-  Then grant the Config Delivery service agent only the four `RootSync` verbs it
-  needs (`create`, `delete`, `get`, `patch`) on each cluster, instead of
-  `cluster-admin`.
+  Then apply `fleet-package/configdelivery-rbac.yaml` on each cluster with
+  `YOUR_PROJECT_NUMBER` substituted globally (it appears twice), per the Fleet
+  packages guide. This grants `gke-connect/connect-agent-sa` scoped
+  `impersonate` permission on
+  `service-${PROJECT_NUMBER}@gcp-sa-configdelivery.iam.gserviceaccount.com` over
+  Connect Gateway (`ClusterRole/fleet-packages-impersonator`). It also grants
+  the service agent only the four `RootSync` verbs (`create`, `delete`, `get`,
+  `patch`), without `cluster-admin`.
 
 ```bash
 for CLUSTER in "${AGENTS_CLUSTER}" "${GATEWAY_CLUSTER}"; do
-  sed "s/YOUR_PROJECT_NUMBER/${PROJECT_NUMBER}/" "${PKG_DIR}/fleet-package/configdelivery-rbac.yaml" \
+  sed "s/YOUR_PROJECT_NUMBER/${PROJECT_NUMBER}/g" "${PKG_DIR}/fleet-package/configdelivery-rbac.yaml" \
     | kubectl --context="connectgateway_${PROJECT_ID}_global_${CLUSTER}" apply -f -
 done
 ```
@@ -1597,12 +1697,14 @@ done
     gateway-and-tool cluster.
   - Cluster-scoped read access to every packaged kind, because the reconciler's
     status watcher lists them cluster-wide; without it, syncs fail with
+    `KNV2009`. Include `secretstores` (`external-secrets.io`) so the platform
+    overlays can deliver namespace-scoped `SecretStore` objects without
     `KNV2009`.
   - No access to `Secret` objects anywhere; External Secrets Operator and
     cert-manager create those.
 
 ```bash
-RBAC_KINDS='["configmaps", "serviceaccounts", "services", "deployments", "jobs", "externalsecrets", "podmonitorings", "networkpolicies", "poddisruptionbudgets", "certificates"]'
+RBAC_KINDS='["configmaps", "serviceaccounts", "services", "deployments", "jobs", "externalsecrets", "secretstores", "podmonitorings", "networkpolicies", "poddisruptionbudgets", "certificates"]'
 RBAC_GROUPS='["", "apps", "batch", "external-secrets.io", "monitoring.googleapis.com", "networking.k8s.io", "policy", "cert-manager.io"]'
 write_rbac() {
   local cluster="$1" ns1="$2" ns2="$3" f="${SOLUTION_HOME}/reconciler-rbac-${1}.yaml"
@@ -1696,19 +1798,22 @@ layer across both clusters so that the platform is running and observable before
 any agent is built or deployed:
 
 - `agents-platform` (`src/overlays/agents-platform/`, rendered to
-  `environments/agents-platform`, 12 resources) on `AGENTS_CLUSTER`:
+  `environments/agents-platform`, 14 resources) on `AGENTS_CLUSTER`:
   `Namespace/agent-workloads` (Pod Security Standard `restricted`) with
-  `default-deny-all` and `allow-dns-egress` `NetworkPolicy` objects, plus
-  `otel-system`.
+  `ServiceAccount/eso-agent-workloads-sa`, namespace-scoped
+  `SecretStore/gcp-secret-manager`, `default-deny-all` and `allow-dns-egress`
+  `NetworkPolicy` objects, plus `otel-system`.
 - `gateway-tools-platform` (`src/overlays/gateway-tools-platform/`, rendered to
-  `environments/gateway-tools-platform`, 20 resources) on `GATEWAY_CLUSTER`:
+  `environments/gateway-tools-platform`, 21 resources) on `GATEWAY_CLUSTER`:
   `mcp-tools` namespace with `Certificate/mcp-toolbox-tls` (from
-  `hybrid-agents-ca`), `ExternalSecret/pgvector-db-creds` (`PG_DATABASE`,
-  `PG_USER`, `PG_PASSWORD`), and MCP Toolbox 1.15.0 (two replicas,
-  `PodDisruptionBudget`, `ClusterIP` Service on 8443). It also deploys
-  default-deny `NetworkPolicy` objects (allowing ingress only from `apigee` on
-  8443 and egress to `YOUR_DATA_SYSTEMS_CIDR` on TCP 5432 and `otel-system`),
-  plus `otel-system`.
+  `hybrid-agents-ca`), `ServiceAccount/eso-mcp-tools-sa`, namespace-scoped
+  `SecretStore/gcp-secret-manager`, and MCP Toolbox 1.15.0 (two replicas,
+  `PodDisruptionBudget`, `ClusterIP` Service on 8443).
+  `ExternalSecret/pgvector-db-creds` renders `tools.yaml` into a read-only
+  `Secret` mount at `/etc/toolbox/config` with zero `PG_*` container environment
+  variables. It also deploys default-deny `NetworkPolicy` objects (allowing
+  ingress only from `apigee` on 8443 and egress to `YOUR_DATA_SYSTEMS_CIDR` on
+  TCP 5432 and `otel-system`), plus `otel-system`.
 
 Both platform overlays include the shared component
 `src/components/otel-collector/`, which deploys the
@@ -1722,18 +1827,19 @@ to `otel-system` on both clusters (patched with `GATEWAY_CLUSTER` in
   default-deny `NetworkPolicy` objects.
 - A `resource` processor that sets or updates `cloud.region`; without it, Cloud
   Monitoring rejects `k8s_cluster` metrics with an empty location.
-- A `transform` processor that deletes `gen_ai.prompt`, `gen_ai.completion`,
-  `gen_ai.input.messages`, and `gen_ai.output.messages` when
-  `data_classification == "sovereign"`, as defense in depth.
+- A `transform` processor that unconditionally strips `gen_ai.*`,
+  `gcp.vertex.agent.*`, `input.value`, and `output.value` span attributes by
+  regex, plus all span event attributes and names (`[REDACTED_SPAN_EVENT]`).
 
 <!-- prettier-ignore -->
 > [!NOTE]
-> The package deploys no in-cluster database: in
-> `src/overlays/gateway-tools-platform/mcp-toolbox.yaml`, `sovereign-pgvector`
-> (`sslmode=verify-full`, TLS 1.3) and `Deployment/mcp-toolbox` (`PG_HOST` env,
-> rolling pods on host changes via Config Sync) use `YOUR_PGVECTOR_HOST`, or
-> remove the sample source per the [package
-> README](#remove-the-sample-postgresql-source-optional).
+> The package deploys no in-cluster database. In
+> `src/overlays/gateway-tools-platform/mcp-toolbox.yaml`,
+> `ExternalSecret/pgvector-db-creds` renders `sovereign-pgvector`
+> (`sslmode=verify-full`, `YOUR_PGVECTOR_HOST`) into
+> `/etc/toolbox/config/tools.yaml` on a read-only `Secret` mount, with zero
+> `PG_*` environment variables. You can also remove the sample source per the
+> [package README](#remove-the-sample-postgresql-source-optional).
 
 ### Render the bundles and push the first release tag
 
@@ -1746,18 +1852,30 @@ to `otel-system` on both clusters (patched with `GATEWAY_CLUSTER` in
   applies `environments/*/manifests.yaml` verbatim, so an unrendered placeholder
   reaches the cluster literally (breaking collector export with
   `Invalid audience` or blocking egress). The placeholders live in these files:
-  - `src/components/otel-collector/otel-collector.yaml`: `YOUR_PROJECT_ID` and
-    `YOUR_AGENTS_CLUSTER_NAME`.
+  - `src/components/otel-collector/otel-collector.yaml`: `YOUR_PROJECT_ID`,
+    `YOUR_AGENTS_CLUSTER_NAME`, and `YOUR_GOOGLE_APIS_CIDR` (TCP 443 egress CIDR
+    in `allow-otel-collector`, such as `199.36.153.8/30` for Private Google
+    Access or your egress NAT CIDR).
+  - `src/overlays/agents-platform/agent-workloads-platform.yaml`:
+    `YOUR_PROJECT_ID` and `YOUR_AGENTS_CLUSTER_NAME` (for
+    `SecretStore/gcp-secret-manager` in `agent-workloads`).
   - `src/overlays/gateway-tools-platform/kustomization.yaml`: `YOUR_PROJECT_ID`
     and `YOUR_GATEWAY_CLUSTER_NAME`.
-  - `src/overlays/gateway-tools-platform/mcp-toolbox.yaml`: `YOUR_PGVECTOR_HOST`
-    (`ConfigMap` host and `PG_HOST` environment variable) and
-    `YOUR_DATA_SYSTEMS_CIDR` (TCP 5432 egress `ipBlock.cidr`).
+  - `src/overlays/gateway-tools-platform/mcp-toolbox.yaml`: `YOUR_PROJECT_ID`,
+    `YOUR_GATEWAY_CLUSTER_NAME` (for `SecretStore/gcp-secret-manager`),
+    `YOUR_PGVECTOR_HOST` (rendered into `tools.yaml` by
+    `ExternalSecret/pgvector-db-creds`), and `YOUR_DATA_SYSTEMS_CIDR` (TCP 5432
+    egress `ipBlock.cidr`).
   - `src/base/envoy-mtls-ingress-config.yaml`: `YOUR_AGENTS_INGRESS_VIP`, set to
     `AGENTS_INGRESS_VIP` (feeds the `agents` variant deployed in the SUG).
-  - `src/base/network-policies.yaml`: `YOUR_GATEWAY_INGRESS_VIP`, set to
-    `APIGEE_INGRESS_VIP` (adds TCP 443 egress to the Apigee ingress VIP in
-    `allow-agent-egress-proxy`; feeds the `agents` variant deployed in the SUG).
+  - `src/base/network-policies.yaml`: `YOUR_GATEWAY_NODE_CIDR` (restricts TCP
+    8443 ingress on `allow-envoy-ingress-proxy` to gateway-and-tool cluster
+    nodes) and `YOUR_GATEWAY_INGRESS_VIP` (set to `APIGEE_INGRESS_VIP` for TCP
+    443 egress in `allow-agent-egress-proxy`). Both feed the `agents` variant
+    deployed in the SUG.
+  - `registry/agents/*/agent.yaml`: set a dedicated non-root
+    `ingressProxy.pathPrefix` for every active agent (for example `/sovereign`
+    or `/ops-orchestrator`); `render.sh` rejects root `/` prefixes.
   - Leave `apigee/` and `registry/` as shipped: the Cloud Build pipeline fills
     their placeholders from the trigger substitutions.
 - [Workstation] Confirm that the rendered bundles contain no remaining
@@ -1795,13 +1913,17 @@ The specification sets `deletionPropagationPolicy: FOREGROUND` (deleting the
 `FleetPackage` prunes what it deployed), rolling `maxConcurrent: 1`,
 `configdelivery-skip-bmctl-clusters: "true"`, selector
 `hybrid-agents-platform=enabled`, and
-`variantNameTemplate: "${membership.labels['cluster-role']}-platform"`. Config
-Delivery grants the reconcilers registry read access automatically. Run
-`bind_platform_roles` immediately after creation because each reconciler keeps
-`cluster-admin` until its `roleRefs` patch applies; the `FleetPackage` rolls one
-cluster at a time (`maxConcurrent: 1`), so binding both clusters in parallel
-avoids waiting about 5 minutes when Config Delivery picks the gateway cluster
-first.
+`variantNameTemplate: "${membership.labels['cluster-role']}-platform"`. Packaged
+`Namespace` manifests (`agent-workloads`, `mcp-tools`, `otel-system`) set
+`client.lifecycle.config.k8s.io/deletion: detach`
+([Manage objects in Config Sync](https://docs.cloud.google.com/kubernetes-engine/config-sync/docs/how-to/managing-objects)).
+Foreground deletion therefore prunes packaged workloads without removing Day-0
+PKI secrets or reconciler `Role` objects. Config Delivery grants the reconcilers
+registry read access automatically. Run `bind_platform_roles` immediately after
+creation because each reconciler keeps `cluster-admin` until its `roleRefs`
+patch applies; the `FleetPackage` rolls one cluster at a time
+(`maxConcurrent: 1`), so binding both clusters in parallel avoids waiting about
+5 minutes when Config Delivery picks the gateway cluster first.
 
 ```bash
 sed -e "s/YOUR_PROJECT_ID/${PROJECT_ID}/g" -e "s/YOUR_CONNECTION/${GIT_CONNECTION}/" \
@@ -1913,14 +2035,16 @@ platform workloads:
 Verify that the complete base platform is running, observable, and keyless
 before moving to the SUG.
 
-- [Workstation] Confirm cluster readiness, ESO `ClusterSecretStore` health,
+- [Workstation] Confirm cluster readiness, ESO `SecretStore` health,
   observability CRDs, reconciler RBAC, `hybridcloud-agents-platform` sync status
   and workloads, model-tier HTTPS ingress, Apigee hybrid runtime state, and
   Google Cloud Platform resources.
 
 ```bash
+kubectl --context="${CTX_AGENTS}" get secretstore gcp-secret-manager -n cert-manager
+kubectl --context="${CTX_AGENTS}" get secretstore gcp-secret-manager -n agent-workloads
+kubectl --context="${CTX_GATEWAY}" get secretstore gcp-secret-manager -n mcp-tools
 for CTX in "${CTX_AGENTS}" "${CTX_GATEWAY}"; do
-  kubectl --context="${CTX}" get clustersecretstore gcp-secret-manager
   kubectl --context="${CTX}" get crd podmonitorings.monitoring.googleapis.com
   kubectl --context="${CTX}" get clusterrole hybridcloud-agents-reconciler
   kubectl --context="${CTX}" get rootsync hybridcloud-agents-platform -n config-management-system
@@ -1936,8 +2060,9 @@ gcloud iam service-accounts describe "${REGISTRAR_SA}" --project="${PROJECT_ID}"
 gcloud iam service-accounts describe "${PUBLISHER_SA}" --project="${PROJECT_ID}" --format="value(email)"
 ```
 
-Confirm that both `ClusterSecretStore` objects are `Valid` and `True`, and that
-the `podmonitorings.monitoring.googleapis.com` CRD and
+Confirm that all three namespace-scoped `SecretStore` objects (`cert-manager`,
+`agent-workloads`, `mcp-tools`) are `Valid` and `True`, and that the
+`podmonitorings.monitoring.googleapis.com` CRD and
 `hybridcloud-agents-reconciler` `ClusterRole` exist on both clusters. Confirm
 that `hybridcloud-agents-platform` reports `COMPLETED` and `SYNCED` with
 `otel-collector` (`1/1` on both clusters), baseline `agent-workloads` policies,
@@ -1958,8 +2083,10 @@ deployed platform resources:
   `mcp-tools` (`mcp-toolbox`) Deployments are healthy.
 - **Security > Secret Manager**
   (`https://console.cloud.google.com/security/secret-manager?project=${PROJECT_ID}`):
-  `hybrid-agents-c1-intermediate-ca` and `${MCP_DB_SECRET}` each have an enabled
-  version scoped to `ESO_PRINCIPAL`.
+  `hybrid-agents-c1-intermediate-ca`, `hybrid-agents-root-ca-bundle`, and
+  `${MCP_DB_SECRET}` each have an enabled version. Confirm access is scoped to
+  `ESO_CERT_MANAGER_PRINCIPAL`, `ESO_AGENTS_PRINCIPAL`, and
+  `ESO_MCP_TOOLS_PRINCIPAL`, respectively.
 - **Apigee > Management > Environments**: `hybrid-agents-env` is attached to
   `hybrid-agents-envgroup` and lists both TLS keystores and references.
 - **Cloud Build > Repositories (2nd gen)** and **Artifact Registry >
@@ -2056,30 +2183,25 @@ refresh interval) syncs immediately.
    (`pool.Ping(ctx)`), and exits with
    `unable to initialize source "sovereign-pgvector": unable to connect successfully`.
    Check for four causes: unrendered `YOUR_PGVECTOR_HOST` in
-   `ConfigMap/mcp-toolbox-config` and `Deployment/mcp-toolbox` (`PG_HOST`), or
-   wrong `YOUR_DATA_SYSTEMS_CIDR` in `NetworkPolicy/allow-mcp-toolbox`. Also
+   `ExternalSecret/pgvector-db-creds` (`spec.target.template.data.tools.yaml`),
+   or wrong `YOUR_DATA_SYSTEMS_CIDR` in `NetworkPolicy/allow-mcp-toolbox`. Also
    check for a database access list (`pg_hba.conf`) missing the gateway-and-tool
    node IPs (pod egress is SNATed), or a server certificate whose SANs lack the
    host (`sslmode=verify-full`).
 
 ```bash
 kubectl --context="${CTX_GATEWAY}" -n mcp-tools logs deploy/mcp-toolbox --previous --tail=20
-kubectl --context="${CTX_GATEWAY}" -n mcp-tools get configmap mcp-toolbox-config \
-  -o jsonpath='{.data.tools\.yaml}' | grep -E '^\s*(host|port|sslmode):'
-PG_HOST="$(kubectl --context="${CTX_GATEWAY}" -n mcp-tools get deploy mcp-toolbox \
-  -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="PG_HOST")].value}')"
-echo "PG_HOST=${PG_HOST}"
+kubectl --context="${CTX_GATEWAY}" -n mcp-tools get externalsecret pgvector-db-creds \
+  -o jsonpath='{.spec.target.template.data.tools\.yaml}' | grep -E '^\s*(host|port|sslmode):'
 kubectl --context="${CTX_GATEWAY}" -n mcp-tools get networkpolicy allow-mcp-toolbox \
   -o jsonpath='{.spec.egress[0].to[0].ipBlock.cidr}{"\n"}'
-kubectl --context="${CTX_GATEWAY}" -n mcp-tools run pg-verify --rm -i --restart=Never \
-  --image=pgvector/pgvector:pg16@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f \
-  --labels="app.kubernetes.io/component=mcp-toolbox,app.kubernetes.io/name=mcp-toolbox" \
-  --overrides='{"spec":{"automountServiceAccountToken":false,"securityContext":{"runAsNonRoot":true,"runAsUser":999,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"pg-verify","image":"pgvector/pgvector:pg16@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f","readinessProbe":{"exec":{"command":["false"]}},"env":[{"name":"PG_HOST","value":"'"${PG_HOST}"'"}],"envFrom":[{"secretRef":{"name":"pgvector-db-creds"}}],"command":["sh","-c","PGPASSWORD=\"$PG_PASSWORD\" psql \"host=$PG_HOST port=5432 dbname=$PG_DATABASE user=$PG_USER sslmode=verify-full sslrootcert=/etc/toolbox/tls/ca.crt\" -c \"SELECT 1;\""],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}},"volumeMounts":[{"name":"tls","mountPath":"/etc/toolbox/tls","readOnly":true}]}],"volumes":[{"name":"tls","secret":{"secretName":"mcp-toolbox-tls"}}]}}'
 ```
 
-Fix the host, CIDR, allow-list, or certificate SANs; if you edited
-`src/overlays/gateway-tools-platform/mcp-toolbox.yaml`, re-run
-`fleet-package/render.sh`, commit, push a new `vX.Y.Z` tag, and update
+If the logs and settings look correct, check the database server logs: a
+`pg_hba.conf` rejection points to the access list, and a TLS verification error
+points to the certificate SANs. Fix the host, CIDR, allow-list, or certificate
+SANs; if you edited `src/overlays/gateway-tools-platform/mcp-toolbox.yaml`,
+re-run `fleet-package/render.sh`, commit, push a new `vX.Y.Z` tag, and update
 `hybridcloud-agents-platform`.
 
 ## Clean up
@@ -2091,17 +2213,20 @@ Build trigger, the Model Armor template, and the per-agent key secrets per
 tearing down the platform, see [Remove an agent](user-guide.md#remove-an-agent).
 
 <!-- prettier-ignore -->
-> [!WARNING]
-> Deleting `FleetPackage/hybridcloud-agents-platform`
-> (`deletionPropagationPolicy: FOREGROUND`) deletes the `agent-workloads`,
-> `otel-system`, and `mcp-tools` namespaces—including the Day-0 PKI objects
-> created in Step 1 inside `agent-workloads`. Always delete the agents package
-> (`hybridcloud-agents`, in the SUG) first and the platform package
-> (`hybridcloud-agents-platform`) last.
+> [!NOTE]
+> Packaged `Namespace` manifests (`agent-workloads`, `mcp-tools`, `otel-system`)
+> carry `client.lifecycle.config.k8s.io/deletion: detach` ([Manage objects in
+> Config
+> Sync](https://docs.cloud.google.com/kubernetes-engine/config-sync/docs/how-to/managing-objects)).
+> Deleting `FleetPackage/hybridcloud-agents-platform` (`FOREGROUND`) prunes
+> packaged workloads while keeping those namespaces, Day-0 PKI objects, and
+> reconciler `Role` objects until you delete them below. Always delete the
+> agents package (`hybridcloud-agents`, in the SUG) first and the platform
+> package (`hybridcloud-agents-platform`) last.
 
 - [Workstation] Delete `FleetPackage/hybridcloud-agents-platform` before
   removing the reconciler RBAC or publisher service account so foreground
-  deletion can prune all delivered namespaces cleanly. Always pass `--force`: a
+  deletion can prune all delivered workloads cleanly. Always pass `--force`: a
   bare delete fails with `FAILED_PRECONDITION` (`has nested resources`) once
   rollouts exist, while `--force` keeps `FOREGROUND` deletion propagation.
 
@@ -2115,7 +2240,7 @@ gcloud container fleet packages delete hybridcloud-agents-platform --force \
   [SUG Clean up](user-guide.md#clean-up)).
 
 ```bash
-for SECRET_ID in hybrid-agents-c1-intermediate-ca "${MCP_DB_SECRET}"; do
+for SECRET_ID in hybrid-agents-c1-intermediate-ca hybrid-agents-root-ca-bundle "${MCP_DB_SECRET}"; do
   gcloud secrets delete "${SECRET_ID}" --project="${PROJECT_ID}" --quiet
 done
 gcloud iam service-accounts delete "${REGISTRAR_SA}" --project="${PROJECT_ID}" --quiet
@@ -2172,11 +2297,10 @@ rm -rf "${WORK}"
 
 ## What's next
 
-- [SRA: Hybrid Cloud AI Agents on Distributed Cloud software only](../README.md):
-  architecture, components, and design decisions.
-- [SUG: Hybrid Cloud AI Agents on Distributed Cloud software only](user-guide.md#overview):
-  configure the Apigee AI Gateway, deploy and verify agents and MCP servers, and
-  run Day-2 operations.
+- [Solution Reference Architecture](../README.md): architecture, components, and
+  design decisions.
+- [Solution User Guide](user-guide.md#overview): configure the Apigee AI
+  Gateway, deploy and verify agents and MCP servers, and run Day-2 operations.
 - [Open model serving on Distributed Cloud software only](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/solutions/open-model-serving-sw-only):
   the model-tier prerequisite.
 - [Apigee hybrid 1.17](https://docs.cloud.google.com/apigee/docs/hybrid/v1.17/what-is-hybrid)
