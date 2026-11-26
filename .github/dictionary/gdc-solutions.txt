@@ -329,6 +329,7 @@ unrendered
 untar
 untardir
 upsert
+urlencode
 urllib
 urlmap
 urlopen

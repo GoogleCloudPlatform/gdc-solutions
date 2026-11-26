@@ -31,6 +31,7 @@ CP_CHECK_PY="${SCRIPT_DIR}/check_control_plane.py"
 # ---------------------------------------------------------------------------
 SUBCOMMAND=""
 ALLOW_HIGHER_STAGE="false"
+ALLOW_FAILOVER_SIM="false"
 EXPECT_CURRENT="false"
 INCLUDE_A2A_QUOTA="false"
 NO_COOLDOWN="false"
@@ -61,6 +62,11 @@ Subcommands:
 Options:
   --allow-higher-stage   For step1/step2: allow later-stage agents/MCP servers
                          (for example, run step1/step2 checks on a v1.3.0 stack).
+  --allow-failover-sim   For step1/step3: expect synthetic failover header
+                         (x-simulate-cloud-burst-status: 503) to trigger
+                         local-vllm-failover (requires enabling
+                         allow_failover_simulation=true via tests/fixtures/).
+                         By default, asserts the simulation header is ignored.
   --expect-current       For step4: dry-run check_control_plane & workload probes
                          against the current state instead of asserting empty.
   --include-a2a-quota    For step3: run the 6-call A2A per-caller quota burst
@@ -111,6 +117,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --allow-higher-stage)
       ALLOW_HIGHER_STAGE="true"
+      shift
+      ;;
+    --allow-failover-sim)
+      ALLOW_FAILOVER_SIM="true"
       shift
       ;;
     --expect-current)
@@ -674,18 +684,23 @@ PY
     record_result "S1-MA-INJECT" "Step 1 #3" "FAIL" "${detail:-${out:0:200}}"
   fi
 
-  # Cloud-to-local failover
+  # Cloud-to-local failover (default: simulation header ignored; --allow-failover-sim: local-vllm-failover)
   out="$(agent_call adk-ops-orchestrator gateway /v1/chat/completions \
     '{"model": "enterprise-flash", "messages": [{"role": "user", "content": "Reply FAILOVER_OK."}]}' \
     "x-data-classification=cloud-eligible" \
     "x-simulate-cloud-burst-status=503" \
     "traceparent=00-${trace_id}-1010101010101006-01" 2>&1 || true)"
-  if detail="$(python3 - "${out}" <<'PY'
+  if detail="$(python3 - "${out}" "${ALLOW_FAILOVER_SIM}" <<'PY'
 import json, sys
 d = json.loads(sys.argv[1])
+sim_enabled = sys.argv[2] == "true"
 h = d.get("headers") or {}
-ok = d.get("status") == 200 and h.get("x-hca-routed-tier") == "local-vllm-failover"
-print(f"HTTP {d.get('status')} tier={h.get('x-hca-routed-tier')} model={(d.get('body') or {}).get('model')}")
+tier = h.get("x-hca-routed-tier") or ""
+if sim_enabled:
+    ok = d.get("status") == 200 and tier == "local-vllm-failover"
+else:
+    ok = d.get("status") == 200 and tier != "local-vllm-failover" and str(h.get("x-llm-backend", "")).startswith("vertex-gemini")
+print(f"HTTP {d.get('status')} sim_enabled={sim_enabled} tier={tier} backend={h.get('x-llm-backend')} model={(d.get('body') or {}).get('model')}")
 raise SystemExit(0 if ok else 1)
 PY
 )"; then
@@ -1226,18 +1241,23 @@ PY
     record_result "S3-MODEL-ARMOR" "Step 1 #3" "FAIL" "${detail:-${out:0:200}}"
   fi
 
-  # 21. Cloud-to-local failover (x-simulate-cloud-burst-status: 503 -> 200 local-vllm-failover)
+  # 21. Cloud-to-local failover (default: simulation header ignored; --allow-failover-sim: local-vllm-failover)
   out="$(agent_call adk-ops-orchestrator gateway /v1/chat/completions \
     '{"model": "enterprise-flash", "messages": [{"role": "user", "content": "Reply with FAILOVER_OK only."}], "max_tokens": 16}' \
     "x-data-classification=cloud-eligible" \
     "x-simulate-cloud-burst-status=503" \
     "traceparent=00-${trace_id}-7777777777777777-01" 2>&1 || true)"
-  if detail="$(python3 - "${out}" <<'PY'
+  if detail="$(python3 - "${out}" "${ALLOW_FAILOVER_SIM}" <<'PY'
 import json, sys
 d = json.loads(sys.argv[1])
+sim_enabled = sys.argv[2] == "true"
 h = d.get("headers") or {}
-ok = d.get("status") == 200 and h.get("x-hca-routed-tier") == "local-vllm-failover"
-print(f"HTTP {d.get('status')} tier={h.get('x-hca-routed-tier')} model={(d.get('body') or {}).get('model')}")
+tier = h.get("x-hca-routed-tier") or ""
+if sim_enabled:
+    ok = d.get("status") == 200 and tier == "local-vllm-failover"
+else:
+    ok = d.get("status") == 200 and tier != "local-vllm-failover" and str(h.get("x-llm-backend", "")).startswith("vertex-gemini")
+print(f"HTTP {d.get('status')} sim_enabled={sim_enabled} tier={tier} backend={h.get('x-llm-backend')} model={(d.get('body') or {}).get('model')}")
 raise SystemExit(0 if ok else 1)
 PY
 )"; then

@@ -44,24 +44,24 @@
         <Name>LLMTokenQuota-Enforce</Name>
         <Condition>proxy.pathsuffix MatchesPath "/chat/completions"</Condition>
       </Step>
-      <!-- Preserved backward-compatible SM-2e synthetic failover trigger alongside real TargetEndpoint FaultRules -->
+      <!-- Synthetic failover test hook: disabled by default (allow_failover_simulation=false in env-config.json) -->
       <Step>
         <Name>JS-PrepareCloudBurstPayload</Name>
-        <Condition>((request.header.x-data-classification = "cloud-eligible") or (request.header.x-data-classification = "public")) and (request.header.x-simulate-cloud-burst-status = "503") and (proxy.pathsuffix MatchesPath "/chat/completions")</Condition>
+        <Condition>(propertyset.hybrid_agents_env.allow_failover_simulation = "true") and ((request.header.x-data-classification := "cloud-eligible") or (request.header.x-data-classification := "public")) and (request.header.x-simulate-cloud-burst-status = "503") and (proxy.pathsuffix MatchesPath "/chat/completions")</Condition>
       </Step>
       <Step>
         <Name>SanitizeUserPrompt-CloudBurst</Name>
-        <Condition>((request.header.x-data-classification = "cloud-eligible") or (request.header.x-data-classification = "public")) and (request.header.x-simulate-cloud-burst-status = "503") and (proxy.pathsuffix MatchesPath "/chat/completions")</Condition>
+        <Condition>(propertyset.hybrid_agents_env.allow_failover_simulation = "true") and ((request.header.x-data-classification := "cloud-eligible") or (request.header.x-data-classification := "public")) and (request.header.x-simulate-cloud-burst-status = "503") and (proxy.pathsuffix MatchesPath "/chat/completions")</Condition>
       </Step>
       <Step>
         <Name>ServiceCallout-FailoverLocalVLLM</Name>
-        <Condition>((request.header.x-data-classification = "cloud-eligible") or (request.header.x-data-classification = "public")) and (request.header.x-simulate-cloud-burst-status = "503") and (proxy.pathsuffix MatchesPath "/chat/completions")</Condition>
+        <Condition>(propertyset.hybrid_agents_env.allow_failover_simulation = "true") and ((request.header.x-data-classification := "cloud-eligible") or (request.header.x-data-classification := "public")) and (request.header.x-simulate-cloud-burst-status = "503") and (proxy.pathsuffix MatchesPath "/chat/completions")</Condition>
       </Step>
     </Request>
     <Response>
       <Step>
         <Name>AssignMessage-UseFailoverResponse</Name>
-        <Condition>(request.header.x-simulate-cloud-burst-status = "503") and (failoverVllmResp.content != null)</Condition>
+        <Condition>(propertyset.hybrid_agents_env.allow_failover_simulation = "true") and (request.header.x-simulate-cloud-burst-status = "503") and (failoverVllmResp.content != null)</Condition>
       </Step>
     </Response>
   </PreFlow>
@@ -87,7 +87,7 @@
     <BasePath>/v1</BasePath>
   </HTTPProxyConnection>
   <RouteRule name="SimulatedCloudBurstFailover">
-    <Condition>((request.header.x-data-classification = "cloud-eligible") or (request.header.x-data-classification = "public")) and (request.header.x-simulate-cloud-burst-status = "503")</Condition>
+    <Condition>(propertyset.hybrid_agents_env.allow_failover_simulation = "true") and ((request.header.x-data-classification := "cloud-eligible") or (request.header.x-data-classification := "public")) and (request.header.x-simulate-cloud-burst-status = "503")</Condition>
   </RouteRule>
   <RouteRule name="CloudBurstVertexGeminiSSE">
     <Condition>(llm_target_tier = "vertex-gemini") and (is_sse_stream = "true")</Condition>

@@ -134,6 +134,68 @@ def api_req(method: str, url: str, body=None, allow_404: bool = False):
     raise RuntimeError(f"HTTP {e.code} on {method} {url}: {err_body}") from e
 
 
+def list_apigee_paginated(
+    base_url: str,
+    list_key: str,
+    id_field: str,
+    expand: bool = True,
+    page_size: int = 1000,
+    allow_404: bool = False,
+):
+  """Paginate Apigee v1 startKey/count list endpoints without dropping items."""
+  results = []
+  seen_ids = set()
+  start_key = None
+  while True:
+    params = {"count": str(page_size)}
+    if expand:
+      params["expand"] = "true"
+    if start_key is not None:
+      params["startKey"] = start_key
+    url = f"{base_url}?{urllib.parse.urlencode(params)}"
+    st, resp = api_req("GET", url, allow_404=allow_404)
+    if st == 404:
+      return 404, []
+    items = resp.get(list_key) or []
+    if not items:
+      break
+    last_id = None
+    for item in items:
+      item_id = (
+          str(item.get(id_field) or "") if isinstance(item, dict) else str(item)
+      )
+      last_id = item_id
+      if item_id and item_id not in seen_ids:
+        seen_ids.add(item_id)
+        results.append(item)
+    if len(items) < page_size or not last_id or last_id == start_key:
+      break
+    start_key = last_id
+  return 200, results
+
+
+def list_kvm_entries(entries_url: str, allow_404: bool = False):
+  """Paginate Apigee X/hybrid KVM entries via page_size/page_token."""
+  entries = {}
+  page_token = None
+  while True:
+    params = {"page_size": "1000"}
+    if page_token:
+      params["page_token"] = page_token
+    url = f"{entries_url}?{urllib.parse.urlencode(params)}"
+    st, resp = api_req("GET", url, allow_404=allow_404)
+    if st == 404:
+      return 404, {}
+    for e in resp.get("keyValueEntries") or []:
+      if "name" in e:
+        entries[str(e["name"])] = str(e.get("value", ""))
+    next_tok = resp.get("nextPageToken") or resp.get("next_page_token")
+    if not next_tok or next_tok == page_token:
+      break
+    page_token = next_tok
+  return 200, entries
+
+
 def attrs_to_dict(attrs_list):
   out = {}
   for item in attrs_list or []:
@@ -263,17 +325,28 @@ def destroy_secret_versions(secret_name: str, app_name: str):
   destroyed = 0
   errors = 0
   try:
-    st, resp = api_req(
-        "GET",
-        f"{SM_BASE}/secrets/{urllib.parse.quote(secret_name, safe='')}/versions?pageSize=200",
-        allow_404=True,
-    )
-    if st == 404:
-      print(
-          f"INFO: Secret for removed pipeline-managed DeveloperApp {app_name} already absent (404); 0 versions to destroy."
+    versions = []
+    page_token = None
+    while True:
+      params = {"pageSize": "200"}
+      if page_token:
+        params["pageToken"] = page_token
+      st, resp = api_req(
+          "GET",
+          f"{SM_BASE}/secrets/{urllib.parse.quote(secret_name, safe='')}/versions?{urllib.parse.urlencode(params)}",
+          allow_404=True,
       )
-      return 0, 0
-    for v in resp.get("versions", []):
+      if st == 404:
+        print(
+            f"INFO: Secret for removed pipeline-managed DeveloperApp {app_name} already absent (404); 0 versions to destroy."
+        )
+        return 0, 0
+      versions.extend(resp.get("versions", []))
+      next_tok = resp.get("nextPageToken")
+      if not next_tok or next_tok == page_token:
+        break
+      page_token = next_tok
+    for v in versions:
       state = v.get("state", "")
       if state not in ("ENABLED", "DISABLED"):
         continue
@@ -357,9 +430,9 @@ products_deleted_count = 0
 secret_versions_destroyed = 0
 secret_version_destroy_errors = 0
 
-# 1. Reconcile API Products referenced in active agent manifests (gated by active MCP servers)
+# 1. Compute desired API Products once across all active agent manifests (fail fast on conflicting shared-product overrides)
 product_updates = set()
-desired_product_names = set()
+desired_products: dict[str, tuple[dict, str]] = {}
 agent_effective_products: dict[str, list[str]] = {}
 
 for m in agent_manifests:
@@ -397,7 +470,6 @@ for m in agent_manifests:
         desired_prod["payloadOperationGroup"]["operationConfigs"] = filtered
 
     eff_prods.append(pname)
-    desired_product_names.add(pname)
 
     attrs = attrs_to_dict(desired_prod.get("attributes"))
     attrs["managed_by"] = MANAGED_BY_VALUE
@@ -429,47 +501,79 @@ for m in agent_manifests:
           lc["llmTokenQuota"]["timeUnit"] = str(prod_override["llmTokenQuotaTimeUnit"])
     if "spikeArrestRate" in prod_override:
       attrs["spike_arrest_rate"] = str(prod_override["spikeArrestRate"])
+    payload_op_configs = (desired_prod.get("payloadOperationGroup") or {}).get(
+        "operationConfigs"
+    ) or []
     if "toolQuotaLimit" in prod_override:
       attrs["tool_quota_limit"] = str(prod_override["toolQuotaLimit"])
-      desired_prod["quota"] = str(prod_override["toolQuotaLimit"])
+      if payload_op_configs:
+        for pc in payload_op_configs:
+          if "quota" not in pc or not isinstance(pc["quota"], dict):
+            pc["quota"] = {}
+          pc["quota"]["limit"] = str(prod_override["toolQuotaLimit"])
+      else:
+        desired_prod["quota"] = str(prod_override["toolQuotaLimit"])
     if "toolQuotaInterval" in prod_override:
       attrs["tool_quota_interval"] = str(prod_override["toolQuotaInterval"])
-      desired_prod["quotaInterval"] = str(prod_override["toolQuotaInterval"])
+      if payload_op_configs:
+        for pc in payload_op_configs:
+          if "quota" not in pc or not isinstance(pc["quota"], dict):
+            pc["quota"] = {}
+          pc["quota"]["interval"] = str(prod_override["toolQuotaInterval"])
+      else:
+        desired_prod["quotaInterval"] = str(prod_override["toolQuotaInterval"])
     if "toolQuotaTimeUnit" in prod_override:
       attrs["tool_quota_time_unit"] = str(prod_override["toolQuotaTimeUnit"])
-      desired_prod["quotaTimeUnit"] = str(prod_override["toolQuotaTimeUnit"])
+      if payload_op_configs:
+        for pc in payload_op_configs:
+          if "quota" not in pc or not isinstance(pc["quota"], dict):
+            pc["quota"] = {}
+          pc["quota"]["timeUnit"] = str(prod_override["toolQuotaTimeUnit"])
+      else:
+        desired_prod["quotaTimeUnit"] = str(prod_override["toolQuotaTimeUnit"])
     desired_prod["attributes"] = dict_to_attrs(attrs)
 
-    st, live_prod = api_req(
-        "GET", f"{APIGEE_BASE}/apiproducts/{pname}", allow_404=True
-    )
     des_canon = canonical_product(desired_prod)
-    if st == 404:
-      print(f"CREATE APIProduct {pname}")
-      api_req("POST", f"{APIGEE_BASE}/apiproducts", des_canon)
-      product_updates.add(pname)
+    if pname in desired_products:
+      prev_canon, prev_agent = desired_products[pname]
+      if prev_canon != des_canon:
+        raise RuntimeError(
+            f"Conflicting APIProduct '{pname}' overrides between agents "
+            f"'{prev_agent}' and '{agent_name}'; use distinct products or identical overrides."
+        )
     else:
-      live_canon = canonical_product(live_prod)
-      if live_canon != des_canon:
-        print(f"UPDATE APIProduct {pname}")
-        api_req("PUT", f"{APIGEE_BASE}/apiproducts/{pname}", des_canon)
-        product_updates.add(pname)
-      else:
-        print(f"UNCHANGED APIProduct {pname}")
+      desired_products[pname] = (des_canon, agent_name)
   agent_effective_products[agent_name] = sorted(eff_prods)
 
-# 2. Ensure KVM agent-jwt-subjects exists and load existing entries
+desired_product_names = set(desired_products.keys())
+for pname in sorted(desired_products.keys()):
+  des_canon, _ = desired_products[pname]
+  st, live_prod = api_req(
+      "GET", f"{APIGEE_BASE}/apiproducts/{pname}", allow_404=True
+  )
+  if st == 404:
+    print(f"CREATE APIProduct {pname}")
+    api_req("POST", f"{APIGEE_BASE}/apiproducts", des_canon)
+    product_updates.add(pname)
+  else:
+    live_canon = canonical_product(live_prod)
+    if live_canon != des_canon:
+      print(f"UPDATE APIProduct {pname}")
+      api_req("PUT", f"{APIGEE_BASE}/apiproducts/{pname}", des_canon)
+      product_updates.add(pname)
+    else:
+      print(f"UNCHANGED APIProduct {pname}")
+
+# 2. Ensure KVM agent-jwt-subjects exists and load existing entries (paginated)
 kvm_name = "agent-jwt-subjects"
 kvm_base = f"{APIGEE_BASE}/environments/{apigee_env}/keyvaluemaps"
-st, _ = api_req("GET", f"{kvm_base}/{kvm_name}/entries", allow_404=True)
+st, live_kvm_entries = list_kvm_entries(
+    f"{kvm_base}/{kvm_name}/entries", allow_404=True
+)
 if st == 404:
   print(f"CREATE KVM {kvm_name} in {apigee_env}")
   api_req("POST", kvm_base, {"name": kvm_name, "encrypted": True})
-
-_, entries_resp = api_req("GET", f"{kvm_base}/{kvm_name}/entries")
-live_kvm_entries = {
-    e["name"]: e["value"] for e in entries_resp.get("keyValueEntries", [])
-}
+  live_kvm_entries = {}
 
 # Ensure static KVM entries from env-config.json (plus optional AGENTS_CLUSTER_OIDC_JWKS)
 static_kvm = (
@@ -716,22 +820,26 @@ for m in agent_manifests:
 # Scan all developers in the org (filtering strictly on app attribute managed_by==MANAGED_BY_VALUE)
 # so pruning still runs when 0 agents remain active, even under pre-existing developers.
 all_developers = set(developers_checked)
-_, developers_resp = api_req("GET", f"{APIGEE_BASE}/developers?expand=true")
-for dev_obj in developers_resp.get("developer", []):
+_, developer_items = list_apigee_paginated(
+    f"{APIGEE_BASE}/developers", "developer", "email", expand=True
+)
+for dev_obj in developer_items:
   d_email = str(dev_obj.get("email") or "").strip()
   if d_email:
     all_developers.add(d_email)
 
 active_secret_names = {m["secretManagerSecret"] for m in agent_manifests}
 for dev_email in sorted(all_developers):
-  st_apps, apps_resp = api_req(
-      "GET",
-      f"{APIGEE_BASE}/developers/{urllib.parse.quote(dev_email, safe='@.')}/apps?expand=true",
+  st_apps, app_items = list_apigee_paginated(
+      f"{APIGEE_BASE}/developers/{urllib.parse.quote(dev_email, safe='@.')}/apps",
+      "app",
+      "name",
+      expand=True,
       allow_404=True,
   )
   if st_apps == 404:
     continue
-  for app_obj in apps_resp.get("app", []):
+  for app_obj in app_items:
     aname = app_obj.get("name", "")
     if (dev_email, aname) in desired_app_names:
       continue
@@ -771,8 +879,10 @@ for dev_email in sorted(all_developers):
       )
 
 # 5. Delete unreferenced pipeline-managed API Products (for removed agents or removed MCP servers)
-_, live_prods_resp = api_req("GET", f"{APIGEE_BASE}/apiproducts?expand=true")
-for prod_obj in live_prods_resp.get("apiProduct", []):
+_, live_prod_items = list_apigee_paginated(
+    f"{APIGEE_BASE}/apiproducts", "apiProduct", "name", expand=True
+)
+for prod_obj in live_prod_items:
   pname = str(prod_obj.get("name") or "").strip()
   if not pname or pname in desired_product_names:
     continue
@@ -808,4 +918,10 @@ print(
         separators=(",", ":"),
     )
 )
+if secret_version_destroy_errors > 0:
+  print(
+      f"ERROR: Failed to destroy {secret_version_destroy_errors} Secret Manager version(s) for removed agent(s).",
+      file=sys.stderr,
+  )
+  sys.exit(1)
 EOF

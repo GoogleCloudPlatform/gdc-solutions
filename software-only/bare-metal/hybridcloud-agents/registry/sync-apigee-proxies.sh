@@ -291,20 +291,40 @@ for kvm_name, kvm_spec in sorted((env_cfg.get("keyValueMaps") or {}).items()):
   entries = kvm_spec.get("entries") or {}
   if not entries:
     continue
-  st, entries_resp = api_req(
-      "GET", f"{kvm_base}/{kvm_name}/entries", allow_404=True
-  )
-  if st == 404:
-    print(f"CREATE KVM {kvm_name} in {apigee_env}")
-    api_req(
-        "POST",
-        kvm_base,
-        {"name": kvm_name, "encrypted": bool(kvm_spec.get("encrypted", True))},
+  live_entries = {}
+  page_token = None
+  created_kvm = False
+  while True:
+    params = {"page_size": "1000"}
+    if page_token:
+      params["page_token"] = page_token
+    st, entries_resp = api_req(
+        "GET",
+        f"{kvm_base}/{kvm_name}/entries?{urllib.parse.urlencode(params)}",
+        allow_404=True,
     )
-    entries_resp = {"keyValueEntries": []}
-  live_entries = {
-      e["name"]: e["value"] for e in entries_resp.get("keyValueEntries", [])
-  }
+    if st == 404:
+      print(f"CREATE KVM {kvm_name} in {apigee_env}")
+      api_req(
+          "POST",
+          kvm_base,
+          {
+              "name": kvm_name,
+              "encrypted": bool(kvm_spec.get("encrypted", True)),
+          },
+      )
+      created_kvm = True
+      break
+    for e in entries_resp.get("keyValueEntries", []):
+      live_entries[e["name"]] = e["value"]
+    next_tok = entries_resp.get("nextPageToken") or entries_resp.get(
+        "next_page_token"
+    )
+    if not next_tok or next_tok == page_token:
+      break
+    page_token = next_tok
+  if created_kvm:
+    live_entries = {}
   for ek, ev in sorted(entries.items()):
     if ek not in live_entries:
       print(f"CREATE KVM entry {kvm_name}/{ek} -> {ev}")
@@ -315,7 +335,8 @@ for kvm_name, kvm_spec in sorted((env_cfg.get("keyValueMaps") or {}).items()):
       )
 
 # 5. Reconcile proxy bundles in apigee/proxies/* via SHA-256 content hash
-# (gated MCP proxies are deployed only when active in registry/mcp-servers/ and removed when inactive)
+# (gated MCP proxies are deployed only when active in registry/mcp-servers/ and removed when inactive;
+# pipeline-managed proxies whose directories were deleted from Git are undeployed)
 _, depl_resp = api_req(
     "GET", f"{APIGEE_BASE}/environments/{apigee_env}/deployments"
 )
@@ -332,6 +353,7 @@ deployed_count = 0
 unchanged_count = 0
 removed_count = 0
 newly_deployed = []
+present_proxy_names = set()
 
 for proxy_dir in sorted(proxies_dir.iterdir()):
   if not proxy_dir.is_dir():
@@ -340,6 +362,7 @@ for proxy_dir in sorted(proxies_dir.iterdir()):
   if not apiproxy_dir.is_dir():
     continue
   proxy_name = proxy_dir.name
+  present_proxy_names.add(proxy_name)
 
   if proxy_name in gated_mcp_proxies and proxy_name not in active_mcp_proxies:
     cur_rev = deployed_revs.get(proxy_name)
@@ -435,6 +458,28 @@ for proxy_dir in sorted(proxies_dir.iterdir()):
   deployed_count += 1
   newly_deployed.append((proxy_name, new_rev))
   print(f"DEPLOYED proxy {proxy_name} rev={new_rev} to {apigee_env}")
+
+# 5b. Undeploy pipeline-managed proxies whose directories were removed from apigee/proxies/
+# (identified by the [bundle-sha256=...] marker stamped by this script; gated MCP proxies
+# whose directories remain present were already handled above)
+for px, cur_rev in sorted(deployed_revs.items()):
+  if px in present_proxy_names:
+    continue
+  st_rev, rev_meta = api_req(
+      "GET",
+      f"{APIGEE_BASE}/apis/{urllib.parse.quote(px, safe='')}/revisions/{cur_rev}",
+      allow_404=True,
+  )
+  if st_rev != 200 or "[bundle-sha256=" not in str(
+      rev_meta.get("description", "")
+  ):
+    continue
+  print(
+      f"UNDEPLOY removed pipeline-managed proxy {px} rev={cur_rev} from {apigee_env}"
+  )
+  remove_url = f"{APIGEE_BASE}/environments/{apigee_env}/apis/{urllib.parse.quote(px, safe='')}/revisions/{cur_rev}/deployments"
+  api_req("DELETE", remove_url, allow_404=True)
+  removed_count += 1
 
 # 6. Poll newly deployed proxy revisions until READY
 for proxy_name, new_rev in newly_deployed:

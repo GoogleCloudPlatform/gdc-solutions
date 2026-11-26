@@ -3,12 +3,7 @@
   "keyValueMaps": {
     "agent-jwt-subjects": {
       "encrypted": true,
-      "staticEntries": {
-        "agt7-runaway-sandbox-app": "system:serviceaccount:agent-workloads:adk-sovereign-agent",
-        "cloud-eligible-agents-app": "system:serviceaccount:agent-workloads:adk-sovereign-agent",
-        "prompt-limit-test-agents-app": "system:serviceaccount:agent-workloads:adk-sovereign-agent",
-        "quota-test-agents-app": "system:serviceaccount:agent-workloads:adk-sovereign-agent"
-      }
+      "staticEntries": {}
     },
     "ai-model-aliases": {
       "encrypted": true,
@@ -23,6 +18,7 @@
   "propertySets": {
     "hybrid_agents_env": {
       "agents_cluster_name": "YOUR_AGENTS_CLUSTER_NAME",
+      "allow_failover_simulation": "false",
       "apigee_mcp_internal_host": "YOUR_PROJECT_ID.mcp.apigee.internal",
       "gateway_cluster_name": "YOUR_GATEWAY_CLUSTER_NAME",
       "gateway_jwt_audience": "YOUR_GATEWAY_FQDN",
@@ -72,18 +68,6 @@
       "isEnabled": true,
       "name": "gdcso-local-vllm",
       "port": 443,
-      "sSLInfo": {
-        "clientAuthEnabled": false,
-        "enabled": true,
-        "ignoreValidationErrors": false,
-        "trustStore": "ref://hybrid-agents-truststore-ref"
-      }
-    },
-    {
-      "host": "YOUR_VLLM_INGRESS_HOST",
-      "isEnabled": true,
-      "name": "gdcso-local-vllm-down",
-      "port": 9443,
       "sSLInfo": {
         "clientAuthEnabled": false,
         "enabled": true,
