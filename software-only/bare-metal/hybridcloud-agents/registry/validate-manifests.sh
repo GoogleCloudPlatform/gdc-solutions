@@ -360,8 +360,8 @@ for p in active_mcp_files:
 for p in staged_mcp_files:
   _validate_mcp_file(p)
 
-# Verify parity between MCP server YAML tools and Apigee APIProduct payloadOperationGroup tools/call/*
-if products_file.is_file() and mcp_proxy_tools:
+# Verify Apigee APIProduct operationConfigs constraints and MCP tool parity
+if products_file.is_file():
   try:
     products_data = json.loads(products_file.read_text(encoding="utf-8"))
   except Exception as exc:
@@ -371,6 +371,25 @@ if products_file.is_file() and mcp_proxy_tools:
   for prod in products_data if isinstance(products_data, list) else []:
     if not isinstance(prod, dict):
       continue
+    pname = str(prod.get("name") or "<unnamed>")
+    for grp_key, ops_key in (
+        ("operationGroup", "operations"),
+        ("payloadOperationGroup", "operations"),
+        ("llmOperationGroup", "llmOperations"),
+    ):
+      grp = prod.get(grp_key)
+      if not isinstance(grp, dict):
+        continue
+      for idx, cfg in enumerate(grp.get("operationConfigs") or []):
+        if not isinstance(cfg, dict):
+          continue
+        ops = cfg.get(ops_key) or []
+        if not isinstance(ops, list) or len(ops) != 1:
+          errors.append(
+              f"apigee/products/api-products.json: product '{pname}' {grp_key}.operationConfigs[{idx}] "
+              f"must contain exactly 1 entry in '{ops_key}' (found {len(ops) if isinstance(ops, list) else 'non-list'}); "
+              "Apigee hybrid rejects multi-operation operationConfigs with InvalidOperationSize"
+          )
     pog = prod.get("payloadOperationGroup")
     if not isinstance(pog, dict):
       continue

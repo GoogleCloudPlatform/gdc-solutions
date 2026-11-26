@@ -65,7 +65,7 @@ if (raw) {
       routedTierLabel = "local-vllm";
     } else if (reqModel === "enterprise-flash" || (isCloudClass && reqModel === "google/gemini-3.5-flash")) {
       if (!isCloudClass || !allowCloudBurst) {
-        if (!allowCloudBurst) {
+        if (isCloudClass && !allowCloudBurst) {
           cloudBurstForbidden = "true";
         } else {
           modelNotAuthorized = "true";

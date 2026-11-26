@@ -179,7 +179,7 @@ def list_kvm_entries(entries_url: str, allow_404: bool = False):
   entries = {}
   page_token = None
   while True:
-    params = {"page_size": "1000"}
+    params = {"page_size": "100"}
     if page_token:
       params["page_token"] = page_token
     url = f"{entries_url}?{urllib.parse.urlencode(params)}"
@@ -833,15 +833,26 @@ for dev_email in sorted(all_developers):
   st_apps, app_items = list_apigee_paginated(
       f"{APIGEE_BASE}/developers/{urllib.parse.quote(dev_email, safe='@.')}/apps",
       "app",
-      "name",
-      expand=True,
+      "appId",
+      expand=False,
       allow_404=True,
   )
   if st_apps == 404:
     continue
-  for app_obj in app_items:
-    aname = app_obj.get("name", "")
-    if (dev_email, aname) in desired_app_names:
+  for app_ref in app_items:
+    aname = (
+        str(app_ref.get("appId") or app_ref.get("name") or "").strip()
+        if isinstance(app_ref, dict)
+        else str(app_ref).strip()
+    )
+    if not aname or (dev_email, aname) in desired_app_names:
+      continue
+    st_detail, app_obj = api_req(
+        "GET",
+        f"{APIGEE_BASE}/developers/{urllib.parse.quote(dev_email, safe='@.')}/apps/{urllib.parse.quote(aname, safe='')}",
+        allow_404=True,
+    )
+    if st_detail == 404 or not isinstance(app_obj, dict):
       continue
     a_attrs = attrs_to_dict(app_obj.get("attributes"))
     if a_attrs.get("managed_by") != MANAGED_BY_VALUE:

@@ -295,7 +295,7 @@ for kvm_name, kvm_spec in sorted((env_cfg.get("keyValueMaps") or {}).items()):
   page_token = None
   created_kvm = False
   while True:
-    params = {"page_size": "1000"}
+    params = {"page_size": "100"}
     if page_token:
       params["page_token"] = page_token
     st, entries_resp = api_req(

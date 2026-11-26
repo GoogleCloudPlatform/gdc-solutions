@@ -69,8 +69,10 @@ Options:
                          By default, asserts the simulation header is ignored.
   --expect-current       For step4: dry-run check_control_plane & workload probes
                          against the current state instead of asserting empty.
-  --include-a2a-quota    For step3: run the 6-call A2A per-caller quota burst
-                         (exhausts the 4/2m A2A quota window).
+  --include-a2a-quota    For step3: run the A2A per-caller quota burst check
+                         (default 60/1m via a2a_quota_limit on
+                         a2a-sovereign-callers; lower a2a_quota_limit below
+                         A2A_QUOTA_BURST_CALLS to trigger HTTP 429).
   --no-cooldown          Skip the PromptTokenLimit-Burst cooldown (65s default)
                          between rapid Gemini batches.
   --check-workstation-tls
@@ -642,7 +644,7 @@ PY
     fi
   fi
 
-  # Security negative (B3): non-chat path on llm-router-v1 -> 404
+  # Security negative (B3): non-chat path on llm-router-v1 -> 401 (product op scope) or 404 (proxy allowlist)
   out="$(agent_call adk-ops-orchestrator gateway /v1/completions \
     '{"model": "enterprise-sovereign", "prompt": "Say OK."}' \
     "x-data-classification=sovereign" \
@@ -650,9 +652,13 @@ PY
   if detail="$(python3 - "${out}" <<'PY'
 import json, sys
 d = json.loads(sys.argv[1])
+st = d.get("status")
 raw = json.dumps(d.get("body"))
-ok = d.get("status") == 404 and "path_or_method_not_allowed" in raw
-print(f"HTTP {d.get('status')} path_or_method_not_allowed={'path_or_method_not_allowed' in raw}")
+ok_401 = st == 401 and "InvalidApiKeyForGivenResource" in raw
+ok_404 = st == 404 and "path_or_method_not_allowed" in raw
+ok = ok_401 or ok_404
+reason = "InvalidApiKeyForGivenResource" if ok_401 else ("path_or_method_not_allowed" if ok_404 else "unexpected")
+print(f"HTTP {st} reason={reason}")
 raise SystemExit(0 if ok else 1)
 PY
 )"; then

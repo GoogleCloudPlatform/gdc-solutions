@@ -35,7 +35,12 @@
             {
               "resource": "/chat/completions",
               "methods": ["POST"]
-            },
+            }
+          ]
+        },
+        {
+          "apiSource": "llm-router-v1",
+          "operations": [
             {
               "resource": "/models",
               "methods": ["GET"]
@@ -257,7 +262,12 @@
             {
               "resource": "/chat/completions",
               "methods": ["POST"]
-            },
+            }
+          ]
+        },
+        {
+          "apiSource": "llm-router-v1",
+          "operations": [
             {
               "resource": "/models",
               "methods": ["GET"]
@@ -766,7 +776,12 @@
             {
               "resource": "/",
               "methods": ["GET", "POST"]
-            },
+            }
+          ]
+        },
+        {
+          "apiSource": "agent-dispatch-v1",
+          "operations": [
             {
               "resource": "/**",
               "methods": ["GET", "POST"]
@@ -779,7 +794,12 @@
             {
               "resource": "/",
               "methods": ["GET", "POST"]
-            },
+            }
+          ]
+        },
+        {
+          "apiSource": "ops-agent-dispatch-v1",
+          "operations": [
             {
               "resource": "/**",
               "methods": ["GET", "POST"]
