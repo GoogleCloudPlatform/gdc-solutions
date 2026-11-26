@@ -25,36 +25,40 @@ Development Kit (ADK) container images deployed on the Agents cluster.
 `adk-sovereign-agent` (`v0.2.0`) is the on-premises sovereign compliance policy
 specialist. It runs as a non-root container (`uid/gid 10001`) with a read-only
 root filesystem and `code_executor=None`, mediates all outbound LLM
-(`google.adk.models.apigee_llm.ApigeeLlm` over `/v1` or `GatewayGemini` over
-`/v1beta`) and MCP (`/mcp-toolbox` and `/mcp`) requests strictly through its
-local Envoy egress proxy (`agent-egress-envoy:15001`) with a kubelet-projected
-Kubernetes service account JWT (`x-agent-ksa-token`) and W3C `traceparent`,
-serves both northbound `/invoke` (plus `/invoke-stream` Server-Sent Events) and
-east-west Agent2Agent (A2A) JSON-RPC `message/send` requests, and disables GenAI
-and ADK message content capture in OpenTelemetry spans at source.
+(`google.adk.models.apigee_llm.ApigeeLlm` over `/v1`, locked to config-time
+`ADK_CLIENT_MODE=apigee_openai`) and MCP (`/mcp-toolbox` and `/mcp`) requests
+strictly through its local Envoy egress proxy (`agent-egress-envoy:15001`) with
+a kubelet-projected Kubernetes service account JWT (`x-agent-ksa-token`) and W3C
+`traceparent`, serves northbound `/invoke` (plus `/invoke-stream` Server-Sent
+Events) and east-west Agent2Agent (A2A) JSON-RPC `message/send` requests on port
+`8080`, exposes Prometheus `/metrics` on dedicated port `9090`, and disables
+GenAI and ADK message content capture in OpenTelemetry spans at source.
 
 `adk-ops-orchestrator` (`v0.3.0`) is the hybrid operations and incident triage
 orchestrator. Like `adk-sovereign-agent`, it runs as a non-root container
-(`uid/gid 10001`) with `code_executor=None` and routes all outbound traffic
-through its dedicated listener port on the shared Envoy egress proxy
-(`agent-egress-envoy:15002`). It combines Apigee-routed LLM inference
-(`enterprise-flash` for `cloud-eligible` or `public` requests and
-`enterprise-sovereign` for `sovereign`, `confidential`, or `restricted`
-requests) with `McpToolset` discovery for Google-managed BigQuery
+(`uid/gid 10001`) with `code_executor=None`, serves `/metrics` on dedicated port
+`9090`, and routes all outbound traffic through its dedicated listener port on
+the shared Envoy egress proxy (`agent-egress-envoy:15002`). It combines
+Apigee-routed LLM inference (`enterprise-flash` for `cloud-eligible` or `public`
+requests and `enterprise-sovereign` for `sovereign`, `confidential`, or
+`restricted` requests) with `McpToolset` discovery for Google-managed BigQuery
 (`/mcp-bigquery`), Cloud Storage (`/mcp-storage`), and the Apigee gateway
-catalog (`/mcp`), and delegates sovereign compliance assessments over
+catalog (`/mcp`), delegates sovereign compliance assessments over
 Apigee-mediated A2A JSON-RPC (`message/send`) to `adk-sovereign-agent` using the
-deploy-time peer registry ConfigMap (`/etc/adk-config/peer-agents.json`).
+deploy-time peer registry ConfigMap (`/etc/adk-config/peer-agents.json`), and
+enforces sticky sovereign downgrade so that once a turn consumes sovereign A2A
+or `mcp-toolbox` data, every subsequent model call in that turn routes strictly
+to `enterprise-sovereign` (`local-vllm`) and cloud MCP tools are blocked.
 
 ## Files
 
 - `adk-sovereign-agent/app.py`, `adk-sovereign-agent/Dockerfile`,
-  `adk-sovereign-agent/requirements.txt` — source, container build file, and
+  `adk-sovereign-agent/requirements.txt`: source, container build file, and
   Python dependencies for `adk-sovereign-agent` (`0.2.0`).
 - `adk-ops-orchestrator/app.py`, `adk-ops-orchestrator/Dockerfile`,
-  `adk-ops-orchestrator/requirements.txt` — source, container build file, and
+  `adk-ops-orchestrator/requirements.txt`: source, container build file, and
   Python dependencies for `adk-ops-orchestrator` (`0.3.0`).
-- `cloudbuild-images.yaml` — Cloud Build configuration that stages each agent's
+- `cloudbuild-images.yaml`: Cloud Build configuration that stages each agent's
   canonical A2A card from `registry/cards/<agent>.json`, builds both container
   images (running the `Dockerfile` import and `ApigeeLlm` self-test at build
   time), pushes them to Artifact Registry, and prints the resulting `sha256`
@@ -103,7 +107,7 @@ manifests):
 
 ## `google-adk==1.39.1` version pin warning
 
-🚨 **IMPORTANT:** Both `requirements.txt` files pin every direct and transitive
+**Important:** Both `requirements.txt` files pin every direct and transitive
 dependency to exact versions with `--require-hashes` (`google-adk==1.39.1` and
 all 114 transitive packages verified in runtime containers). Keep
 `google-adk==1.39.1` pinned unless you re-verify compatibility. Both agents hook

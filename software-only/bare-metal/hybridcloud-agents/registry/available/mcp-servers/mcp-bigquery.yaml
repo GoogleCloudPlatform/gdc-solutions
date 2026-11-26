@@ -95,3 +95,41 @@ tools:
         - tableId
       type: object
     name: get_table_info
+  - annotations:
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: true
+      readOnlyHint: true
+      title: Execute Read-Only BigQuery SQL
+    description: Executes a read-only SQL query against governed BigQuery datasets via BigQuery MCP.
+    inputSchema:
+      properties:
+        projectId:
+          description: Google Cloud project ID.
+          type: string
+        query:
+          description: Read-only GoogleSQL SELECT query.
+          type: string
+      required:
+        - query
+      type: object
+    name: execute_sql_readonly
+  - annotations:
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: true
+      readOnlyHint: true
+      title: Get BigQuery Query Results
+    description: Retrieves paginated results for a completed read-only BigQuery query job via BigQuery MCP.
+    inputSchema:
+      properties:
+        jobId:
+          description: BigQuery query job ID.
+          type: string
+        projectId:
+          description: Google Cloud project ID.
+          type: string
+      required:
+        - jobId
+      type: object
+    name: get_query_results

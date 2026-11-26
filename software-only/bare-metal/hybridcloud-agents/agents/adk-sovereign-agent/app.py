@@ -34,9 +34,12 @@ from __future__ import annotations
 import contextvars
 import json
 import os
+import threading
 import uuid
 from collections import Counter
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -45,7 +48,7 @@ os.environ.setdefault("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "fal
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from google.adk.agents import Agent
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.models.apigee_llm import ApigeeLlm
@@ -150,7 +153,10 @@ resource = Resource.create(
 )
 tracer_provider = TracerProvider(resource=resource)
 tracer_provider.add_span_processor(
-    BatchSpanProcessor(OTLPSpanExporter(endpoint=OTLP_TRACES_ENDPOINT, timeout=5))
+    BatchSpanProcessor(
+        OTLPSpanExporter(endpoint=OTLP_TRACES_ENDPOINT, timeout=5),
+        schedule_delay_millis=1000,
+    )
 )
 trace.set_tracer_provider(tracer_provider)
 tracer = trace.get_tracer("hybrid_cloud_agents.adk", AGENT_CARD.get("version", "0.1.2"))
@@ -358,7 +364,70 @@ def _build_hardened_agent(
     return agent, mcp_toolsets
 
 
-app = FastAPI(title=APP_NAME, version=AGENT_CARD.get("version", "0.1.2"))
+METRICS_PORT = int(os.getenv("METRICS_PORT", "9090"))
+
+
+def _render_prometheus_metrics() -> str:
+    lines = [
+        "# HELP adk_agent_requests_total Total agent invocation requests.",
+        "# TYPE adk_agent_requests_total counter",
+    ]
+    if not REQUEST_COUNTERS:
+        lines.append(
+            f'adk_agent_requests_total{{agent="{APP_NAME}",classification="sovereign",status="init"}} 0'
+        )
+    for (cls_label, status_label), count in sorted(REQUEST_COUNTERS.items()):
+        lines.append(
+            f'adk_agent_requests_total{{agent="{APP_NAME}",classification="{cls_label}",status="{status_label}"}} {count}'
+        )
+    return "\n".join(lines) + "\n"
+
+
+class _ReusableMetricsServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+
+
+class _MetricsRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path.split("?", 1)[0] == "/metrics":
+            payload = _render_prometheus_metrics().encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        del format, args
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    metrics_server = _ReusableMetricsServer(
+        ("0.0.0.0", METRICS_PORT), _MetricsRequestHandler
+    )
+    metrics_thread = threading.Thread(
+        target=metrics_server.serve_forever,
+        name=f"{APP_NAME}-metrics",
+        daemon=True,
+    )
+    metrics_thread.start()
+    try:
+        yield
+    finally:
+        metrics_server.shutdown()
+        metrics_server.server_close()
+        tracer_provider.shutdown()
+
+
+app = FastAPI(
+    title=APP_NAME,
+    version=AGENT_CARD.get("version", "0.1.2"),
+    lifespan=_lifespan,
+)
 
 
 @app.get("/healthz")
@@ -372,25 +441,9 @@ async def healthz() -> dict:
         "default_model_alias": MODEL_ALIAS,
         "egress_proxy_base": EGRESS_PROXY_BASE,
         "ksa_token_mounted": KSA_TOKEN_PATH.exists(),
+        "metrics_port": METRICS_PORT,
         "streaming_supported": True,
     }
-
-
-@app.get("/metrics")
-async def metrics() -> PlainTextResponse:
-    lines = [
-        "# HELP adk_agent_requests_total Total agent invocation requests.",
-        "# TYPE adk_agent_requests_total counter",
-    ]
-    if not REQUEST_COUNTERS:
-        lines.append(
-            f'adk_agent_requests_total{{agent="{APP_NAME}",classification="sovereign",status="init"}} 0'
-        )
-    for (cls_label, status_label), count in sorted(REQUEST_COUNTERS.items()):
-        lines.append(
-            f'adk_agent_requests_total{{agent="{APP_NAME}",classification="{cls_label}",status="{status_label}"}} {count}'
-        )
-    return PlainTextResponse("\n".join(lines) + "\n")
 
 
 @app.get("/.well-known/agent-card.json")
@@ -414,6 +467,7 @@ async def _execute_adk_turn(
     turn_state = _TurnTelemetry()
     tok_state = TURN_TELEMETRY.set(turn_state)
     mcp_toolsets: list[McpToolset] = []
+    session_id: str | None = None
     try:
         with tracer.start_as_current_span(
             "gen_ai.agent.invoke",
@@ -457,6 +511,7 @@ async def _execute_adk_turn(
             session = await session_service.create_session(
                 app_name=APP_NAME, user_id=user_id
             )
+            session_id = session.id
             content = genai_types.Content(
                 role="user",
                 parts=[genai_types.Part.from_text(text=prompt_text)],
@@ -494,7 +549,6 @@ async def _execute_adk_turn(
                 span.set_attribute("http.response.status_code", 200)
                 span.set_status(Status(StatusCode.OK))
                 REQUEST_COUNTERS[(classification, "200")] += 1
-                tracer_provider.force_flush(timeout_millis=3000)
 
                 answer_text = "\n".join(final_chunks)
                 resp_headers = {
@@ -564,7 +618,6 @@ async def _execute_adk_turn(
                 span.set_attribute("error.type", err_type)
                 span.set_status(Status(StatusCode.ERROR, description=err_type))
                 REQUEST_COUNTERS[(classification, str(status_code))] += 1
-                tracer_provider.force_flush(timeout_millis=3000)
                 err_headers = {"X-Agent-Trace-Id": trace_id_hex}
                 for qk, qv in turn_state.quota_headers.items():
                     err_headers[qk] = qv
@@ -591,6 +644,13 @@ async def _execute_adk_turn(
                     },
                 )
     finally:
+        if session_id is not None:
+            try:
+                await session_service.delete_session(
+                    app_name=APP_NAME, user_id=user_id, session_id=session_id
+                )
+            except Exception:  # pylint: disable=broad-exception-caught
+                pass
         await _close_agent_llm(locals().get("agent"))
         for ts in mcp_toolsets:
             try:
@@ -707,6 +767,7 @@ async def invoke_stream(request: Request) -> StreamingResponse | JSONResponse:
         tok_state = TURN_TELEMETRY.set(turn_state)
         mcp_toolsets: list[McpToolset] = []
         agent: Agent | None = None
+        session_id: str | None = None
         try:
             with tracer.start_as_current_span(
                 "gen_ai.agent.invoke_stream",
@@ -739,6 +800,7 @@ async def invoke_stream(request: Request) -> StreamingResponse | JSONResponse:
                 session = await session_service.create_session(
                     app_name=APP_NAME, user_id=user_id
                 )
+                session_id = session.id
                 content = genai_types.Content(
                     role="user",
                     parts=[genai_types.Part.from_text(text=prompt_text)],
@@ -798,6 +860,13 @@ async def invoke_stream(request: Request) -> StreamingResponse | JSONResponse:
             yield f"data: {json.dumps(err_payload)}\n\n"
             yield "data: [DONE]\n\n"
         finally:
+            if session_id is not None:
+                try:
+                    await session_service.delete_session(
+                        app_name=APP_NAME, user_id=user_id, session_id=session_id
+                    )
+                except Exception:  # pylint: disable=broad-exception-caught
+                    pass
             await _close_agent_llm(agent)
             for ts in mcp_toolsets:
                 try:

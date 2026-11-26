@@ -34,6 +34,7 @@ CARDS_DIR="${CARDS_DIR:-${SCRIPT_DIR}/cards}"
 MCP_SERVERS_DIR="${MCP_SERVERS_DIR:-${SCRIPT_DIR}/mcp-servers}"
 AVAILABLE_MCP_SERVERS_DIR="${AVAILABLE_MCP_SERVERS_DIR:-${SCRIPT_DIR}/available/mcp-servers}"
 PROXIES_DIR="${PROXIES_DIR:-${SCRIPT_DIR}/../apigee/proxies}"
+PRODUCTS_FILE="${PRODUCTS_FILE:-${SCRIPT_DIR}/../apigee/products/api-products.json}"
 FLEET_ENV_DIR="${FLEET_ENV_DIR:-${SCRIPT_DIR}/../fleet-package/environments}"
 TAG_NAME="${TAG_NAME:-}"
 
@@ -69,6 +70,7 @@ fi
   "${MCP_SERVERS_DIR}" \
   "${AVAILABLE_MCP_SERVERS_DIR}" \
   "${PROXIES_DIR}" \
+  "${PRODUCTS_FILE}" \
   "${FLEET_ENV_DIR}" \
   "${TAG_NAME}" << 'EOF'
 import json
@@ -104,8 +106,9 @@ cards_dir = Path(sys.argv[4])
 mcp_dir = Path(sys.argv[5])
 avail_mcp_dir = Path(sys.argv[6])
 proxies_dir = Path(sys.argv[7])
-fleet_env_dir = Path(sys.argv[8])
-tag_name = sys.argv[9]
+products_file = Path(sys.argv[8])
+fleet_env_dir = Path(sys.argv[9])
+tag_name = sys.argv[10]
 
 errors: list[str] = []
 
@@ -297,6 +300,7 @@ for card_path in card_files:
         seen_urls[url] = rel_card
 
 seen_mcp_names: dict[str, str] = {}
+mcp_proxy_tools: dict[str, tuple[str, set[str]]] = {}
 
 
 def _validate_mcp_file(mcp_path: Path) -> None:
@@ -341,12 +345,60 @@ def _validate_mcp_file(mcp_path: Path) -> None:
       errors.append(
           f"{rel_mcp}: apigeeProxy '{apigee_proxy}' not found under {proxies_dir}"
       )
+  if apigee_proxy:
+    declared_tools = {
+        str(t.get("name") or "").strip()
+        for t in (mcp_obj.get("tools") or [])
+        if isinstance(t, dict) and str(t.get("name") or "").strip()
+    }
+    mcp_proxy_tools[apigee_proxy] = (rel_mcp, declared_tools)
 
 
 for p in active_mcp_files:
   _validate_mcp_file(p)
 for p in staged_mcp_files:
   _validate_mcp_file(p)
+
+# Verify parity between MCP server YAML tools and Apigee APIProduct payloadOperationGroup tools/call/*
+if products_file.is_file() and mcp_proxy_tools:
+  try:
+    products_data = json.loads(products_file.read_text(encoding="utf-8"))
+  except Exception as exc:
+    errors.append(f"apigee/products/api-products.json: invalid JSON: {exc}")
+    products_data = []
+  product_tools_by_proxy: dict[str, set[str]] = {}
+  for prod in products_data if isinstance(products_data, list) else []:
+    if not isinstance(prod, dict):
+      continue
+    pog = prod.get("payloadOperationGroup")
+    if not isinstance(pog, dict):
+      continue
+    for cfg in pog.get("operationConfigs") or []:
+      if not isinstance(cfg, dict):
+        continue
+      src = str(cfg.get("apiSource") or "").strip()
+      if not src:
+        continue
+      for op in cfg.get("operations") or []:
+        if not isinstance(op, dict):
+          continue
+        op_name = str(op.get("operation") or "").strip()
+        if op_name.startswith("tools/call/"):
+          if src not in product_tools_by_proxy:
+            product_tools_by_proxy[src] = set()
+          product_tools_by_proxy[src].add(op_name[len("tools/call/") :])
+  for proxy_name, (rel_mcp, spec_tools) in sorted(mcp_proxy_tools.items()):
+    prod_tools = product_tools_by_proxy.get(proxy_name, set())
+    missing_in_spec = sorted(prod_tools - spec_tools)
+    missing_in_products = sorted(spec_tools - prod_tools)
+    if missing_in_spec:
+      errors.append(
+          f"{rel_mcp}: tools enabled in api-products.json for {proxy_name} but missing from MCP manifest: {missing_in_spec}"
+      )
+    if missing_in_products:
+      errors.append(
+          f"{rel_mcp}: tools declared for {proxy_name} but not permitted in any api-products.json payloadOperationGroup: {missing_in_products}"
+      )
 
 fleet_summary = ""
 if fleet_env_dir.is_dir():

@@ -96,15 +96,16 @@ data:
         trace_statements:
           - context: span
             statements:
-              - delete_key(span.attributes, "gen_ai.prompt") where span.attributes["data_classification"] == "sovereign" or resource.attributes["data_classification"] == "sovereign"
-              - delete_key(span.attributes, "gen_ai.completion") where span.attributes["data_classification"] == "sovereign" or resource.attributes["data_classification"] == "sovereign"
-              - delete_key(span.attributes, "gen_ai.input.messages") where span.attributes["data_classification"] == "sovereign" or resource.attributes["data_classification"] == "sovereign"
-              - delete_key(span.attributes, "gen_ai.output.messages") where span.attributes["data_classification"] == "sovereign" or resource.attributes["data_classification"] == "sovereign"
+              - delete_matching_keys(span.attributes, "^(gen_ai\\.(prompt|completion|input|output|content)|gcp\\.vertex\\.agent\\.(llm_request|llm_response|tool_call_args|tool_response)|input\\.value|output\\.value).*")
+          - context: spanevent
+            statements:
+              - delete_matching_keys(attributes, ".*")
+              - set(name, "[REDACTED_SPAN_EVENT]")
         log_statements:
           - context: log
             statements:
-              - set(log.body, "[REDACTED_SOVEREIGN_CONTENT]") where log.attributes["data_classification"] == "sovereign" and log.attributes["gen_ai.content"] != nil
-              - delete_key(log.attributes, "gen_ai.content") where log.attributes["data_classification"] == "sovereign"
+              - set(log.body, "[REDACTED_GENAI_CONTENT]") where log.attributes["gen_ai.content"] != nil or log.attributes["data_classification"] == "sovereign"
+              - delete_matching_keys(log.attributes, "^(gen_ai\\.(prompt|completion|input|output|content)|gcp\\.vertex\\.agent\\.(llm_request|llm_response|tool_call_args|tool_response)).*")
       batch:
         send_batch_max_size: 200
         send_batch_size: 100
@@ -379,6 +380,9 @@ spec:
   - ports:
     - port: 443
       protocol: TCP
+    to:
+    - ipBlock:
+        cidr: YOUR_GOOGLE_APIS_CIDR
   ingress:
   - from:
     - namespaceSelector:

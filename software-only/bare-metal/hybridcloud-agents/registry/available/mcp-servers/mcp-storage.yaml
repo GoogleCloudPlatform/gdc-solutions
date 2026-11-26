@@ -75,3 +75,43 @@ tools:
         - object
       type: object
     name: get_object_metadata
+  - annotations:
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: true
+      readOnlyHint: true
+      title: Read Cloud Storage Text Object
+    description: Reads UTF-8 text content from a specific object in a governed Cloud Storage bucket.
+    inputSchema:
+      properties:
+        bucket:
+          description: Cloud Storage bucket name.
+          type: string
+        object:
+          description: Object name inside the bucket.
+          type: string
+      required:
+        - bucket
+        - object
+      type: object
+    name: read_text
+  - annotations:
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: true
+      readOnlyHint: true
+      title: Read Cloud Storage Object
+    description: Reads content from a specific object in a governed Cloud Storage bucket.
+    inputSchema:
+      properties:
+        bucket:
+          description: Cloud Storage bucket name.
+          type: string
+        object:
+          description: Object name inside the bucket.
+          type: string
+      required:
+        - bucket
+        - object
+      type: object
+    name: read_object

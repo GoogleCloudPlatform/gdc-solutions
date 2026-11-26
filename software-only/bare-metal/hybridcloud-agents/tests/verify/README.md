@@ -16,31 +16,30 @@ limitations under the License.
 
 # Optional Repeat-Validation Suite (`tests/verify/`)
 
-> 📌 **NOTE:** Optional helper for repeat validation; it does not replace the
-> steps in the Solution User Guide (SUG).
+> **Note:** Optional helper for repeat validation; it does not replace the steps
+> in the Solution User Guide (SUG).
 
 This folder packages lightweight, standard-library scripts that mirror the
 verification checks in the Hybrid Cloud AI Agents Solution User Guide (Steps
-1–4) and provide a 4-check `smoke` subcommand for quick regressions. All checks
+1-4) and provide a 4-check `smoke` subcommand for quick regressions. All checks
 are read-only on cluster configuration (they generate test traffic and inspect
 APIs only; they never run `kubectl apply`, never modify `FleetPackage`
 resources, and never read Kubernetes `Secret` payloads or agent API keys).
 
-These scripts complement — and do **not** duplicate — the ephemeral
-`FleetPackage` negative-probe jobs in [`../a2a/`](../a2a/) (rogue-caller Job,
-direct pod-to-pod bypass probe, and mTLS ingress bypass probe) or the optional
-cluster manifests in [`../model-tier/`](../model-tier/) and
-[`../data-tier/`](../data-tier/).
+These scripts complement, and do **not** duplicate, the ephemeral `FleetPackage`
+negative-probe jobs in [`../a2a/`](../a2a/) (rogue-caller Job, direct pod-to-pod
+bypass probe, and mTLS ingress bypass probe) or the optional cluster manifests
+in [`../model-tier/`](../model-tier/) and [`../data-tier/`](../data-tier/).
 
 ## Contents
 
-- `verify.sh` — Main entrypoint with subcommands `smoke`, `step1`, `step2`,
+- `verify.sh`: Main entrypoint with subcommands `smoke`, `step1`, `step2`,
   `step3`, `step4`, and `status`. Prints a `PASS`/`FAIL`/`SKIP` summary table
   and exits non-zero on any `FAIL`. Includes an automatic 65-second cooldown
   between rapid Gemini batches to respect Apigee's `PromptTokenLimit-Burst`
   (`2400pm`) policy.
-- `agent_call.py` — Python 3 standard-library helper executed inside an agent
-  pod (`kubectl exec -i deploy/<agent> -- python3 -`) using the exact SUG
+- `agent_call.py`: Python 3 standard-library helper executed inside an agent pod
+  (`kubectl exec -i deploy/<agent> -- python3 -`) using the exact SUG
   `agent_call` semantics:
   - `agent` mode sends requests locally to `http://127.0.0.1:8080` (`/invoke`,
     `/invoke-stream`).
@@ -50,15 +49,15 @@ cluster manifests in [`../model-tier/`](../model-tier/) and
     overwrites `x-api-key`.
   - No API key or projected token is read from Kubernetes Secrets or persisted
     to disk.
-- `check_control_plane.py` — Python 3 standard-library helper that verifies
-  Agent Registry services, Apigee managed `DeveloperApp`s, `APIProduct`s,
+- `check_control_plane.py`: Python 3 standard-library helper that verifies Agent
+  Registry services, Apigee managed `DeveloperApp`s, `APIProduct`s,
   `agent-jwt-subjects` KVM entry keys, deployed MCP proxies, Secret Manager
   version states (metadata only), and Cloud Trace spans.
 
 ## Prerequisites
 
 1. **Workstation CLI tools:** `bash`, `kubectl`, `gcloud`, `python3` (standard
-   library only — no third-party pip packages required), and optionally `curl`
+   library only, no third-party pip packages required), and optionally `curl`
    for workstation-to-VIP TLS checks.
 2. **Environment variables (exact SRI `.env` names):** Source the `.env` file
    created in the Solution Reference Implementation (SRI):
@@ -115,7 +114,10 @@ bash tests/verify/verify.sh step2
 # Step 3 (v1.3.0: full regression + cross-port + forged-key + Cloud Trace)
 bash tests/verify/verify.sh step3
 
-# Step 3 including the opt-in 6-call A2A quota burst (exhausts quota for 2 min)
+# Step 3 with failover simulation enabled (after tests/fixtures/toggle-failover-simulation.sh true)
+bash tests/verify/verify.sh step3 --allow-failover-sim
+
+# Step 3 including the opt-in A2A quota burst check (lower a2a_quota_limit below A2A_QUOTA_BURST_CALLS first)
 bash tests/verify/verify.sh step3 --include-a2a-quota
 
 # Step 4 (v1.4.0: forward rollback to empty active set)
@@ -131,10 +133,10 @@ bash tests/verify/verify.sh step1 --allow-higher-stage
 bash tests/verify/verify.sh step2 --allow-higher-stage
 ```
 
-> ⚠️ **WARNING:** Apigee enforces a per-caller A2A quota of **4 A2A sub-calls
-> per 2 minutes** on `a2a-sovereign-callers`. Wait 2 minutes between
-> back-to-back `step3` or `smoke` runs to avoid intentional `HTTP 429`
-> rejections.
+> **Warning:** Apigee enforces a per-caller A2A quota configured by
+> `a2a_quota_limit` on `a2a-sovereign-callers` (default `60` calls per minute).
+> Keep `allow_failover_simulation=false` outside controlled failover test
+> windows.
 
 ## Check-to-SUG-Step Mapping
 

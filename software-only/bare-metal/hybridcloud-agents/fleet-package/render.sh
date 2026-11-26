@@ -657,7 +657,7 @@ pm_values_yaml = "\n".join(f"          - {c}" for c in comp_values)
     + "  endpoints:\n"
     + "    - interval: 30s\n"
     + "      path: /metrics\n"
-    + "      port: http\n"
+    + "      port: metrics\n"
     + "  selector:\n"
     + "    matchExpressions:\n"
     + "      - key: app.kubernetes.io/component\n"

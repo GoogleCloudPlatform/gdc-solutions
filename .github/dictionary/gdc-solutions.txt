@@ -279,6 +279,7 @@ singleuser
 snat
 snated
 sourcerepo
+spanevent
 spiffe
 splitlines
 sqladmin

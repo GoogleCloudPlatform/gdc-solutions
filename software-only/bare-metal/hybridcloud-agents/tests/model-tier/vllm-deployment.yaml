@@ -66,6 +66,7 @@ spec:
                 secretKeyRef:
                   key: token
                   name: hf-token-secret
+                  optional: true
             - name: LD_LIBRARY_PATH
               value: /usr/local/nvidia/lib64
           image: us-docker.pkg.dev/vertex-ai/vertex-vision-model-garden-dockers/pytorch-vllm-serve:gemma4

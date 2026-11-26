@@ -19,7 +19,7 @@
 #   - First-party `google.adk.models.apigee_llm.ApigeeLlm` (`apigee/openai/<alias>`) with zero `litellm` dependency
 #   - GenAI and ADK message/tool content capture disabled at source (`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=false`
 #     and `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false`)
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:191083cdf6c7bda8c76158983163ead5d5cf7b77cf3033e805bb0f5296f51b4b
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -34,8 +34,7 @@ RUN groupadd --gid 10001 adkagent && \
 WORKDIR /app
 
 COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /app/requirements.txt && \
+RUN pip install --no-cache-dir --require-hashes -r /app/requirements.txt && \
     pip freeze > /app/pip-freeze.lock
 
 COPY agent-card.json /app/agent-card.json
@@ -45,6 +44,6 @@ RUN chown -R 10001:10001 /app && \
     python -c "import importlib.util, app; from google.adk.models.apigee_llm import ApigeeLlm; assert importlib.util.find_spec('litellm') is None; ag, _ = app._build_hardened_agent('sovereign', '00-00', 'enterprise-sovereign', 'apigee_openai', streaming=True); assert isinstance(ag.model, ApigeeLlm) and ag.model.model == 'apigee/openai/enterprise-sovereign' and ag.model._api_type == ApigeeLlm.ApiType.CHAT_COMPLETIONS and ag.model._isvertexai is False and ag.model._custom_headers['Authorization'].startswith('Bearer ') and ag.code_executor is None and app.AGENT_CARD['name'] == 'adk-sovereign-agent' and app.AGENT_CARD['version'] == '0.2.0' and app.AGENT_CARD['capabilities']['streaming'] is True"
 
 USER 10001:10001
-EXPOSE 8080
+EXPOSE 8080 9090
 
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080", "--no-access-log"]

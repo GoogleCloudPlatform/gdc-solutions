@@ -1416,10 +1416,11 @@ PY
     record_result "S3-CLOUD-TRACE" "Step 3 #3,#6" "FAIL" "${detail:-${tr_out:0:200}}"
   fi
 
-  # 23. Optional opt-in A2A quota burst (run LAST because it exhausts 4/2m quota)
+  # 23. Optional opt-in A2A quota burst (run LAST; defaults to 60/1m via a2a_quota_limit, set A2A_QUOTA_BURST_CALLS or lower a2a_quota_limit to test 429)
   if [[ "${INCLUDE_A2A_QUOTA}" == "true" ]]; then
     local i st codes="" ok_200=0 ok_429=0
-    for i in 1 2 3 4 5 6; do
+    local burst_calls="${A2A_QUOTA_BURST_CALLS:-6}"
+    for ((i = 1; i <= burst_calls; i++)); do
       out="$(agent_call adk-ops-orchestrator agent /invoke \
         '{"prompt": "Verify residency policy with the sovereign specialist.", "policy_category": "residency"}' \
         "X-Data-Classification=sovereign" 2>&1 || true)"
@@ -1434,10 +1435,10 @@ PY
     if [[ "${ok_429}" -ge 2 ]]; then
       record_result "S3-A2A-QUOTA" "Step 3 #5" "PASS" "codes=[${codes# }] (200=${ok_200}, 429=${ok_429})"
     else
-      record_result "S3-A2A-QUOTA" "Step 3 #5" "FAIL" "Expected >=2 HTTP 429 rejections, got codes=[${codes# }]"
+      record_result "S3-A2A-QUOTA" "Step 3 #5" "FAIL" "Expected >=2 HTTP 429 rejections, got codes=[${codes# }] (ensure a2a_quota_limit < ${burst_calls})"
     fi
   else
-    record_result "S3-A2A-QUOTA" "Step 3 #5" "SKIP" "Opt-in via --include-a2a-quota (exhausts 4/2m A2A quota)"
+    record_result "S3-A2A-QUOTA" "Step 3 #5" "SKIP" "Opt-in via --include-a2a-quota (defaults to 60/1m via a2a_quota_limit on a2a-sovereign-callers)"
   fi
 }
 

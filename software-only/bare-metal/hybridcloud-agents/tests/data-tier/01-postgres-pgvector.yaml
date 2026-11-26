@@ -42,7 +42,12 @@ data:
     hostnossl all           all             ::/0                    reject
     EOF
 
-    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+    psql -v ON_ERROR_STOP=1 \
+      -v pg_user="${PG_USER}" \
+      -v pg_password="${PG_PASSWORD}" \
+      -v pg_db="${POSTGRES_DB}" \
+      --username "$POSTGRES_USER" \
+      --dbname "$POSTGRES_DB" <<-'EOSQL'
       SET password_encryption = 'scram-sha-256';
       CREATE EXTENSION IF NOT EXISTS vector;
 
@@ -82,28 +87,32 @@ data:
         SELECT policy_id, category, data_classification, title, summary, embedding
         FROM sovereign_compliance_policies;
 
-      DO \$\$
-      BEGIN
-        IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${PG_USER}') THEN
-          CREATE ROLE "${PG_USER}" LOGIN PASSWORD '${PG_PASSWORD}';
-        ELSE
-          ALTER ROLE "${PG_USER}" WITH LOGIN PASSWORD '${PG_PASSWORD}';
-        END IF;
-      END
-      \$\$;
+      SELECT format(
+        CASE
+          WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = :'pg_user')
+            THEN 'ALTER ROLE %I WITH LOGIN PASSWORD %L'
+          ELSE 'CREATE ROLE %I LOGIN PASSWORD %L'
+        END,
+        :'pg_user', :'pg_password'
+      ) \gexec
 
-      ALTER ROLE "${PG_USER}" SET statement_timeout = '10s';
-      GRANT CONNECT ON DATABASE "${POSTGRES_DB}" TO "${PG_USER}";
-      GRANT USAGE ON SCHEMA public TO "${PG_USER}";
-      GRANT SELECT ON TABLE sovereign_compliance_policies TO "${PG_USER}";
-      GRANT SELECT ON TABLE sovereign_policies TO "${PG_USER}";
+      ALTER ROLE :"pg_user" SET statement_timeout = '10s';
+      GRANT CONNECT ON DATABASE :"pg_db" TO :"pg_user";
+      GRANT USAGE ON SCHEMA public TO :"pg_user";
+      GRANT SELECT ON TABLE sovereign_compliance_policies TO :"pg_user";
+      GRANT SELECT ON TABLE sovereign_policies TO :"pg_user";
       SELECT pg_reload_conf();
     EOSQL
 
     if [ "${POSTGRES_DB}" != "agent_policies" ]; then
-      psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
-        -c "CREATE DATABASE agent_policies TEMPLATE \"${POSTGRES_DB}\";" \
-        -c "GRANT CONNECT ON DATABASE agent_policies TO \"${PG_USER}\";"
+      psql -v ON_ERROR_STOP=1 \
+        -v pg_user="${PG_USER}" \
+        -v pg_db="${POSTGRES_DB}" \
+        --username "$POSTGRES_USER" \
+        --dbname "$POSTGRES_DB" <<-'EOSQL'
+        CREATE DATABASE agent_policies TEMPLATE :"pg_db";
+        GRANT CONNECT ON DATABASE agent_policies TO :"pg_user";
+    EOSQL
     fi
 kind: ConfigMap
 metadata:

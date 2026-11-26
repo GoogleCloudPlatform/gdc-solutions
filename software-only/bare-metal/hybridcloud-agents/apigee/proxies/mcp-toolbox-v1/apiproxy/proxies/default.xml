@@ -12,7 +12,10 @@
         <Name>JSONThreatProtection-Guard</Name>
         <Condition>(request.verb = "POST") and (request.content != null) and (request.content != "")</Condition>
       </Step>
-      <Step><Name>ParsePayload-MCP</Name></Step>
+      <Step>
+        <Name>ParsePayload-MCP</Name>
+        <Condition>request.verb = "POST"</Condition>
+      </Step>
       <Step><Name>VerifyAPIKey-1</Name></Step>
       <Step><Name>SpikeArrest-Ingress</Name></Step>
       <Step><Name>KeyValueMapOperations-ReadExpectedJwtSub</Name></Step>

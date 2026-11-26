@@ -714,6 +714,10 @@
     "environments": ["hybrid-agents-env"],
     "attributes": [
       {
+        "name": "a2a_quota_limit",
+        "value": "60"
+      },
+      {
         "name": "spike_arrest_rate",
         "value": "30ps"
       }

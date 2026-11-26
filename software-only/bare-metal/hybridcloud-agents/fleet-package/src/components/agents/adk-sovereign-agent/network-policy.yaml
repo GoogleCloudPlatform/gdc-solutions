@@ -65,7 +65,7 @@ spec:
             matchLabels:
               managed-by: stackdriver
       ports:
-        - port: 8080
+        - port: 9090
           protocol: TCP
   podSelector:
     matchLabels:

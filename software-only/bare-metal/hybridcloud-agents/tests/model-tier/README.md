@@ -45,30 +45,35 @@ cluster prerequisites are in place:
 
 ## Contents
 
-- `vllm-pvc.yaml` — `PersistentVolumeClaim/model-cache-pvc` (`100Gi`,
+- `vllm-pvc.yaml`: `PersistentVolumeClaim/model-cache-pvc` (`100Gi`,
   `storageClassName: local-shared`) in `namespace: gemma-serving` for caching
   Hugging Face model weights across restarts.
-- `vllm-deployment.yaml` — `Deployment/vllm-deployment` serving
+- `vllm-deployment.yaml`: `Deployment/vllm-deployment` serving
   `google/gemma-4-31B-it` with `--quantization=fp8` and the two flags required
   for OpenAI-compatible ADK tool calling (`--enable-auto-tool-choice` and
   `--tool-call-parser=gemma4`).
-- `vllm-service.yaml` — `Service/vllm-service` (`type: ClusterIP`, port `8000`).
-- `vllm-https-ingress.yaml` — `Ingress/vllm-https-ingress` exposing
+- `vllm-service.yaml`: `Service/vllm-service` (`type: ClusterIP`, port `8000`).
+- `vllm-https-ingress.yaml`: `Ingress/vllm-https-ingress` exposing
   `vllm-service:8000` over TLS on the cluster's `ingressVIP` (`:443`) using the
   bundled `istio-ingress` proxy in `gke-system` and `Secret/vllm-ingress-tls`
   (signed by `ClusterIssuer/hybrid-agents-ca`).
-- `vllm-pod-monitoring.yaml` — `PodMonitoring/vllm-pod-monitoring` scraping vLLM
+- `vllm-pod-monitoring.yaml`: `PodMonitoring/vllm-pod-monitoring` scraping vLLM
   metrics in `gemma-serving` for Google Cloud Managed Service for Prometheus.
-- `gpu-pod-monitoring.yaml` — `PodMonitoring/dcgm-gmp` scraping NVIDIA DCGM
+- `gpu-pod-monitoring.yaml`: `PodMonitoring/dcgm-gmp` scraping NVIDIA DCGM
   exporter metrics in `gpu-operator`.
 
 ## Deployment steps
 
-1. Create `namespace: gemma-serving` and the Hugging Face token secret on the
-   model cluster:
+1. Create `namespace: gemma-serving` on the model cluster. Because
+   `google/gemma-4-31B-it` is published under the Apache 2.0 license and
+   publicly downloadable without gating on Hugging Face,
+   `Secret/hf-token-secret` is optional (`optional: true` in
+   `vllm-deployment.yaml`) and only needed if you want higher Hugging Face Hub
+   download rate limits:
 
    ```bash
    kubectl create namespace gemma-serving
+   # Optional: create hf-token-secret for higher Hugging Face Hub rate limits
    kubectl -n gemma-serving create secret generic hf-token-secret \
      --from-literal=token="${HF_TOKEN}"
    ```

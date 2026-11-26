@@ -25,14 +25,14 @@ Google Cloud Config Delivery (`FleetPackage`).
 
 ## Contents
 
-- `00-namespace-and-pki.yaml` — **Apply on the Gateway and Tools cluster**
+- `00-namespace-and-pki.yaml`: **Apply on the Gateway and Tools cluster**
   (`namespace: cert-manager`): creates `Certificate/pgvector-server-tls` (ECDSA
   P-256 server certificate issued by `ClusterIssuer/hybrid-agents-ca` with IP
   SANs `YOUR_PGVECTOR_HOST` and `YOUR_DATA_INGRESS_VIP`), mirroring how the
   model-tier ingress TLS certificate is issued. You then copy the resulting
   `kubernetes.io/tls` `Secret/pgvector-server-tls` into
   `namespace: data-systems` on the data-tier test cluster.
-- `01-postgres-pgvector.yaml` — **Apply on the data-tier test cluster**
+- `01-postgres-pgvector.yaml`: **Apply on the data-tier test cluster**
   (`namespace: data-systems`): creates `Namespace/data-systems` (with Pod
   Security Standards `restricted`), `ConfigMap/pgvector-synthetic-seed` (seeds 5
   synthetic compliance policy rows `SYN-POL-001`..`SYN-POL-005`, creates the
@@ -42,7 +42,7 @@ Google Cloud Config Delivery (`FleetPackage`).
   `PersistentVolumeClaim/pgvector-data-pvc`, `StatefulSet/pgvector-db` (TLS 1.3
   enforced), and `Service/pgvector-db-external` (`type: LoadBalancer` with
   `externalTrafficPolicy: Local` at `YOUR_PGVECTOR_HOST`).
-- `02-network-policies.yaml` — **Apply on the data-tier test cluster**
+- `02-network-policies.yaml`: **Apply on the data-tier test cluster**
   (`namespace: data-systems`): enforces default-deny ingress/egress in
   `data-systems` and allows TCP `:5432` ingress to `pgvector-db` only from the
   Gateway and Tools cluster node IP CIDR (`YOUR_GATEWAY_NODE_CIDR`), blocking
