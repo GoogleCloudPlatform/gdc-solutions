@@ -2,10 +2,11 @@
 <TargetEndpoint name="vertex-gemini">
   <FaultRules>
     <FaultRule name="VertexOrModelArmorOutageFailover">
-      <Condition>((response.status.code = 429) or (response.status.code &gt;= 500) or (response.status.code = 404) or (fault.name = "ErrorResponseCode") or (fault.name = "ModelArmorAPIFailed") or (fault.name = "ModelArmorTemplateNameExtractionFailed") or (fault.name = "InternalError") or (fault.name = "UnexpectedError")) and (fault.name != "FilterMatched")</Condition>
+      <Condition>((response.status.code = 429) or (response.status.code &gt;= 500) or (response.status.code = 404) or (fault.name = "ErrorResponseCode") or (fault.name = "ModelArmorAPIFailed") or (fault.name = "ModelArmorTemplateNameExtractionFailed") or (fault.name = "InternalError") or (fault.name = "UnexpectedError")) and (fault.name != "FilterMatched") and (fault.name != "RaiseFault")</Condition>
       <Step><Name>ServiceCallout-FailoverLocalVLLM</Name></Step>
+      <Step><Name>JS-PrepareFailoverResponse</Name></Step>
       <Step><Name>AssignMessage-UseFailoverResponse</Name></Step>
-      <Step><Name>LLMTokenQuota-Count</Name></Step>
+      <Step><Name>LLMTokenQuota-Count-Failover</Name></Step>
       <Step><Name>JS-SetQuotaHeaders</Name></Step>
       <Step><Name>DataCapture-FinOps</Name></Step>
     </FaultRule>
@@ -13,6 +14,10 @@
   <PreFlow name="PreFlow">
     <Request>
       <Step><Name>JS-PrepareCloudBurstPayload</Name></Step>
+      <Step>
+        <Name>RaiseFault-PromptTooLarge</Name>
+        <Condition>model_armor_prompt_too_large = "true"</Condition>
+      </Step>
       <Step>
         <Name>SanitizeUserPrompt-CloudBurst</Name>
         <Condition>proxy.pathsuffix MatchesPath "/chat/completions"</Condition>

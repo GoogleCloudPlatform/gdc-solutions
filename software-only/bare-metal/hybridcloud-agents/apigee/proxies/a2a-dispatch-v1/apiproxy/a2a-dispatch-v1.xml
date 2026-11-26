@@ -7,6 +7,7 @@
     <Policy>VerifyAPIKey-1</Policy>
     <Policy>KeyValueMapOperations-ReadExpectedJwtSub</Policy>
     <Policy>VerifyJWT-OrchestratorKSA</Policy>
+    <Policy>RaiseFault-PathNotAllowed</Policy>
     <Policy>Quota-PerCallerAgent</Policy>
     <Policy>AssignMessage-StripA2ACredentials</Policy>
     <Policy>AssignMessage-SetA2AResponseHeaders</Policy>

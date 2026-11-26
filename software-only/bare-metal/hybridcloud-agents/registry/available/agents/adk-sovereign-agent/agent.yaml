@@ -48,7 +48,7 @@ exposedMcpServers:
   - mcp-toolbox
 ingressProxy:
   clusterName: adk_agent_cluster
-  pathPrefix: /
+  pathPrefix: /sovereign
   serviceName: adk-agent
   servicePort: 8080
 kubernetesIdentity:

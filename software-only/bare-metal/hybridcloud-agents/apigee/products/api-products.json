@@ -30,56 +30,15 @@
       "operationConfigType": "proxy",
       "operationConfigs": [
         {
-          "apiSource": "agent-dispatch-v1",
-          "operations": [
-            {
-              "resource": "/",
-              "methods": ["GET", "POST"]
-            }
-          ]
-        },
-        {
-          "apiSource": "agent-dispatch-v1",
-          "operations": [
-            {
-              "resource": "/**",
-              "methods": ["GET", "POST"]
-            }
-          ]
-        },
-        {
-          "apiSource": "ops-agent-dispatch-v1",
-          "operations": [
-            {
-              "resource": "/",
-              "methods": ["GET", "POST"]
-            }
-          ]
-        },
-        {
-          "apiSource": "ops-agent-dispatch-v1",
-          "operations": [
-            {
-              "resource": "/**",
-              "methods": ["GET", "POST"]
-            }
-          ]
-        },
-        {
           "apiSource": "llm-router-v1",
           "operations": [
             {
-              "resource": "/**",
-              "methods": ["GET", "POST"]
-            }
-          ]
-        },
-        {
-          "apiSource": "gemini-genai-v1",
-          "operations": [
+              "resource": "/chat/completions",
+              "methods": ["POST"]
+            },
             {
-              "resource": "/**",
-              "methods": ["GET", "POST"]
+              "resource": "/models",
+              "methods": ["GET"]
             }
           ]
         },
@@ -293,56 +252,15 @@
       "operationConfigType": "proxy",
       "operationConfigs": [
         {
-          "apiSource": "agent-dispatch-v1",
-          "operations": [
-            {
-              "resource": "/",
-              "methods": ["GET", "POST"]
-            }
-          ]
-        },
-        {
-          "apiSource": "agent-dispatch-v1",
-          "operations": [
-            {
-              "resource": "/**",
-              "methods": ["GET", "POST"]
-            }
-          ]
-        },
-        {
-          "apiSource": "ops-agent-dispatch-v1",
-          "operations": [
-            {
-              "resource": "/",
-              "methods": ["GET", "POST"]
-            }
-          ]
-        },
-        {
-          "apiSource": "ops-agent-dispatch-v1",
-          "operations": [
-            {
-              "resource": "/**",
-              "methods": ["GET", "POST"]
-            }
-          ]
-        },
-        {
           "apiSource": "llm-router-v1",
           "operations": [
             {
-              "resource": "/**",
-              "methods": ["GET", "POST"]
-            }
-          ]
-        },
-        {
-          "apiSource": "gemini-genai-v1",
-          "operations": [
+              "resource": "/chat/completions",
+              "methods": ["POST"]
+            },
             {
-              "resource": "/**",
-              "methods": ["GET", "POST"]
+              "resource": "/models",
+              "methods": ["GET"]
             }
           ]
         },
@@ -815,6 +733,49 @@
         {
           "apiSource": "a2a-dispatch-v1",
           "operations": [
+            {
+              "resource": "/**",
+              "methods": ["GET", "POST"]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "northbound-agent-callers",
+    "displayName": "Northbound External Agent Dispatch Callers Product",
+    "approvalType": "auto",
+    "environments": ["hybrid-agents-env"],
+    "attributes": [
+      {
+        "name": "spike_arrest_rate",
+        "value": "30ps"
+      }
+    ],
+    "operationGroup": {
+      "operationConfigType": "proxy",
+      "operationConfigs": [
+        {
+          "apiSource": "agent-dispatch-v1",
+          "operations": [
+            {
+              "resource": "/",
+              "methods": ["GET", "POST"]
+            },
+            {
+              "resource": "/**",
+              "methods": ["GET", "POST"]
+            }
+          ]
+        },
+        {
+          "apiSource": "ops-agent-dispatch-v1",
+          "operations": [
+            {
+              "resource": "/",
+              "methods": ["GET", "POST"]
+            },
             {
               "resource": "/**",
               "methods": ["GET", "POST"]

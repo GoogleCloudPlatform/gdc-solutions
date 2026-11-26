@@ -6,6 +6,10 @@
       <Step><Name>KeyValueMapOperations-ReadExpectedJwtSub</Name></Step>
       <Step><Name>VerifyJWT-OrchestratorKSA</Name></Step>
       <Step>
+        <Name>RaiseFault-PathNotAllowed</Name>
+        <Condition>not (((request.verb = "POST") and ((proxy.pathsuffix = null) or (proxy.pathsuffix = "") or (proxy.pathsuffix = "/"))) or ((request.verb = "GET") and ((proxy.pathsuffix = "/.well-known/agent-card.json") or (proxy.pathsuffix = "/.well-known/agent.json") or (proxy.pathsuffix = "/healthz"))))</Condition>
+      </Step>
+      <Step>
         <Name>Quota-PerCallerAgent</Name>
         <Condition>request.verb = "POST"</Condition>
       </Step>

@@ -17,26 +17,32 @@ var extractedResp = "";
 if (rawResp) {
   try {
     var respObj = JSON.parse(rawResp);
-    var choice = (respObj.choices && respObj.choices.length > 0) ? respObj.choices[0] : null;
-    var msg = (choice && choice.message) ? choice.message : null;
-    if (msg) {
+    var segments = [];
+    var choices = Array.isArray(respObj.choices) ? respObj.choices : [];
+    for (var c = 0; c < choices.length; c++) {
+      var msg = (choices[c] && choices[c].message) ? choices[c].message : null;
+      if (!msg) {
+        continue;
+      }
       if (typeof msg.content === "string" && msg.content.trim().length > 0) {
-        extractedResp = msg.content;
+        segments.push(msg.content);
       } else if (Array.isArray(msg.content) && msg.content.length > 0) {
-        var parts = [];
         for (var i = 0; i < msg.content.length; i++) {
           if (msg.content[i] && msg.content[i].text) {
-            parts.push(String(msg.content[i].text));
+            segments.push(String(msg.content[i].text));
           }
         }
-        extractedResp = parts.join("\n").trim();
       }
-      if (!extractedResp && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
-        extractedResp = JSON.stringify(msg.tool_calls);
+      if (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+        segments.push(JSON.stringify(msg.tool_calls));
+      }
+      if (msg.function_call) {
+        segments.push(JSON.stringify(msg.function_call));
       }
     }
+    extractedResp = segments.join("\n").trim();
   } catch (e) {
-    extractedResp = String(rawResp).substring(0, 4096);
+    extractedResp = String(rawResp).substring(0, 65536);
   }
 }
 if (!extractedResp) {

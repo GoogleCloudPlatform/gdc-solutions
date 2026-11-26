@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RaiseFault-PromptTooLarge">
+  <DisplayName>Reject Cloud-Burst Prompt Exceeding Model Armor Screening Cap</DisplayName>
+  <FaultResponse>
+    <Set>
+      <StatusCode>413</StatusCode>
+      <ReasonPhrase>Payload Too Large</ReasonPhrase>
+      <Payload contentType="application/json">{"error":{"code":413,"status":"INVALID_ARGUMENT","reason":"model_armor_prompt_too_large","message":"Concatenated prompt, system, and tool context exceeded the Model Armor screening size limit; failing closed."}}</Payload>
+    </Set>
+  </FaultResponse>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

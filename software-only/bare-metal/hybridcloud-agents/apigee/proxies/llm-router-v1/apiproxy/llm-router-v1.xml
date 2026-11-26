@@ -10,13 +10,16 @@
     <Policy>SpikeArrest-Ingress</Policy>
     <Policy>KeyValueMapOperations-ReadExpectedJwtSub</Policy>
     <Policy>VerifyJWT-AgentKSA</Policy>
+    <Policy>RaiseFault-PathNotAllowed</Policy>
     <Policy>RaiseFault-CloudBurstForbidden</Policy>
     <Policy>KeyValueMapOperations-ReadAliases</Policy>
     <Policy>JS-ResolveModelAlias</Policy>
     <Policy>RaiseFault-ModelNotAuthorized</Policy>
+    <Policy>RaiseFault-PromptTooLarge</Policy>
     <Policy>PromptTokenLimit-Burst</Policy>
     <Policy>LLMTokenQuota-Enforce</Policy>
     <Policy>LLMTokenQuota-Count</Policy>
+    <Policy>LLMTokenQuota-Count-Failover</Policy>
     <Policy>LLMTokenQuota-Count-SSE</Policy>
     <Policy>JS-SetQuotaHeaders</Policy>
     <Policy>DataCapture-FinOps</Policy>
@@ -24,12 +27,14 @@
     <Policy>SanitizeModelResponse-CloudBurst</Policy>
     <Policy>SanitizeModelResponse-CloudBurstSSE</Policy>
     <Policy>JS-PrepareCloudBurstPayload</Policy>
+    <Policy>JS-PrepareFailoverResponse</Policy>
     <Policy>JS-ExtractCloudBurstResponse</Policy>
     <Policy>AssignMessage-StripAuthLocalVLLM</Policy>
     <Policy>AssignMessage-SetLocalVLLMHeader</Policy>
     <Policy>AssignMessage-SetCloudBurstHeader</Policy>
     <Policy>ServiceCallout-FailoverLocalVLLM</Policy>
     <Policy>AssignMessage-UseFailoverResponse</Policy>
+    <Policy>AssignMessage-UseFailoverResponseSSE</Policy>
   </Policies>
   <ProxyEndpoints>
     <ProxyEndpoint>default</ProxyEndpoint>
@@ -38,6 +43,7 @@
     <Resource>jsc://resolve_model_alias.js</Resource>
     <Resource>jsc://set_quota_headers.js</Resource>
     <Resource>jsc://prepare_cloud_burst.js</Resource>
+    <Resource>jsc://prepare_failover_response.js</Resource>
     <Resource>jsc://extract_cloud_burst_response.js</Resource>
   </Resources>
   <TargetEndpoints>

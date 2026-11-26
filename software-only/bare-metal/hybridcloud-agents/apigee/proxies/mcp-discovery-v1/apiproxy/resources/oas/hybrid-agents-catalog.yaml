@@ -12,6 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      in: header
+      name: x-api-key
+      type: apiKey
 info:
   description: >-
     Synthetic read-only gateway topology and approved model-tier catalog exposed
@@ -44,5 +50,7 @@ paths:
                 type: object
           description: Gateway topology status JSON
       summary: Returns the live 3-cluster hybrid agent gateway topology status.
+security:
+  - ApiKeyAuth: []
 servers:
   - url: https://api.hybrid-agents.internal

@@ -2,6 +2,7 @@
 <TargetEndpoint name="default">
   <PreFlow name="PreFlow">
     <Request>
+      <Step><Name>AssignMessage-StripAuthCloudMCP</Name></Step>
       <Step><Name>AssignMessage-SetGoogleUserProject</Name></Step>
     </Request>
     <Response/>

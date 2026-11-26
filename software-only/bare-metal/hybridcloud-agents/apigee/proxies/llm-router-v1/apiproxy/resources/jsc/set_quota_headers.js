@@ -39,13 +39,22 @@ if (!isNaN(expMs) && expMs > nowMs) {
   resetIso = new Date(nowMs + 3600000).toISOString();
 }
 
-var resolvedModel = String(context.getVariable("resolved_llm_model") || "google/gemma-4-31B-it");
-var backendHeader = String(context.getVariable("response.header.X-LLM-Backend") || context.getVariable("routed_tier_label") || "local-vllm");
-var routedTierHeader = String(context.getVariable("response.header.X-HCA-Routed-Tier") || backendHeader);
+var isFailover = String(context.getVariable("is_local_vllm_failover") || "false") === "true";
+var resolvedModel = isFailover
+  ? "google/gemma-4-31B-it"
+  : String(context.getVariable("resolved_llm_model") || "google/gemma-4-31B-it");
+var backendHeader = isFailover
+  ? "local-vllm-failover"
+  : String(context.getVariable("response.header.X-LLM-Backend") || context.getVariable("routed_tier_label") || "local-vllm");
+var routedTierHeader = isFailover
+  ? "local-vllm-failover"
+  : String(context.getVariable("response.header.X-HCA-Routed-Tier") || backendHeader);
 var promptTokens = String(context.getVariable("ratelimit.PromptTokenLimit-Burst.userPromptTokenCount") || context.getVariable("ratelimit.PromptTokenLimit-Burst.used.count") || "0");
 
 var totalTokens = 0;
-var respRaw = context.getVariable("response.content");
+var respRaw = isFailover
+  ? context.getVariable("failoverVllmResp.content")
+  : context.getVariable("response.content");
 if (respRaw) {
   try {
     var respObj = JSON.parse(respRaw);
@@ -81,6 +90,9 @@ context.setVariable("error.header.X-TokenQuota-Limit", String(limit));
 context.setVariable("error.header.X-TokenQuota-Used", String(used));
 context.setVariable("error.header.X-TokenQuota-Remaining", String(avail));
 context.setVariable("error.header.X-TokenQuota-Reset", resetIso);
-context.setVariable("error.header.Retry-After", String(retryAfterSec));
 context.setVariable("error.header.X-HCA-Resolved-Model", resolvedModel);
+context.setVariable("error.header.X-HCA-Routed-Tier", routedTierHeader);
+if (!isFailover) {
+  context.setVariable("error.header.Retry-After", String(retryAfterSec));
+}
 context.setVariable("quota_already_counted", "true");

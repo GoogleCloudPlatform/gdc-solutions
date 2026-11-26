@@ -382,17 +382,19 @@ static_resources:
 
 
 def _build_ingress_envoy_yaml(active_agents: list[dict]) -> str:
-  # Sort specific prefixes longest-first, root "/" last
-  non_root = sorted(
-      [a for a in active_agents if a["path_prefix"].strip("/") != ""],
-      key=lambda a: (-len(a["path_prefix"]), a["name"]),
-  )
+  # Require every active agent to declare a dedicated non-root pathPrefix so
+  # unprefixed path suffixes can never fall through to another agent.
   root_agents = [a for a in active_agents if a["path_prefix"].strip("/") == ""]
-  if len(root_agents) > 1:
+  if root_agents:
     names = ", ".join(a["name"] for a in root_agents)
     raise RuntimeError(
-        f"Multiple active agents declare ingressProxy.pathPrefix '/': {names}"
+        "Active agents must declare a dedicated non-root ingressProxy.pathPrefix "
+        f"(cannot use '/'): {names}"
     )
+  non_root = sorted(
+      active_agents,
+      key=lambda a: (-len(a["path_prefix"]), a["name"]),
+  )
   route_blocks = []
   for ag in non_root:
     pref = "/" + ag["path_prefix"].strip("/")
@@ -410,16 +412,7 @@ def _build_ingress_envoy_yaml(active_agents: list[dict]) -> str:
                             prefix_rewrite: "/"
                             timeout: 360s
                             idle_timeout: 360s""")
-  if root_agents:
-    ag = root_agents[0]
-    route_blocks.append(f"""                        - match:
-                            prefix: "/"
-                          route:
-                            cluster: {ag['cluster_name']}
-                            timeout: 360s
-                            idle_timeout: 360s""")
-  else:
-    route_blocks.append("""                        - match:
+  route_blocks.append("""                        - match:
                             prefix: "/"
                           direct_response:
                             status: 404

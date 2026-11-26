@@ -10,6 +10,7 @@
     <Policy>SpikeArrest-Ingress</Policy>
     <Policy>KeyValueMapOperations-ReadExpectedJwtSub</Policy>
     <Policy>VerifyJWT-AgentKSA</Policy>
+    <Policy>RaiseFault-PathNotAllowed</Policy>
     <Policy>AssignMessage-StripGatewayKey</Policy>
   </Policies>
   <ProxyEndpoints>

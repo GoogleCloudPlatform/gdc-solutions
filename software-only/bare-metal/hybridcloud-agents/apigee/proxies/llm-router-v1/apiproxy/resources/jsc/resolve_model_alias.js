@@ -13,8 +13,9 @@
 // limitations under the License.
 
 var raw = context.getVariable("request.content");
-var dataClass = String(context.getVariable("request.header.x-data-classification") || "sovereign").toLowerCase();
+var dataClass = String(context.getVariable("request.header.x-data-classification") || "sovereign").trim().toLowerCase();
 var isCloudClass = (dataClass === "cloud-eligible" || dataClass === "public");
+var allowCloudBurst = String(context.getVariable("verifyapikey.VerifyAPIKey-1.apiproduct.allow_cloud_burst") || "false").trim().toLowerCase() === "true";
 var allowedCsv = String(context.getVariable("verifyapikey.VerifyAPIKey-1.apiproduct.allowed_models") || "");
 
 var aliasSovereign = String(context.getVariable("private.kvm_alias_sovereign") || "google/gemma-4-31B-it");
@@ -31,6 +32,7 @@ var targetTier = "local-vllm";
 var routedTierLabel = "local-vllm";
 var isSse = "false";
 var modelNotAuthorized = "false";
+var cloudBurstForbidden = (isCloudClass && !allowCloudBurst) ? "true" : "false";
 
 if (raw) {
   try {
@@ -52,13 +54,22 @@ if (raw) {
       }
     }
 
-    if (reqModel === "enterprise-sovereign") {
+    if (cloudBurstForbidden === "true") {
       resolvedModel = aliasSovereign;
       targetTier = "local-vllm";
       routedTierLabel = "local-vllm";
-    } else if (reqModel === "enterprise-flash" || (isCloudClass && (reqModel === "google/gemini-3.5-flash" || reqModel === "google/gemma-4-31B-it"))) {
-      if (!isCloudClass) {
-        modelNotAuthorized = "true";
+    } else if (reqModel === "enterprise-sovereign" || reqModel === "google/gemma-4-31B-it") {
+      // Explicit sovereign alias or local Gemma 4 requests always stay on local-vllm
+      resolvedModel = (reqModel === "enterprise-sovereign") ? aliasSovereign : reqModel;
+      targetTier = "local-vllm";
+      routedTierLabel = "local-vllm";
+    } else if (reqModel === "enterprise-flash" || (isCloudClass && reqModel === "google/gemini-3.5-flash")) {
+      if (!isCloudClass || !allowCloudBurst) {
+        if (!allowCloudBurst) {
+          cloudBurstForbidden = "true";
+        } else {
+          modelNotAuthorized = "true";
+        }
       }
       var canarySelected = false;
       if (canaryWeight >= 100) {
@@ -71,7 +82,7 @@ if (raw) {
         resolvedModel = aliasFlash;
       }
 
-      if (resolvedModel.indexOf("google/gemini-") === 0) {
+      if (resolvedModel.indexOf("google/gemini-") === 0 && isCloudClass && allowCloudBurst) {
         targetTier = "vertex-gemini";
         routedTierLabel = canarySelected ? "vertex-gemini-canary" : "vertex-gemini-3.5-flash";
       } else {
@@ -84,8 +95,19 @@ if (raw) {
       routedTierLabel = "local-vllm";
     } else {
       resolvedModel = reqModel;
-      targetTier = (resolvedModel.indexOf("google/gemini-") === 0) ? "vertex-gemini" : "local-vllm";
-      routedTierLabel = (targetTier === "vertex-gemini") ? "vertex-gemini-3.5-flash" : "local-vllm";
+      if (resolvedModel.indexOf("google/gemini-") === 0) {
+        if (!allowCloudBurst) {
+          cloudBurstForbidden = "true";
+          targetTier = "local-vllm";
+          routedTierLabel = "local-vllm";
+        } else {
+          targetTier = "vertex-gemini";
+          routedTierLabel = "vertex-gemini-3.5-flash";
+        }
+      } else {
+        targetTier = "local-vllm";
+        routedTierLabel = "local-vllm";
+      }
     }
 
     if (body.stream === true) {
@@ -109,6 +131,7 @@ if (raw) {
   }
 }
 
+context.setVariable("cloud_burst_forbidden", cloudBurstForbidden);
 context.setVariable("model_not_authorized", modelNotAuthorized);
 context.setVariable("resolved_llm_model", resolvedModel);
 context.setVariable("llm_target_tier", targetTier);

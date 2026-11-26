@@ -7,5 +7,6 @@
   </ModelArmor>
   <UserPromptSource>{model_armor_user_prompt}</UserPromptSource>
   <LLMResponseSource>{jsonPath('$.choices[-1].delta.content',response.event.current.data,true)}</LLMResponseSource>
+  <FunctionCallSource>{jsonPath('$.choices[-1].delta.tool_calls[*].function.arguments',response.event.current.data,true)}</FunctionCallSource>
   <ContinuousScan>true</ContinuousScan>
 </SanitizeModelResponse>

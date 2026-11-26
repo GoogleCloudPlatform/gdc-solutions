@@ -16,5 +16,6 @@
       <Algorithm>RoundRobin</Algorithm>
       <Server name="gdcso-agent-ingress"/>
     </LoadBalancer>
+    <Path>/sovereign</Path>
   </HTTPTargetConnection>
 </TargetEndpoint>

@@ -21,8 +21,12 @@
       <Step><Name>KeyValueMapOperations-ReadExpectedJwtSub</Name></Step>
       <Step><Name>VerifyJWT-AgentKSA</Name></Step>
       <Step>
+        <Name>RaiseFault-PathNotAllowed</Name>
+        <Condition>(not ((proxy.pathsuffix MatchesPath "/chat/completions") and (request.verb = "POST"))) and (not ((proxy.pathsuffix MatchesPath "/models") and (request.verb = "GET")))</Condition>
+      </Step>
+      <Step>
         <Name>RaiseFault-CloudBurstForbidden</Name>
-        <Condition>((request.header.x-data-classification = "cloud-eligible") or (request.header.x-data-classification = "public")) and (verifyapikey.VerifyAPIKey-1.apiproduct.allow_cloud_burst != "true")</Condition>
+        <Condition>((request.header.x-data-classification := "cloud-eligible") or (request.header.x-data-classification := "public")) and (verifyapikey.VerifyAPIKey-1.apiproduct.allow_cloud_burst != "true")</Condition>
       </Step>
       <Step>
         <Name>KeyValueMapOperations-ReadAliases</Name>
@@ -31,6 +35,10 @@
       <Step>
         <Name>JS-ResolveModelAlias</Name>
         <Condition>proxy.pathsuffix MatchesPath "/chat/completions"</Condition>
+      </Step>
+      <Step>
+        <Name>RaiseFault-CloudBurstForbidden</Name>
+        <Condition>cloud_burst_forbidden = "true"</Condition>
       </Step>
       <Step>
         <Name>RaiseFault-ModelNotAuthorized</Name>
@@ -50,6 +58,10 @@
         <Condition>(propertyset.hybrid_agents_env.allow_failover_simulation = "true") and ((request.header.x-data-classification := "cloud-eligible") or (request.header.x-data-classification := "public")) and (request.header.x-simulate-cloud-burst-status = "503") and (proxy.pathsuffix MatchesPath "/chat/completions")</Condition>
       </Step>
       <Step>
+        <Name>RaiseFault-PromptTooLarge</Name>
+        <Condition>(propertyset.hybrid_agents_env.allow_failover_simulation = "true") and (model_armor_prompt_too_large = "true")</Condition>
+      </Step>
+      <Step>
         <Name>SanitizeUserPrompt-CloudBurst</Name>
         <Condition>(propertyset.hybrid_agents_env.allow_failover_simulation = "true") and ((request.header.x-data-classification := "cloud-eligible") or (request.header.x-data-classification := "public")) and (request.header.x-simulate-cloud-burst-status = "503") and (proxy.pathsuffix MatchesPath "/chat/completions")</Condition>
       </Step>
@@ -57,11 +69,19 @@
         <Name>ServiceCallout-FailoverLocalVLLM</Name>
         <Condition>(propertyset.hybrid_agents_env.allow_failover_simulation = "true") and ((request.header.x-data-classification := "cloud-eligible") or (request.header.x-data-classification := "public")) and (request.header.x-simulate-cloud-burst-status = "503") and (proxy.pathsuffix MatchesPath "/chat/completions")</Condition>
       </Step>
+      <Step>
+        <Name>JS-PrepareFailoverResponse</Name>
+        <Condition>(propertyset.hybrid_agents_env.allow_failover_simulation = "true") and (request.header.x-simulate-cloud-burst-status = "503") and (failoverVllmResp.content != null)</Condition>
+      </Step>
     </Request>
     <Response>
       <Step>
+        <Name>AssignMessage-UseFailoverResponseSSE</Name>
+        <Condition>(propertyset.hybrid_agents_env.allow_failover_simulation = "true") and (request.header.x-simulate-cloud-burst-status = "503") and (failoverVllmResp.content != null) and (is_sse_stream = "true")</Condition>
+      </Step>
+      <Step>
         <Name>AssignMessage-UseFailoverResponse</Name>
-        <Condition>(propertyset.hybrid_agents_env.allow_failover_simulation = "true") and (request.header.x-simulate-cloud-burst-status = "503") and (failoverVllmResp.content != null)</Condition>
+        <Condition>(propertyset.hybrid_agents_env.allow_failover_simulation = "true") and (request.header.x-simulate-cloud-burst-status = "503") and (failoverVllmResp.content != null) and (is_sse_stream != "true")</Condition>
       </Step>
     </Response>
   </PreFlow>

@@ -14,30 +14,39 @@
 
 var raw = context.getVariable("request.content");
 var extractedPrompt = "";
+var promptTooLarge = "false";
+var MAX_PROMPT_CHARS = 65536;
 var resolvedModel = String(context.getVariable("resolved_llm_model") || "google/gemini-3.5-flash");
 
-function extractMsgText(msg) {
+function extractMsgSegments(msg) {
+  var segments = [];
   if (!msg) {
-    return "";
+    return segments;
   }
   if (typeof msg.content === "string" && msg.content.trim().length > 0) {
-    return msg.content;
-  }
-  if (Array.isArray(msg.content)) {
-    var parts = [];
+    segments.push(msg.content);
+  } else if (Array.isArray(msg.content)) {
     for (var i = 0; i < msg.content.length; i++) {
-      if (msg.content[i] && msg.content[i].text) {
-        parts.push(String(msg.content[i].text));
+      var part = msg.content[i];
+      if (!part) {
+        continue;
       }
-    }
-    if (parts.length > 0) {
-      return parts.join("\n");
+      if (typeof part === "string" && part.trim().length > 0) {
+        segments.push(part);
+      } else if (part.text) {
+        segments.push(String(part.text));
+      } else if (part.input_text) {
+        segments.push(String(part.input_text));
+      }
     }
   }
   if (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
-    return JSON.stringify(msg.tool_calls);
+    segments.push(JSON.stringify(msg.tool_calls));
   }
-  return "";
+  if (msg.function_call) {
+    segments.push(JSON.stringify(msg.function_call));
+  }
+  return segments;
 }
 
 if (raw) {
@@ -51,23 +60,19 @@ if (raw) {
     }
 
     var burstObj = JSON.parse(raw);
-    if (Array.isArray(burstObj.messages) && burstObj.messages.length > 0) {
-      var lastMsg = burstObj.messages[burstObj.messages.length - 1];
-      var lastText = extractMsgText(lastMsg);
-      var latestUserText = "";
-      for (var j = burstObj.messages.length - 1; j >= 0; j--) {
-        if (burstObj.messages[j] && burstObj.messages[j].role === "user") {
-          latestUserText = extractMsgText(burstObj.messages[j]);
-          if (latestUserText) {
-            break;
-          }
+    var allSegments = [];
+    if (Array.isArray(burstObj.messages)) {
+      for (var j = 0; j < burstObj.messages.length; j++) {
+        var msgSegments = extractMsgSegments(burstObj.messages[j]);
+        for (var k = 0; k < msgSegments.length; k++) {
+          allSegments.push(msgSegments[k]);
         }
       }
-      if (lastMsg && lastMsg.role !== "user" && latestUserText && lastText) {
-        extractedPrompt = latestUserText + "\n" + lastText;
-      } else {
-        extractedPrompt = lastText || latestUserText;
-      }
+    }
+    extractedPrompt = allSegments.join("\n");
+    if (extractedPrompt.length > MAX_PROMPT_CHARS) {
+      promptTooLarge = "true";
+      extractedPrompt = extractedPrompt.substring(0, MAX_PROMPT_CHARS);
     }
     if (resolvedModel.indexOf("google/gemini-") === 0) {
       burstObj.model = resolvedModel;
@@ -79,12 +84,16 @@ if (raw) {
     if (!context.getVariable("failover_vllm_payload")) {
       context.setVariable("failover_vllm_payload", raw);
     }
-    extractedPrompt = String(raw).substring(0, 4096);
+    if (String(raw).length > MAX_PROMPT_CHARS) {
+      promptTooLarge = "true";
+    }
+    extractedPrompt = String(raw).substring(0, MAX_PROMPT_CHARS);
   }
 }
 if (!extractedPrompt) {
   extractedPrompt = "[prompt]";
 }
+context.setVariable("model_armor_prompt_too_large", promptTooLarge);
 context.setVariable("model_armor_user_prompt", extractedPrompt);
 context.removeVariable("request.header.Authorization");
 context.removeVariable("request.header.authorization");

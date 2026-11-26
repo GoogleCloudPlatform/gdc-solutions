@@ -2,7 +2,10 @@
 <AssignMessage continueOnError="false" enabled="true" name="AssignMessage-StripGatewayKey">
   <Remove>
     <Headers>
+      <Header name="Authorization"/>
+      <Header name="authorization"/>
       <Header name="x-api-key"/>
+      <Header name="x-agent-ksa-token"/>
     </Headers>
   </Remove>
   <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>

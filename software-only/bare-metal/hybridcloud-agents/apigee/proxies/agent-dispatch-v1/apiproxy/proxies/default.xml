@@ -22,6 +22,10 @@
         <Name>VerifyJWT-AgentKSA</Name>
         <Condition>(request.header.x-agent-ksa-token != null) and (request.header.x-agent-ksa-token != "")</Condition>
       </Step>
+      <Step>
+        <Name>RaiseFault-PathNotAllowed</Name>
+        <Condition>not (((request.verb = "POST") and ((proxy.pathsuffix = null) or (proxy.pathsuffix = "") or (proxy.pathsuffix = "/") or (proxy.pathsuffix = "/invoke") or (proxy.pathsuffix = "/invoke-stream") or (proxy.pathsuffix = "/invoke/stream"))) or ((request.verb = "GET") and ((proxy.pathsuffix = "/.well-known/agent-card.json") or (proxy.pathsuffix = "/.well-known/agent.json") or (proxy.pathsuffix = "/healthz"))))</Condition>
+      </Step>
     </Request>
     <Response/>
   </PreFlow>

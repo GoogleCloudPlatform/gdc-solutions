@@ -31,7 +31,6 @@
     }
   },
   "runtimeServiceAccountProxies": [
-    "gemini-genai-v1",
     "llm-router-v1",
     "mcp-bigquery-v1",
     "mcp-storage-v1"
