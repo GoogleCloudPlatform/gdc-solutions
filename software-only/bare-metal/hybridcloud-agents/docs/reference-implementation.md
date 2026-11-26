@@ -1264,6 +1264,22 @@ the `PodMonitoring` CRD with `kubectl`.
 > `resource.labels.container_name="apigee-runtime" AND
 > jsonPayload.className="com.apigee.steps.aiprotection.execution.ModelArmorExecution"`.
 
+- [Workstation] Optionally add a Cloud Logging exclusion filter on the
+  `_Default` sink to stop ingesting `apigee-runtime` Model Armor payload logs,
+  then verify the exclusion.
+
+```bash
+gcloud logging sinks update _Default --project="${PROJECT_ID}" \
+  --add-exclusion='name=apigee-model-armor-payloads,description=Exclude Apigee hybrid ModelArmorExecution INFO payload logs on apigee-runtime stderr,filter=resource.type="k8s_container" AND resource.labels.container_name="apigee-runtime" AND jsonPayload.className="com.apigee.steps.aiprotection.execution.ModelArmorExecution"' \
+  --quiet
+gcloud logging sinks describe _Default --project="${PROJECT_ID}" \
+  --flatten='exclusions[]' --format='table(exclusions.name,exclusions.disabled,exclusions.filter)'
+```
+
+Wait 2 to 5 minutes before checking Cloud Logging for excluded entries. Apply
+the same exclusion to any custom sink exporting `k8s_container` logs. The
+exclusion stops log ingestion only; pod `stderr` output is unchanged.
+
 ## Step 5: Set up the Cloud Build release pipeline
 
 Each application release tag pushed in the
@@ -2284,6 +2300,14 @@ kubectl --context="${CTX_GATEWAY}" delete -f "${SOLUTION_HOME}/gateway-pki.yaml"
 kubectl --context="${CTX_MODEL}" delete -f "${SOLUTION_HOME}/vllm-https-ingress.yaml" --ignore-not-found
 kubectl --context="${CTX_MODEL}" delete secret vllm-ingress-tls -n gke-system --ignore-not-found
 rm -rf "${WORK}"
+```
+
+- [Workstation] If you added the Step 4 Cloud Logging exclusion for
+  `apigee-runtime` Model Armor payloads, remove it from the `_Default` sink.
+
+```bash
+gcloud logging sinks update _Default --project="${PROJECT_ID}" \
+  --remove-exclusions=apigee-model-armor-payloads --quiet
 ```
 
 - [Workstation] If you deployed the optional `tests/data-tier/` sample, remove
