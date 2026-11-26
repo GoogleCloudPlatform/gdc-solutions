@@ -964,6 +964,58 @@ EOF
     kubectl kustomize "${OVERLAY_DIR}"
   } > "${TMP_FILE}"
 
+  # Stamp deterministic SHA-256 of ConfigMap/otel-collector-config data.config.yaml
+  # onto Deployment/otel-collector pod template annotations so ConfigMap changes
+  # trigger an automatic Kubernetes rolling restart without manual rollout restart.
+  "${PYTHON_BIN}" - "${TMP_FILE}" << 'EOF'
+import hashlib
+import os
+from pathlib import Path
+import re
+import sys
+
+try:
+  import yaml as pyyaml
+  load_all = lambda t: list(pyyaml.safe_load_all(t))
+except Exception:
+  for p in (
+      os.environ.get("CLOUDSDK_THIRD_PARTY", ""),
+      "/usr/lib/google-cloud-sdk/lib/third_party",
+      "/google-cloud-sdk/lib/third_party",
+  ):
+    if p and os.path.isdir(p) and p not in sys.path:
+      sys.path.insert(0, p)
+  from ruamel import yaml as ryaml
+  load_all = lambda t: list(ryaml.YAML(typ="safe").load_all(t))
+
+p = Path(sys.argv[1])
+raw = p.read_text(encoding="utf-8")
+config_yaml = None
+for doc in load_all(raw):
+  if not isinstance(doc, dict):
+    continue
+  meta = doc.get("metadata") or {}
+  if (
+      doc.get("kind") == "ConfigMap"
+      and meta.get("name") == "otel-collector-config"
+      and meta.get("namespace") == "otel-system"
+  ):
+    config_yaml = (doc.get("data") or {}).get("config.yaml")
+    break
+
+if config_yaml is not None:
+  cfg_sha = hashlib.sha256(str(config_yaml).encode("utf-8")).hexdigest()[:12]
+  marker = "otel.hybrid-agents.internal/config-sha256:"
+  count = raw.count(marker)
+  if count != 1:
+    raise RuntimeError(
+        f"Expected 1 {marker} annotation in {p}, found {count}"
+    )
+  pattern = r"(otel\.hybrid-agents\.internal/config-sha256:\s*)[^\n]+"
+  updated = re.sub(pattern, rf"\g<1>{cfg_sha}", raw, count=1)
+  p.write_text(updated, encoding="utf-8")
+EOF
+
   # Commit the bundle formatted with prettier (CI only checks Markdown, so this
   # keeps diffs stable). Set PRETTIER to your prettier command, for example:
   #   PRETTIER="npx --prefix .devcontainer/dependencies prettier" ./render.sh

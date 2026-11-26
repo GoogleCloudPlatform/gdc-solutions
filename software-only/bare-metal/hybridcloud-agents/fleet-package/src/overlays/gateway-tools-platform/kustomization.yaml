@@ -58,8 +58,8 @@ patches:
                     - delete_matching_keys(span.attributes, "^(gen_ai\\.(prompt|completion|input|output|content)|gcp\\.vertex\\.agent\\.(llm_request|llm_response|tool_call_args|tool_response)|input\\.value|output\\.value).*")
                 - context: spanevent
                   statements:
-                    - delete_matching_keys(attributes, ".*")
-                    - set(name, "[REDACTED_SPAN_EVENT]")
+                    - delete_matching_keys(spanevent.attributes, ".*")
+                    - set(spanevent.name, "[REDACTED_SPAN_EVENT]")
               log_statements:
                 - context: log
                   statements:
