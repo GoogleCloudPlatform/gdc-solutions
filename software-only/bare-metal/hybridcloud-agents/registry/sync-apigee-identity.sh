@@ -17,9 +17,13 @@
 # to active MCP servers in registry/mcp-servers/*.yaml), Secret Manager API key
 # versions (only when the consumer key hash changes, never printing keys;
 # destroys all enabled/disabled key versions when a pipeline-managed agent
-# manifest is removed), unreferenced pipeline-managed API products, and the
-# environment KVM `agent-jwt-subjects` from active `registry/agents/*/agent.yaml`
-# (Wave ID-SYNC + Wave SECRET-CLEANUP + D29 progressive onboarding/rollback).
+# manifest is removed), bounded make-before-break N-1 consumer key grace and
+# automatic revocation/deletion (revokes expired N-1 keys on the next pipeline
+# run after apigeeApp.previousKeyGraceSeconds, default 7200s, and deletes
+# previously revoked keys on a later run), unreferenced pipeline-managed API
+# products, and the environment KVM `agent-jwt-subjects` from active
+# `registry/agents/*/agent.yaml` (Wave ID-SYNC + Wave SECRET-CLEANUP + D29
+# progressive onboarding/rollback).
 
 set -o errexit
 set -o nounset
@@ -81,6 +85,7 @@ from pathlib import Path
 import secrets
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -112,16 +117,31 @@ env_config_file = Path(sys.argv[7])
 token = os.environ["ACCESS_TOKEN"]
 
 MANAGED_BY_VALUE = "hybridcloud-agents-id-sync"
+DEFAULT_PREVIOUS_KEY_GRACE_SECONDS = 7200
+MAX_PREVIOUS_KEY_GRACE_SECONDS = 604800
 APIGEE_BASE = f"https://apigee.googleapis.com/v1/organizations/{project_id}"
 SM_BASE = f"https://secretmanager.googleapis.com/v1/projects/{project_id}"
 
 
-def api_req(method: str, url: str, body=None, allow_404: bool = False):
+def api_req(
+    method: str,
+    url: str,
+    body=None,
+    allow_404: bool = False,
+    content_type: str | None = None,
+    raw_body: bytes | None = None,
+):
   headers = {"Authorization": f"Bearer {token}"}
   data = None
-  if body is not None:
-    headers["Content-Type"] = "application/json"
+  if raw_body is not None:
+    data = raw_body
+    if content_type:
+      headers["Content-Type"] = content_type
+  elif body is not None:
+    headers["Content-Type"] = content_type or "application/json"
     data = json.dumps(body).encode("utf-8")
+  elif content_type:
+    headers["Content-Type"] = content_type
   req = urllib.request.Request(url, data=data, headers=headers, method=method)
   try:
     with urllib.request.urlopen(req, timeout=60) as resp:
@@ -132,6 +152,19 @@ def api_req(method: str, url: str, body=None, allow_404: bool = False):
       return 404, {}
     err_body = e.read().decode("utf-8", errors="replace")
     raise RuntimeError(f"HTTP {e.code} on {method} {url}: {err_body}") from e
+
+
+def revoke_app_key(app_url: str, consumer_key: str) -> None:
+  """Revoke an Apigee DeveloperApp key via updateDeveloperAppKey?action=revoke."""
+  url = (
+      f"{app_url}/keys/{urllib.parse.quote(consumer_key, safe='')}?action=revoke"
+  )
+  api_req(
+      "POST",
+      url,
+      content_type="application/octet-stream",
+      raw_body=b"",
+  )
 
 
 def list_apigee_paginated(
@@ -426,6 +459,8 @@ created_count = 0
 updated_count = 0
 noop_count = 0
 deleted_count = 0
+keys_revoked_count = 0
+keys_deleted_count = 0
 products_deleted_count = 0
 secret_versions_destroyed = 0
 secret_version_destroy_errors = 0
@@ -662,6 +697,22 @@ for m in agent_manifests:
   st_app, live_app = api_req("GET", app_url, allow_404=True)
 
   desired_key_version = str(app_cfg.get("keyVersion", "v1"))
+  raw_grace = app_cfg.get(
+      "previousKeyGraceSeconds", DEFAULT_PREVIOUS_KEY_GRACE_SECONDS
+  )
+  if (
+      not isinstance(raw_grace, int)
+      or isinstance(raw_grace, bool)
+      or not (0 <= raw_grace <= MAX_PREVIOUS_KEY_GRACE_SECONDS)
+  ):
+    raise RuntimeError(
+        f"Invalid apigeeApp.previousKeyGraceSeconds for agent '{agent_name}': "
+        f"{raw_grace!r} (expected integer 0..{MAX_PREVIOUS_KEY_GRACE_SECONDS})"
+    )
+  grace_seconds = raw_grace
+  rotated_this_run = False
+  rotation_epoch = 0
+
   base_desired_attrs = {
       "business_unit": str(app_cfg.get("businessUnit", "hybrid-agents")),
       "cost_center": str(app_cfg.get("costCenter", "CC-HYBRID-001")),
@@ -688,9 +739,11 @@ for m in agent_manifests:
   else:
     live_attrs_pre = attrs_to_dict(live_app.get("attributes"))
     if live_attrs_pre.get("key_version", "v1") != desired_key_version:
+      rotation_epoch = int(time.time())
       print(
           f"ROTATE DeveloperApp {app_name} key"
-          f" (key_version={live_attrs_pre.get('key_version', 'v1')} -> {desired_key_version})"
+          f" (key_version={live_attrs_pre.get('key_version', 'v1')} -> {desired_key_version},"
+          f" previousKeyGraceSeconds={grace_seconds})"
       )
       new_key = f"hca-{secrets.token_hex(16)}"
       new_sec = secrets.token_hex(24)
@@ -699,11 +752,12 @@ for m in agent_manifests:
           f"{app_url}/keys/create",
           {"consumerKey": new_key, "consumerSecret": new_sec},
       )
-      api_req(
-          "POST",
-          f"{app_url}/keys/{urllib.parse.quote(new_key, safe='')}",
-          {"apiProducts": desired_prods},
-      )
+      if desired_prods:
+        api_req(
+            "POST",
+            f"{app_url}/keys/{urllib.parse.quote(new_key, safe='')}",
+            {"apiProducts": desired_prods},
+        )
       prev_creds = sorted(
           [
               c
@@ -713,17 +767,47 @@ for m in agent_manifests:
           key=lambda c: int(c.get("issuedAt", 0)),
           reverse=True,
       )
-      # Make-before-break: retain the immediately prior key (N-1) alongside new_key (N)
-      # during the ESO + Kubelet propagation window; prune any older keys (N-2+).
+      # Make-before-break: record rotation time on the immediately prior key (N-1)
+      # so it remains valid during previousKeyGraceSeconds and is revoked on the
+      # next pipeline run once the grace period elapses (or immediately when
+      # grace_seconds == 0). Prune any older approved keys (N-2+) immediately.
+      if prev_creds:
+        n1_cred = prev_creds[0]
+        n1_key = n1_cred.get("consumerKey") or ""
+        if n1_key and n1_key != new_key:
+          n1_attrs = attrs_to_dict(n1_cred.get("attributes"))
+          if "rotated_out_at" not in n1_attrs:
+            n1_attrs["rotated_out_at"] = str(rotation_epoch)
+          n1_attrs["replaced_by_key_version"] = desired_key_version
+          n1_prods = sorted([
+              ap["apiproduct"]
+              for ap in (n1_cred.get("apiProducts") or [])
+              if ap.get("status") == "approved"
+          ])
+          n1_patch = {"attributes": dict_to_attrs(n1_attrs)}
+          if n1_prods:
+            n1_patch["apiProducts"] = n1_prods
+          api_req(
+              "POST",
+              f"{app_url}/keys/{urllib.parse.quote(n1_key, safe='')}",
+              n1_patch,
+          )
       for old_c in prev_creds[1:]:
         old_k = old_c.get("consumerKey")
         if old_k and old_k != new_key:
+          old_sha = hashlib.sha256(old_k.encode("utf-8")).hexdigest()
+          print(
+              f"DELETE superseded N-2+ key for DeveloperApp {app_name} "
+              f"(key_sha256={old_sha[:12]}...)"
+          )
           api_req(
               "DELETE",
               f"{app_url}/keys/{urllib.parse.quote(old_k, safe='')}",
           )
+          keys_deleted_count += 1
       _, live_app = api_req("GET", app_url)
       app_updated = True
+      rotated_this_run = True
 
   # Select active approved credential (newest issuedAt first)
   creds = [
@@ -771,6 +855,10 @@ for m in agent_manifests:
   # Check if DeveloperApp attributes need updating
   desired_attrs = dict(base_desired_attrs)
   desired_attrs["secret_key_sha256"] = expected_key_marker
+  if rotated_this_run:
+    desired_attrs["key_rotated_at"] = str(rotation_epoch)
+  elif "key_rotated_at" in live_attrs:
+    desired_attrs["key_rotated_at"] = live_attrs["key_rotated_at"]
   if live_attrs != desired_attrs:
     print(f"UPDATE DeveloperApp {app_name} attributes (key_sha256={key_sha256[:12]}...)")
     api_req(
@@ -783,6 +871,78 @@ for m in agent_manifests:
     )
     if not app_created:
       app_updated = True
+
+  # Enforce bounded grace period for non-current keys on every pipeline run
+  # (after Secret Manager and DeveloperApp attributes have persisted key N).
+  # Apigee v1 DeveloperAppKey.expiresInSeconds/expiresAt cannot be updated after
+  # key creation, so expired N-1 keys are revoked on the next pipeline run after
+  # previousKeyGraceSeconds and deleted on a subsequent run.
+  now_epoch = int(time.time())
+  all_creds = sorted(
+      live_app.get("credentials") or [],
+      key=lambda c: int(c.get("issuedAt", 0)),
+      reverse=True,
+  )
+  active_issued_epoch = int(active_cred.get("issuedAt", 0)) // 1000
+  app_rotated_epoch = 0
+  if desired_attrs.get("key_rotated_at"):
+    try:
+      app_rotated_epoch = int(desired_attrs["key_rotated_at"])
+    except ValueError:
+      app_rotated_epoch = 0
+
+  for other_c in all_creds:
+    other_k = other_c.get("consumerKey") or ""
+    if not other_k or other_k == consumer_key:
+      continue
+    other_sha = hashlib.sha256(other_k.encode("utf-8")).hexdigest()
+    other_status = str(other_c.get("status") or "").lower()
+    if other_status == "revoked":
+      print(
+          f"DELETE previously revoked key for DeveloperApp {app_name} "
+          f"(key_sha256={other_sha[:12]}...)"
+      )
+      api_req(
+          "DELETE",
+          f"{app_url}/keys/{urllib.parse.quote(other_k, safe='')}",
+      )
+      keys_deleted_count += 1
+      if not app_created:
+        app_updated = True
+      continue
+    if other_status != "approved":
+      continue
+    other_attrs = attrs_to_dict(other_c.get("attributes"))
+    rotated_at = 0
+    if other_attrs.get("rotated_out_at"):
+      try:
+        rotated_at = int(other_attrs["rotated_out_at"])
+      except ValueError:
+        rotated_at = 0
+    if rotated_at <= 0:
+      rotated_at = app_rotated_epoch or active_issued_epoch
+    elapsed = max(0, now_epoch - rotated_at) if rotated_at > 0 else -1
+    if grace_seconds == 0 or (rotated_at > 0 and elapsed >= grace_seconds):
+      print(
+          f"REVOKE expired previous key for DeveloperApp {app_name} "
+          f"(key_sha256={other_sha[:12]}..., elapsed={elapsed}s >= grace={grace_seconds}s)"
+      )
+      revoke_app_key(app_url, other_k)
+      keys_revoked_count += 1
+      if not app_created:
+        app_updated = True
+    elif rotated_at <= 0:
+      print(
+          f"WARN: Previous key for DeveloperApp {app_name} "
+          f"(key_sha256={other_sha[:12]}...) has no rotation timestamp; skipping automatic revocation."
+      )
+    else:
+      remaining = grace_seconds - elapsed
+      print(
+          f"KEEP previous key for DeveloperApp {app_name} within grace period "
+          f"(key_sha256={other_sha[:12]}..., elapsed={elapsed}s < grace={grace_seconds}s, "
+          f"remaining={remaining}s; revokes on next pipeline run after grace)"
+      )
 
   # Reconcile KVM entry in agent-jwt-subjects: app_name -> expected_sub
   if app_name not in live_kvm_entries:
@@ -915,6 +1075,8 @@ for prod_obj in live_prod_items:
 summary_obj = {
     "created": created_count,
     "deleted": deleted_count,
+    "keys_deleted": keys_deleted_count,
+    "keys_revoked": keys_revoked_count,
     "products_deleted": products_deleted_count,
     "secret_versions_destroyed": secret_versions_destroyed,
     "unchanged": noop_count,

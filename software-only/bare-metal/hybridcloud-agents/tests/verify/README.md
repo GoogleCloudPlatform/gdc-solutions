@@ -34,10 +34,10 @@ in [`../model-tier/`](../model-tier/) and [`../data-tier/`](../data-tier/).
 ## Contents
 
 - `verify.sh`: Main entrypoint with subcommands `smoke`, `step1`, `step2`,
-  `step3`, `step4`, and `status`. Prints a `PASS`/`FAIL`/`SKIP` summary table
-  and exits non-zero on any `FAIL`. Includes an automatic 65-second cooldown
-  between rapid Gemini batches to respect Apigee's `PromptTokenLimit-Burst`
-  (`2400pm`) policy.
+  `step3`, `step4`, `rotate`, and `status`. Prints a `PASS`/`FAIL`/`SKIP`
+  summary table and exits non-zero on any `FAIL`. Includes an automatic
+  65-second cooldown between rapid Gemini batches to respect Apigee's
+  `PromptTokenLimit-Burst` (`2400pm`) policy.
 - `agent_call.py`: Python 3 standard-library helper executed inside an agent pod
   (`kubectl exec -i deploy/<agent> -- python3 -`) using the exact SUG
   `agent_call` semantics:
@@ -123,6 +123,12 @@ bash tests/verify/verify.sh step3 --include-a2a-quota
 # Step 4 (v1.4.0: forward rollback to empty active set)
 bash tests/verify/verify.sh step4
 
+# Optional Day-2 key rotation checks (during grace, after revocation, or full E2E)
+bash tests/verify/verify.sh rotate --agent=adk-ops-orchestrator --phase=grace --grace-seconds=300
+bash tests/verify/verify.sh rotate --agent=adk-ops-orchestrator --phase=revoked
+bash tests/verify/verify.sh rotate --agent=adk-ops-orchestrator --phase=full --grace-seconds=300 \
+  --reconcile-cmd='bash registry/sync-apigee-identity.sh'
+
 # Read-only inspection of current control-plane and workload state (no traffic)
 bash tests/verify/verify.sh status
 # Equivalent dry-run of step4 checks without asserting empty active set:
@@ -142,56 +148,62 @@ bash tests/verify/verify.sh step2 --allow-higher-stage
 
 <!-- mdformat off -->
 
-| Subcommand | Check ID           | SUG Reference      | What Is Verified                                                                                                      |
-| :--------- | :----------------- | :----------------- | :-------------------------------------------------------------------------------------------------------------------- |
-| `smoke`    | `SMOKE-SM1`        | Step 3 #1          | `adk-sovereign-agent /invoke` (`sovereign`) returns `200`, `local-vllm`, cites `SYN-POL-001`                          |
-| `smoke`    | `SMOKE-A2A1A`      | Step 3 #3          | `adk-ops-orchestrator /invoke` (`sovereign`) delegates over A2A (`200`), cites `SYN-POL-001`                          |
-| `smoke`    | `SMOKE-MCP`        | Step 2 #2          | `/mcp-toolbox` `tools/list` (`200`) + SQL `search_sovereign_policies_by_category` (`200`, `SYN-POL-001`)              |
-| `smoke`    | `SMOKE-MA`         | Step 1 #3          | Model Armor blocks prompt injection (`HTTP 400`, `FilterMatched`)                                                     |
-| `step1`    | `S1-WORKLOADS`     | Step 1 Deploy & #7 | 6 pods running (`0` restarts), `ops-egress-apigee-api-key` `SecretSynced`, both `PodMonitoring` objects present       |
-| `step1`    | `S1-SAR`           | Step 1 Deploy      | `SubjectAccessReview` confirms `root-reconciler-hybridcloud-agents` cannot `get secrets` (`false`)                    |
-| `step1`    | `S1-CP`            | Step 1 #1          | Agent Registry lists `adk-ops-orchestrator` (`0` MCP servers), `ops-orchestrator-app` active, `mcp-toolbox-v1` down   |
-| `step1`    | `S1-UNAUTH`        | Step 1 #1          | Optional workstation `curl` confirms unauthenticated `/agents/ops-orchestrator/.well-known/agent-card.json` is `401`  |
-| `step1`    | `S1-GEMINI`        | Step 1 #2, #6      | `adk-ops-orchestrator /invoke` (`cloud-eligible`) routes to `vertex-gemini-*` with `X-TokenQuota-*` and `trace_id`    |
-| `step1`    | `S1-GEMMA`         | Step 1 #2          | `adk-ops-orchestrator /invoke` (`sovereign`) routes directly to `local-vllm` (`a2a_subcall={}`)                       |
-| `step1`    | `S1-SSE`           | Step 1 #5          | `adk-ops-orchestrator /invoke-stream` (`sovereign`) streams `>1` SSE events ending with `done: true`                  |
-| `step1`    | `S1-MCP-INACTIVE`  | Step 1 Deploy      | `/mcp-toolbox` returns `404`/`401` before Step 2 activates `mcp-toolbox.yaml`                                         |
-| `step1`    | `S1-MA-BENIGN`     | Step 1 #3, #6      | Benign cloud-eligible prompt returns `200`, `cloud-burst-gemini`, `X-TokenQuota-*` (after 65s burst cooldown)         |
-| `step1`    | `S1-MA-INJECT`     | Step 1 #3          | Adversarial prompt injection blocked pre-inference (`HTTP 400`, `FilterMatched`)                                      |
-| `step1`    | `S1-FAILOVER`      | Step 1 #4          | Simulated cloud `503` (`x-simulate-cloud-burst-status=503`) fails over to `local-vllm-failover` (`200`)               |
-| `step2`    | `S2-CP`            | Step 2 Deploy      | `mcp-toolbox-v1` deployed, `cloud-eligible-agents-mcp` attached to `ops-orchestrator-app`, `mcp-toolbox` registered   |
-| `step2`    | `S2-PODS`          | Step 2 Deploy      | `agent-workloads` pods healthy (`0` restarts) and `mcp-toolbox` `2/2` in `mcp-tools`                                  |
-| `step2`    | `S2-MCP-E2E`       | Step 2 #1          | `adk-ops-orchestrator /invoke` with `enable_toolbox_mcp: true` invokes `toolbox_*` and cites `SYN-POL-001`            |
-| `step2`    | `S2-MCP-LIST`      | Step 2 #2          | `/mcp-toolbox` `tools/list` returns both SQL and `pgvector` tools                                                     |
-| `step2`    | `S2-MCP-SQL`       | Step 2 #2          | `/mcp-toolbox` `search_sovereign_policies_by_category` (`residency`) returns `SYN-POL-001`                            |
-| `step2`    | `S2-MCP-VEC`       | Step 2 #2          | `/mcp-toolbox` `semantic_search_sovereign_policies` (8-float vector + `top_k: 2`) returns `SYN-POL-001`               |
-| `step2`    | `S2-MCP-NEG-BQ`    | Step 2 #2          | Inactive `/mcp-bigquery` rejected (`404`/`401`)                                                                       |
-| `step3`    | `S3-WORKLOADS`     | Step 3 Deploy      | 8 pods running (`0` restarts), all 3 `ExternalSecret`s `SecretSynced`, `peer-agents.json` lists `adk-sovereign-agent` |
-| `step3`    | `S3-CP`            | Step 3 Deploy      | Agent Registry lists both agents + `mcp-toolbox`, both apps/products active, both Secret Manager keys `ENABLED`       |
-| `step3`    | `S3-UNAUTH`        | Step 3 #1          | Optional workstation `curl` confirms unauthenticated `/agents/sovereign/.well-known/agent-card.json` is `401`         |
-| `step3`    | `S3-SM1`           | Step 3 #1          | `adk-sovereign-agent /invoke` (`sovereign`) returns `200`, `local-vllm`, `SYN-POL-001`                                |
-| `step3`    | `S3-SOV-BURST403`  | Step 3 #1          | Sovereign agent requesting `cloud-eligible` rejected (`403`, `CLOUD_BURST_FORBIDDEN_FOR_PRODUCT`)                     |
-| `step3`    | `S3-SOV-MODEL403`  | Step 3 #1          | Sovereign agent requesting `enterprise-flash` rejected (`403`, `model_not_authorized_for_api_product`)                |
-| `step3`    | `S3-A2A1A`         | Step 3 #3          | Sovereign A2A delegation (`local-vllm` -> `local-vllm`, matching `trace_id`, auto-enabled via `peer-agents.json`)     |
-| `step3`    | `S3-A2A1B`         | Step 3 #3          | Hybrid burst A2A delegation (`vertex-gemini-*` -> `local-vllm`, `SYN-POL-001`)                                        |
-| `step3`    | `S3-A2A2A`         | Step 3 #4          | Non-entitled `:15001` key calling `/a2a/sovereign` rejected (`401`, `InvalidApiKeyForGivenResource`)                  |
-| `step3`    | `S3-A2A2B`         | Step 3 #4          | Mismatched KSA JWT `sub` on `:15002` rejected (`401`, `steps.jwt.InvalidClaim`)                                       |
-| `step3`    | `S3-MCP-POS`       | Step 2 #2          | Orchestrator `/mcp-toolbox` `tools/list`, SQL, and 8-dim `pgvector` all return `200` with `SYN-POL-001`               |
-| `step3`    | `S3-MCP-NEG`       | Step 3 #2          | Sovereign agent `tools/list` sees SQL only; `semantic_search` denied (`401`/`403`); `/mcp-bigquery` denied (`404`)    |
-| `step3`    | `S3-PGVECTOR-TLS`  | SRI Data Tier      | Optional (`CTX_DATA`): verifies `mcp_reader` uses `TLSv1.3` in PostgreSQL `pg_stat_ssl`                               |
-| `step3`    | `S3-SSE`           | Step 1 #5          | `adk-sovereign-agent /invoke-stream` streams `>1` SSE events ending with `done: true`                                 |
-| `step3`    | `S3-DIRECT-DB`     | SRI NetPol         | Optional (`PGVECTOR_HOST`/`DIRECT_DB_TARGETS`): confirms `:5432` direct connect from agent pod times out              |
-| `step3`    | `S3-XPORT-SOV`     | Step 3 #4          | `adk-sovereign-agent` -> `agent-egress-envoy:15002` blocked by dual-direction `NetworkPolicy`                         |
-| `step3`    | `S3-XPORT-OPS`     | Step 3 #4          | `adk-ops-orchestrator` -> `agent-egress-envoy:15001` blocked by dual-direction `NetworkPolicy`                        |
-| `step3`    | `S3-FORGED-15001`  | Step 3 #4          | Forged `x-api-key` on `:15001` overwritten by Envoy (`overwrite: true`), returns `200` with sovereign scope only      |
-| `step3`    | `S3-FORGED-15002`  | Step 3 #4          | Forged `x-api-key` on `:15002` overwritten by Envoy (`overwrite: true`), returns `200` with orchestrator scope        |
-| `step3`    | `S3-MODEL-ARMOR`   | Step 1 #3          | Prompt injection blocked (`HTTP 400`, `FilterMatched`) after 65s Gemini burst cooldown                                |
-| `step3`    | `S3-FAILOVER`      | Step 1 #4          | Simulated cloud `503` fails over to `local-vllm-failover` (`200`)                                                     |
-| `step3`    | `S3-CLOUD-TRACE`   | Step 3 #3, #6      | Cloud Trace API confirms `>= TRACE_MIN_SPANS` spans for the shared `TRACE_ID` on expected cluster(s)                  |
-| `step3`    | `S3-A2A-QUOTA`     | Step 3 #5          | Opt-in (`--include-a2a-quota`): 6 sequential A2A calls trigger `HTTP 429` after 4 sub-calls                           |
-| `step4`    | `S4-CP`            | Step 4 Verify      | Agent Registry empty, `0` managed apps, `mcp-toolbox-v1` undeployed, `0` enabled/disabled key versions                |
-| `step4`    | `S4-AGENTS-PRUNED` | Step 4 Verify      | `0` ADK pods, `0` agent `ExternalSecret`s, `4` idle Envoy pods (`0` restarts)                                         |
-| `step4`    | `S4-PLATFORM-OK`   | Step 4 Verify      | `FleetPackage/hybridcloud-agents-platform` `COMPLETED`, `mcp-toolbox` `2/2`, `otel-collector` `1/1` on both clusters  |
+| Subcommand | Check ID             | SUG Reference      | What Is Verified                                                                                                      |
+| :--------- | :------------------- | :----------------- | :-------------------------------------------------------------------------------------------------------------------- |
+| `smoke`    | `SMOKE-SM1`          | Step 3 #1          | `adk-sovereign-agent /invoke` (`sovereign`) returns `200`, `local-vllm`, cites `SYN-POL-001`                          |
+| `smoke`    | `SMOKE-A2A1A`        | Step 3 #3          | `adk-ops-orchestrator /invoke` (`sovereign`) delegates over A2A (`200`), cites `SYN-POL-001`                          |
+| `smoke`    | `SMOKE-MCP`          | Step 2 #2          | `/mcp-toolbox` `tools/list` (`200`) + SQL `search_sovereign_policies_by_category` (`200`, `SYN-POL-001`)              |
+| `smoke`    | `SMOKE-MA`           | Step 1 #3          | Model Armor blocks prompt injection (`HTTP 400`, `FilterMatched`)                                                     |
+| `step1`    | `S1-WORKLOADS`       | Step 1 Deploy & #7 | 6 pods running (`0` restarts), `ops-egress-apigee-api-key` `SecretSynced`, both `PodMonitoring` objects present       |
+| `step1`    | `S1-SAR`             | Step 1 Deploy      | `SubjectAccessReview` confirms `root-reconciler-hybridcloud-agents` cannot `get secrets` (`false`)                    |
+| `step1`    | `S1-CP`              | Step 1 #1          | Agent Registry lists `adk-ops-orchestrator` (`0` MCP servers), `ops-orchestrator-app` active, `mcp-toolbox-v1` down   |
+| `step1`    | `S1-UNAUTH`          | Step 1 #1          | Optional workstation `curl` confirms unauthenticated `/agents/ops-orchestrator/.well-known/agent-card.json` is `401`  |
+| `step1`    | `S1-GEMINI`          | Step 1 #2, #6      | `adk-ops-orchestrator /invoke` (`cloud-eligible`) routes to `vertex-gemini-*` with `X-TokenQuota-*` and `trace_id`    |
+| `step1`    | `S1-GEMMA`           | Step 1 #2          | `adk-ops-orchestrator /invoke` (`sovereign`) routes directly to `local-vllm` (`a2a_subcall={}`)                       |
+| `step1`    | `S1-SSE`             | Step 1 #5          | `adk-ops-orchestrator /invoke-stream` (`sovereign`) streams `>1` SSE events ending with `done: true`                  |
+| `step1`    | `S1-MCP-INACTIVE`    | Step 1 Deploy      | `/mcp-toolbox` returns `404`/`401` before Step 2 activates `mcp-toolbox.yaml`                                         |
+| `step1`    | `S1-MA-BENIGN`       | Step 1 #3, #6      | Benign cloud-eligible prompt returns `200`, `cloud-burst-gemini`, `X-TokenQuota-*` (after 65s burst cooldown)         |
+| `step1`    | `S1-MA-INJECT`       | Step 1 #3          | Adversarial prompt injection blocked pre-inference (`HTTP 400`, `FilterMatched`)                                      |
+| `step1`    | `S1-FAILOVER`        | Step 1 #4          | Simulated cloud `503` (`x-simulate-cloud-burst-status=503`) fails over to `local-vllm-failover` (`200`)               |
+| `step2`    | `S2-CP`              | Step 2 Deploy      | `mcp-toolbox-v1` deployed, `cloud-eligible-agents-mcp` attached to `ops-orchestrator-app`, `mcp-toolbox` registered   |
+| `step2`    | `S2-PODS`            | Step 2 Deploy      | `agent-workloads` pods healthy (`0` restarts) and `mcp-toolbox` `2/2` in `mcp-tools`                                  |
+| `step2`    | `S2-MCP-E2E`         | Step 2 #1          | `adk-ops-orchestrator /invoke` with `enable_toolbox_mcp: true` invokes `toolbox_*` and cites `SYN-POL-001`            |
+| `step2`    | `S2-MCP-LIST`        | Step 2 #2          | `/mcp-toolbox` `tools/list` returns both SQL and `pgvector` tools                                                     |
+| `step2`    | `S2-MCP-SQL`         | Step 2 #2          | `/mcp-toolbox` `search_sovereign_policies_by_category` (`residency`) returns `SYN-POL-001`                            |
+| `step2`    | `S2-MCP-VEC`         | Step 2 #2          | `/mcp-toolbox` `semantic_search_sovereign_policies` (8-float vector + `top_k: 2`) returns `SYN-POL-001`               |
+| `step2`    | `S2-MCP-NEG-BQ`      | Step 2 #2          | Inactive `/mcp-bigquery` rejected (`404`/`401`)                                                                       |
+| `step3`    | `S3-WORKLOADS`       | Step 3 Deploy      | 8 pods running (`0` restarts), all 3 `ExternalSecret`s `SecretSynced`, `peer-agents.json` lists `adk-sovereign-agent` |
+| `step3`    | `S3-CP`              | Step 3 Deploy      | Agent Registry lists both agents + `mcp-toolbox`, both apps/products active, both Secret Manager keys `ENABLED`       |
+| `step3`    | `S3-UNAUTH`          | Step 3 #1          | Optional workstation `curl` confirms unauthenticated `/agents/sovereign/.well-known/agent-card.json` is `401`         |
+| `step3`    | `S3-SM1`             | Step 3 #1          | `adk-sovereign-agent /invoke` (`sovereign`) returns `200`, `local-vllm`, `SYN-POL-001`                                |
+| `step3`    | `S3-SOV-BURST403`    | Step 3 #1          | Sovereign agent requesting `cloud-eligible` rejected (`403`, `CLOUD_BURST_FORBIDDEN_FOR_PRODUCT`)                     |
+| `step3`    | `S3-SOV-MODEL403`    | Step 3 #1          | Sovereign agent requesting `enterprise-flash` rejected (`403`, `model_not_authorized_for_api_product`)                |
+| `step3`    | `S3-A2A1A`           | Step 3 #3          | Sovereign A2A delegation (`local-vllm` -> `local-vllm`, matching `trace_id`, auto-enabled via `peer-agents.json`)     |
+| `step3`    | `S3-A2A1B`           | Step 3 #3          | Hybrid burst A2A delegation (`vertex-gemini-*` -> `local-vllm`, `SYN-POL-001`)                                        |
+| `step3`    | `S3-A2A2A`           | Step 3 #4          | Non-entitled `:15001` key calling `/a2a/sovereign` rejected (`401`, `InvalidApiKeyForGivenResource`)                  |
+| `step3`    | `S3-A2A2B`           | Step 3 #4          | Mismatched KSA JWT `sub` on `:15002` rejected (`401`, `steps.jwt.InvalidClaim`)                                       |
+| `step3`    | `S3-MCP-POS`         | Step 2 #2          | Orchestrator `/mcp-toolbox` `tools/list`, SQL, and 8-dim `pgvector` all return `200` with `SYN-POL-001`               |
+| `step3`    | `S3-MCP-NEG`         | Step 3 #2          | Sovereign agent `tools/list` sees SQL only; `semantic_search` denied (`401`/`403`); `/mcp-bigquery` denied (`404`)    |
+| `step3`    | `S3-PGVECTOR-TLS`    | SRI Data Tier      | Optional (`CTX_DATA`): verifies `mcp_reader` uses `TLSv1.3` in PostgreSQL `pg_stat_ssl`                               |
+| `step3`    | `S3-SSE`             | Step 1 #5          | `adk-sovereign-agent /invoke-stream` streams `>1` SSE events ending with `done: true`                                 |
+| `step3`    | `S3-DIRECT-DB`       | SRI NetPol         | Optional (`PGVECTOR_HOST`/`DIRECT_DB_TARGETS`): confirms `:5432` direct connect from agent pod times out              |
+| `step3`    | `S3-XPORT-SOV`       | Step 3 #4          | `adk-sovereign-agent` -> `agent-egress-envoy:15002` blocked by dual-direction `NetworkPolicy`                         |
+| `step3`    | `S3-XPORT-OPS`       | Step 3 #4          | `adk-ops-orchestrator` -> `agent-egress-envoy:15001` blocked by dual-direction `NetworkPolicy`                        |
+| `step3`    | `S3-FORGED-15001`    | Step 3 #4          | Forged `x-api-key` on `:15001` overwritten by Envoy (`overwrite: true`), returns `200` with sovereign scope only      |
+| `step3`    | `S3-FORGED-15002`    | Step 3 #4          | Forged `x-api-key` on `:15002` overwritten by Envoy (`overwrite: true`), returns `200` with orchestrator scope        |
+| `step3`    | `S3-MODEL-ARMOR`     | Step 1 #3          | Prompt injection blocked (`HTTP 400`, `FilterMatched`) after 65s Gemini burst cooldown                                |
+| `step3`    | `S3-FAILOVER`        | Step 1 #4          | Simulated cloud `503` fails over to `local-vllm-failover` (`200`)                                                     |
+| `step3`    | `S3-CLOUD-TRACE`     | Step 3 #3, #6      | Cloud Trace API confirms `>= TRACE_MIN_SPANS` spans for the shared `TRACE_ID` on expected cluster(s)                  |
+| `step3`    | `S3-A2A-QUOTA`       | Step 3 #5          | Opt-in (`--include-a2a-quota`): 6 sequential A2A calls trigger `HTTP 429` after 4 sub-calls                           |
+| `step4`    | `S4-CP`              | Step 4 Verify      | Agent Registry empty, `0` managed apps, `mcp-toolbox-v1` undeployed, `0` enabled/disabled key versions                |
+| `step4`    | `S4-AGENTS-PRUNED`   | Step 4 Verify      | `0` ADK pods, `0` agent `ExternalSecret`s, `4` idle Envoy pods (`0` restarts)                                         |
+| `step4`    | `S4-PLATFORM-OK`     | Step 4 Verify      | `FleetPackage/hybridcloud-agents-platform` `COMPLETED`, `mcp-toolbox` `2/2`, `otel-collector` `1/1` on both clusters  |
+| `rotate`   | `ROTATE-CP-GRACE`    | Day-2 Rotate       | Apigee app has 2 approved keys (`N` + `N-1`) with `rotated_out_at` recorded during the grace window                   |
+| `rotate`   | `ROTATE-OLD-GRACE`   | Day-2 Rotate       | Direct HTTPS `GET /gateway-catalog/status` with `N-1` key returns `200` during `previousKeyGraceSeconds`              |
+| `rotate`   | `ROTATE-CP-REVOKED`  | Day-2 Rotate       | After post-grace pipeline run, Apigee app has 1 approved key (`N`) and revoked `N-1` key                              |
+| `rotate`   | `ROTATE-OLD-REVOKED` | Day-2 Rotate       | Direct HTTPS `GET /gateway-catalog/status` with revoked `N-1` key returns `401` (`oauth.v2.InvalidApiKey`)            |
+| `rotate`   | `ROTATE-NEW-KEY`     | Day-2 Rotate       | Direct HTTPS `GET /gateway-catalog/status` with active `N` key returns `200`                                          |
+| `rotate`   | `ROTATE-ENVOY-OK`    | Day-2 Rotate       | `agent_call` through `agent-egress-envoy` returns `200` with `0` Envoy pod restarts                                   |
 
 <!-- mdformat on -->
 

@@ -44,6 +44,7 @@ apigeeApp:
   costCenter: CC-OPS-205
   developerEmail: hybrid-agents-platform@example.com
   name: ops-orchestrator-app
+  previousKeyGraceSeconds: 7200
 egressProxy:
   endpoint: http://agent-egress-envoy.agent-workloads.svc.cluster.local:15002
   mountPath: /etc/envoy/ops-apigee-key

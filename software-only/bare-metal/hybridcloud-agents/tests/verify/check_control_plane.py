@@ -19,11 +19,17 @@ Never reads Secret Manager payloads (queries version metadata/state only).
 """
 
 import argparse
+import hashlib
+import http.client
 import json
 import os
+import socket
+import ssl
 import subprocess
 import sys
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 MANAGED_BY_VALUE = "hybridcloud-agents-id-sync"
@@ -410,6 +416,316 @@ def cmd_trace(args: argparse.Namespace) -> int:
     return 0 if not errors else 1
 
 
+class _HostnameHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPSConnection verifying TLS against gateway_fqdn while connecting to host:port."""
+
+    def __init__(
+        self,
+        connect_host: str,
+        connect_port: int,
+        server_hostname: str,
+        context: ssl.SSLContext,
+        timeout: float = 10.0,
+    ) -> None:
+        super().__init__(connect_host, connect_port, timeout=timeout, context=context)
+        self._server_hostname = server_hostname
+
+    def connect(self) -> None:
+        sock = socket.create_connection((self.host, self.port), self.timeout)
+        self.sock = self._context.wrap_socket(
+            sock, server_hostname=self._server_hostname
+        )
+
+
+def _probe_gateway_with_key(
+    gateway_fqdn: str,
+    connect_host: str,
+    connect_port: int,
+    ca_file: str,
+    path: str,
+    api_key: str,
+) -> dict:
+    ctx = ssl.create_default_context(cafile=ca_file)
+    conn = _HostnameHTTPSConnection(
+        connect_host=connect_host,
+        connect_port=connect_port,
+        server_hostname=gateway_fqdn,
+        context=ctx,
+        timeout=15.0,
+    )
+    try:
+        conn.request(
+            "GET",
+            path,
+            headers={
+                "Accept": "application/json",
+                "Host": gateway_fqdn,
+                "x-api-key": api_key,
+            },
+        )
+        resp = conn.getresponse()
+        raw = resp.read().decode("utf-8", errors="replace")
+        fault_code = ""
+        try:
+            body_obj = json.loads(raw)
+            if isinstance(body_obj, dict):
+                fault_code = (
+                    (body_obj.get("fault") or {}).get("detail", {}).get("errorcode", "")
+                )
+        except ValueError:
+            pass
+        return {
+            "status": resp.status,
+            "fault_code": fault_code,
+            "error": "",
+        }
+    except Exception as exc:
+        return {
+            "status": 0,
+            "fault_code": "",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    finally:
+        conn.close()
+
+
+def _find_developer_app(
+    apigee_org: str, app_name: str, developer_email: str, token: str
+) -> tuple[str, dict]:
+    base = f"https://apigee.googleapis.com/v1/organizations/{apigee_org}"
+    if developer_email:
+        st, app_obj = api_get(
+            f"{base}/developers/{urllib.parse.quote(developer_email, safe='@.')}/apps/{urllib.parse.quote(app_name, safe='')}",
+            token,
+            allow_404=True,
+        )
+        if st == 200 and isinstance(app_obj, dict):
+            return developer_email, app_obj
+        raise RuntimeError(
+            f"DeveloperApp '{app_name}' not found under developer '{developer_email}'."
+        )
+
+    _, devs_resp = api_get(f"{base}/developers", token)
+    for dev in devs_resp.get("developer") or []:
+        email = str(dev.get("email") or "").strip()
+        if not email:
+            continue
+        st, app_obj = api_get(
+            f"{base}/developers/{urllib.parse.quote(email, safe='@.')}/apps/{urllib.parse.quote(app_name, safe='')}",
+            token,
+            allow_404=True,
+        )
+        if st == 200 and isinstance(app_obj, dict):
+            return email, app_obj
+    raise RuntimeError(
+        f"DeveloperApp '{app_name}' not found in Apigee org '{apigee_org}'."
+    )
+
+
+def _cred_meta(cred: dict, fallback_rotated_at: int, now_epoch: int) -> dict:
+    ck = str(cred.get("consumerKey") or "")
+    attrs = {
+        str(a.get("name")): str(a.get("value"))
+        for a in (cred.get("attributes") or [])
+        if a.get("name") is not None
+    }
+    issued_epoch = int(cred.get("issuedAt") or 0) // 1000
+    rotated_at = 0
+    if attrs.get("rotated_out_at"):
+        try:
+            rotated_at = int(attrs["rotated_out_at"])
+        except ValueError:
+            rotated_at = 0
+    if rotated_at <= 0:
+        rotated_at = fallback_rotated_at
+    elapsed = max(0, now_epoch - rotated_at) if rotated_at > 0 else -1
+    return {
+        "key_sha256": hashlib.sha256(ck.encode("utf-8")).hexdigest()[:12],
+        "status": str(cred.get("status") or ""),
+        "issued_at_epoch": issued_epoch,
+        "rotated_out_at": rotated_at,
+        "elapsed_seconds": elapsed,
+    }
+
+
+def cmd_rotate_probe(args: argparse.Namespace) -> int:
+    token = get_access_token()
+    apigee_org = args.apigee_org or args.project
+    now_epoch = int(time.time())
+    dev_email, app_obj = _find_developer_app(
+        apigee_org=apigee_org,
+        app_name=args.app_name,
+        developer_email=args.developer_email,
+        token=token,
+    )
+    app_attrs = {
+        str(a.get("name")): str(a.get("value"))
+        for a in (app_obj.get("attributes") or [])
+        if a.get("name") is not None
+    }
+    key_version = app_attrs.get("key_version", "v1")
+    app_rotated_at = 0
+    if app_attrs.get("key_rotated_at"):
+        try:
+            app_rotated_at = int(app_attrs["key_rotated_at"])
+        except ValueError:
+            app_rotated_at = 0
+
+    all_creds = sorted(
+        app_obj.get("credentials") or [],
+        key=lambda c: int(c.get("issuedAt") or 0),
+        reverse=True,
+    )
+    approved = [
+        c for c in all_creds if str(c.get("status") or "").lower() == "approved"
+    ]
+    revoked = [c for c in all_creds if str(c.get("status") or "").lower() == "revoked"]
+
+    active_cred = approved[0] if approved else None
+    prev_approved = approved[1] if len(approved) > 1 else None
+    prev_revoked = revoked[0] if revoked else None
+
+    active_issued_epoch = (
+        int(active_cred.get("issuedAt") or 0) // 1000 if active_cred else 0
+    )
+    fallback_rot = app_rotated_at or active_issued_epoch
+
+    if args.phase == "auto":
+        if prev_approved is not None:
+            effective_phase = "grace"
+        elif prev_revoked is not None:
+            effective_phase = "revoked"
+        else:
+            effective_phase = "single"
+    else:
+        effective_phase = args.phase
+
+    connect_host = args.connect_host or args.gateway_fqdn
+    active_probe = None
+    prev_approved_probe = None
+    prev_revoked_probe = None
+
+    if args.ca_file:
+        if active_cred is not None:
+            active_probe = _probe_gateway_with_key(
+                gateway_fqdn=args.gateway_fqdn,
+                connect_host=connect_host,
+                connect_port=args.connect_port,
+                ca_file=args.ca_file,
+                path=args.path,
+                api_key=str(active_cred["consumerKey"]),
+            )
+        if prev_approved is not None:
+            prev_approved_probe = _probe_gateway_with_key(
+                gateway_fqdn=args.gateway_fqdn,
+                connect_host=connect_host,
+                connect_port=args.connect_port,
+                ca_file=args.ca_file,
+                path=args.path,
+                api_key=str(prev_approved["consumerKey"]),
+            )
+        if prev_revoked is not None:
+            prev_revoked_probe = _probe_gateway_with_key(
+                gateway_fqdn=args.gateway_fqdn,
+                connect_host=connect_host,
+                connect_port=args.connect_port,
+                ca_file=args.ca_file,
+                path=args.path,
+                api_key=str(prev_revoked["consumerKey"]),
+            )
+
+    errors: list[str] = []
+    if active_cred is None:
+        errors.append(f"DeveloperApp '{args.app_name}' has no approved active key.")
+    elif args.ca_file and (active_probe or {}).get("status") != 200:
+        errors.append(
+            f"Active key probe returned HTTP {(active_probe or {}).get('status')} "
+            f"(error={(active_probe or {}).get('error')})"
+        )
+
+    if effective_phase == "grace":
+        if len(approved) != 2 or prev_approved is None:
+            errors.append(
+                f"Expected 2 approved keys during grace period (N and N-1), found {len(approved)}."
+            )
+        else:
+            prev_meta = _cred_meta(prev_approved, fallback_rot, now_epoch)
+            if prev_meta["rotated_out_at"] <= 0:
+                errors.append(
+                    "Previous key N-1 has no rotated_out_at / key_rotated_at timestamp."
+                )
+            if (
+                args.grace_seconds > 0
+                and prev_meta["elapsed_seconds"] >= args.grace_seconds
+            ):
+                errors.append(
+                    f"Previous key N-1 elapsed={prev_meta['elapsed_seconds']}s >= grace={args.grace_seconds}s "
+                    "(grace window already expired; re-run sync-apigee-identity.sh to revoke)."
+                )
+            if args.ca_file and (prev_approved_probe or {}).get("status") != 200:
+                errors.append(
+                    f"Previous key N-1 during grace expected HTTP 200, got HTTP {(prev_approved_probe or {}).get('status')} "
+                    f"(fault={(prev_approved_probe or {}).get('fault_code')} error={(prev_approved_probe or {}).get('error')})"
+                )
+    elif effective_phase == "revoked":
+        if len(approved) != 1:
+            errors.append(
+                f"Expected exactly 1 approved key after revocation, found {len(approved)}."
+            )
+        if prev_revoked is None:
+            errors.append(
+                "Expected >=1 revoked previous key (N-1) on DeveloperApp, found 0."
+            )
+        elif args.ca_file and (prev_revoked_probe or {}).get("status") != 401:
+            errors.append(
+                f"Revoked previous key N-1 expected HTTP 401, got HTTP {(prev_revoked_probe or {}).get('status')} "
+                f"(fault={(prev_revoked_probe or {}).get('fault_code')} error={(prev_revoked_probe or {}).get('error')})"
+            )
+    elif effective_phase == "deleted":
+        if len(approved) != 1 or len(revoked) != 0:
+            errors.append(
+                f"Expected 1 approved and 0 revoked keys after Stage-2 deletion, "
+                f"found approved={len(approved)} revoked={len(revoked)}."
+            )
+    else:
+        errors.append(
+            f"DeveloperApp '{args.app_name}' has {len(approved)} approved and {len(revoked)} revoked key(s); "
+            "no in-grace or revoked previous key found (bump apigeeApp.keyVersion and run the pipeline first, "
+            "or pass --phase=deleted after Stage-2 cleanup)."
+        )
+
+    out = {
+        "app_name": args.app_name,
+        "developer_email": dev_email,
+        "key_version": key_version,
+        "key_rotated_at": app_rotated_at,
+        "requested_phase": args.phase,
+        "effective_phase": effective_phase,
+        "approved_count": len(approved),
+        "revoked_count": len(revoked),
+        "active_key": (
+            _cred_meta(active_cred, 0, now_epoch) if active_cred is not None else None
+        ),
+        "previous_approved_key": (
+            _cred_meta(prev_approved, fallback_rot, now_epoch)
+            if prev_approved is not None
+            else None
+        ),
+        "previous_revoked_key": (
+            _cred_meta(prev_revoked, fallback_rot, now_epoch)
+            if prev_revoked is not None
+            else None
+        ),
+        "active_probe": active_probe,
+        "previous_approved_probe": prev_approved_probe,
+        "previous_revoked_probe": prev_revoked_probe,
+        "passed": len(errors) == 0,
+        "errors": errors,
+    }
+    print(json.dumps(out, indent=2))
+    return 0 if not errors else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Read-only control-plane and Cloud Trace verifier for Hybrid Cloud AI Agents."
@@ -447,6 +763,27 @@ def build_parser() -> argparse.ArgumentParser:
     p_trace.add_argument("--min-spans", type=int, default=20)
     p_trace.add_argument("--expected-clusters", default="")
     p_trace.set_defaults(func=cmd_trace)
+
+    p_rotate = sub.add_parser(
+        "rotate-probe",
+        help="Verify Apigee DeveloperApp N/N-1 key rotation grace and 401 revocation.",
+    )
+    p_rotate.add_argument("--project", required=True)
+    p_rotate.add_argument("--apigee-org", default="")
+    p_rotate.add_argument("--app-name", required=True)
+    p_rotate.add_argument("--developer-email", default="")
+    p_rotate.add_argument("--gateway-fqdn", default="api.hybrid-agents.internal")
+    p_rotate.add_argument("--connect-host", default="")
+    p_rotate.add_argument("--connect-port", type=int, default=443)
+    p_rotate.add_argument("--ca-file", default="")
+    p_rotate.add_argument("--path", default="/gateway-catalog/status")
+    p_rotate.add_argument(
+        "--phase",
+        default="auto",
+        choices=("auto", "grace", "revoked", "deleted"),
+    )
+    p_rotate.add_argument("--grace-seconds", type=int, default=-1)
+    p_rotate.set_defaults(func=cmd_rotate_probe)
 
     return parser
 

@@ -193,6 +193,17 @@ def _validate_agent_file(agent_path: Path, is_active: bool) -> None:
   else:
     seen_app_names[app_name] = rel_path
 
+  if isinstance(apigee_app, dict) and "previousKeyGraceSeconds" in apigee_app:
+    grace_val = apigee_app.get("previousKeyGraceSeconds")
+    if (
+        not isinstance(grace_val, int)
+        or isinstance(grace_val, bool)
+        or not (0 <= grace_val <= 604800)
+    ):
+      errors.append(
+          f"{rel_path}: 'apigeeApp.previousKeyGraceSeconds' must be an integer between 0 and 604800 (7 days)"
+      )
+
   secret_id = str(obj.get("secretManagerSecret") or "").strip()
   if not secret_id:
     errors.append(f"{rel_path}: missing required 'secretManagerSecret'")

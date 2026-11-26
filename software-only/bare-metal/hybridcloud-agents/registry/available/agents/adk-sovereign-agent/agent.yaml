@@ -34,6 +34,7 @@ apigeeApp:
   costCenter: CC-FAB-410
   developerEmail: hybrid-agents-platform@example.com
   name: sovereign-agents-app
+  previousKeyGraceSeconds: 7200
 egressProxy:
   endpoint: http://agent-egress-envoy.agent-workloads.svc.cluster.local:15001
   mountPath: /etc/envoy/apigee-key

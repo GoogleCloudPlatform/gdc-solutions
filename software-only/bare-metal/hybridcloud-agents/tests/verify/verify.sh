@@ -36,10 +36,17 @@ EXPECT_CURRENT="false"
 INCLUDE_A2A_QUOTA="false"
 NO_COOLDOWN="false"
 CHECK_WORKSTATION_TLS="false"
+ROTATE_AGENT="adk-ops-orchestrator"
+ROTATE_APP_NAME=""
+ROTATE_PHASE="auto"
+ROTATE_GRACE_SECONDS="-1"
+ROTATE_RECONCILE_CMD=""
+ROTATE_WAIT_TIMEOUT="420"
+ROTATE_CA_FILE=""
 
 usage() {
   cat <<'EOF'
-Usage: verify.sh <smoke|step1|step2|step3|step4|status> [options]
+Usage: verify.sh <smoke|step1|step2|step3|step4|rotate|status> [options]
 
 Optional repeat-validation helper mirroring the Solution User Guide (SUG).
 Reads the same environment variables created by the SRI .env file.
@@ -57,6 +64,10 @@ Subcommands:
   step4   SUG Step 4 (v1.4.0): forward-rollback verification (empty registry,
           apps/keys removed, mcp-toolbox-v1 undeployed, 4 idle Envoy pods,
           platform package intact).
+  rotate  Optional Day-2 key rotation check: verifies the previous (N-1) key
+          still returns HTTP 200 during the grace period (when grace > 0),
+          returns HTTP 401 after revocation, and active key N + Envoy SDS
+          return HTTP 200 with zero restarts.
   status  Read-only snapshot of control plane and cluster workloads (no traffic).
 
 Options:
@@ -78,6 +89,17 @@ Options:
   --check-workstation-tls
                          Require unauthenticated curl check against GATEWAY_FQDN
                          using ${SOLUTION_HOME}/hybrid-agents-root-ca.crt.
+  --agent=<name>         For rotate: agent Deployment name (default: adk-ops-orchestrator;
+                         also supports adk-sovereign-agent).
+  --app-name=<name>      For rotate: Apigee DeveloperApp name override.
+  --phase=<mode>         For rotate: auto (default), grace, revoked, full, or deleted.
+  --grace-seconds=<sec>  For rotate: expected previousKeyGraceSeconds (used in grace/full).
+  --reconcile-cmd=<cmd>  For rotate --phase=full: shell command to invoke after grace elapses
+                         to trigger the post-grace identity sync run.
+  --wait-timeout=<sec>   For rotate --phase=full: max seconds to wait for N-1 revocation
+                         (default: 420).
+  --ca-file=<path>       For rotate: path to hybrid-agents-root-ca.crt
+                         (default: ${SOLUTION_HOME}/hybrid-agents-root-ca.crt).
   -h, --help             Show this help message.
 
 Required environment variables (from SRI .env):
@@ -109,7 +131,7 @@ fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    smoke | step1 | step2 | step3 | step4 | status)
+    smoke | step1 | step2 | step3 | step4 | rotate | status)
       if [[ -n "${SUBCOMMAND}" ]]; then
         echo "ERROR: Multiple subcommands specified ('${SUBCOMMAND}' and '$1')." >&2
         exit 2
@@ -139,6 +161,34 @@ while [[ $# -gt 0 ]]; do
       ;;
     --check-workstation-tls)
       CHECK_WORKSTATION_TLS="true"
+      shift
+      ;;
+    --agent=*)
+      ROTATE_AGENT="${1#*=}"
+      shift
+      ;;
+    --app-name=*)
+      ROTATE_APP_NAME="${1#*=}"
+      shift
+      ;;
+    --phase=*)
+      ROTATE_PHASE="${1#*=}"
+      shift
+      ;;
+    --grace-seconds=*)
+      ROTATE_GRACE_SECONDS="${1#*=}"
+      shift
+      ;;
+    --reconcile-cmd=*)
+      ROTATE_RECONCILE_CMD="${1#*=}"
+      shift
+      ;;
+    --wait-timeout=*)
+      ROTATE_WAIT_TIMEOUT="${1#*=}"
+      shift
+      ;;
+    --ca-file=*)
+      ROTATE_CA_FILE="${1#*=}"
       shift
       ;;
     -h | --help)
@@ -1534,6 +1584,320 @@ PY
 }
 
 # ---------------------------------------------------------------------------
+# Subcommand: rotate (optional Day-2 key rotation grace & revocation verifier)
+# ---------------------------------------------------------------------------
+ROTATE_PF_PID=""
+cleanup_rotate_pf() {
+  if [[ -n "${ROTATE_PF_PID}" ]]; then
+    kill "${ROTATE_PF_PID}" 2>/dev/null || true
+    wait "${ROTATE_PF_PID}" 2>/dev/null || true
+    ROTATE_PF_PID=""
+  fi
+}
+
+run_rotate_probe_json() {
+  local app_name="$1"
+  local connect_host="$2"
+  local connect_port="$3"
+  local ca_file="$4"
+  local phase="$5"
+  local grace_sec="$6"
+  python3 "${CP_CHECK_PY}" rotate-probe \
+    --project="${PROJECT_ID}" \
+    --apigee-org="${APIGEE_ORG}" \
+    --app-name="${app_name}" \
+    --gateway-fqdn="${GATEWAY_FQDN}" \
+    --connect-host="${connect_host}" \
+    --connect-port="${connect_port}" \
+    --ca-file="${ca_file}" \
+    --phase="${phase}" \
+    --grace-seconds="${grace_sec}"
+}
+
+record_rotate_phase_checks() {
+  local probe_json="$1"
+  local new_key_id="${2:-ROTATE-NEW-KEY}"
+  local parsed cid status detail
+  parsed="$(python3 - "${probe_json}" "${new_key_id}" <<'PY'
+import json, sys
+d = json.loads(sys.argv[1])
+new_key_id = sys.argv[2]
+phase = d.get("effective_phase")
+kv = d.get("key_version")
+approved = d.get("approved_count", 0)
+revoked = d.get("revoked_count", 0)
+act = d.get("active_key") or {}
+act_p = d.get("active_probe") or {}
+prev_a = d.get("previous_approved_key") or {}
+prev_ap = d.get("previous_approved_probe") or {}
+prev_r = d.get("previous_revoked_key") or {}
+prev_rp = d.get("previous_revoked_probe") or {}
+
+def emit(cid, st, msg):
+    print(f"{cid}\t{st}\t{msg.replace(chr(9), ' ').replace(chr(10), ' ')}")
+
+if phase == "grace":
+    cp_ok = approved == 2 and bool(prev_a) and prev_a.get("rotated_out_at", 0) > 0
+    cp_msg = f"key_version={kv} approved={approved} revoked={revoked} n1_sha={prev_a.get('key_sha256')} elapsed={prev_a.get('elapsed_seconds')}s"
+    if not cp_ok and d.get("errors"):
+        cp_msg += f" | errors={'; '.join(d['errors'])}"
+    emit("ROTATE-CP-GRACE", "PASS" if cp_ok else "FAIL", cp_msg)
+    old_ok = prev_ap.get("status") == 200
+    emit(
+        "ROTATE-OLD-GRACE",
+        "PASS" if old_ok else "FAIL",
+        f"N-1 key (sha256={prev_a.get('key_sha256')}) GET /gateway-catalog/status -> HTTP {prev_ap.get('status')} (expected 200 during grace; fault={prev_ap.get('fault_code') or '-'} err={prev_ap.get('error') or '-'})",
+    )
+elif phase == "revoked":
+    cp_ok = approved == 1 and revoked >= 1 and bool(prev_r)
+    cp_msg = f"key_version={kv} approved={approved} revoked={revoked} n1_sha={prev_r.get('key_sha256')}"
+    if not cp_ok and d.get("errors"):
+        cp_msg += f" | errors={'; '.join(d['errors'])}"
+    emit("ROTATE-CP-REVOKED", "PASS" if cp_ok else "FAIL", cp_msg)
+    old_ok = prev_rp.get("status") == 401
+    emit(
+        "ROTATE-OLD-REVOKED",
+        "PASS" if old_ok else "FAIL",
+        f"Revoked N-1 key (sha256={prev_r.get('key_sha256')}) GET /gateway-catalog/status -> HTTP {prev_rp.get('status')} (expected 401; fault={prev_rp.get('fault_code') or '-'} err={prev_rp.get('error') or '-'})",
+    )
+elif phase == "deleted":
+    cp_ok = approved == 1 and revoked == 0
+    emit("ROTATE-CP-CLEAN", "PASS" if cp_ok else "FAIL", f"key_version={kv} approved={approved} revoked={revoked}")
+else:
+    emit("ROTATE-CP-STATE", "FAIL", "; ".join(d.get("errors") or ["Unexpected key state"]))
+
+new_ok = bool(act) and act_p.get("status") == 200
+emit(
+    new_key_id,
+    "PASS" if new_ok else "FAIL",
+    f"Active N key (sha256={act.get('key_sha256')}) GET /gateway-catalog/status -> HTTP {act_p.get('status')} (expected 200; err={act_p.get('error') or '-'})",
+)
+PY
+)"
+  while IFS=$'\t' read -r cid status detail; do
+    [[ -n "${cid}" ]] && record_result "${cid}" "Day-2 Rotate" "${status}" "${detail}"
+  done <<< "${parsed}"
+}
+
+run_rotate() {
+  local app_name="${ROTATE_APP_NAME}"
+  if [[ -z "${app_name}" ]]; then
+    case "${ROTATE_AGENT}" in
+      adk-ops-orchestrator) app_name="ops-orchestrator-app" ;;
+      adk-sovereign-agent) app_name="sovereign-agents-app" ;;
+      *)
+        echo "ERROR: Unknown agent '${ROTATE_AGENT}'; pass --app-name=<apigee-app>." >&2
+        exit 2
+        ;;
+    esac
+  fi
+
+  case "${ROTATE_PHASE}" in
+    auto | grace | revoked | full | deleted) ;;
+    *)
+      echo "ERROR: Invalid --phase '${ROTATE_PHASE}' (expected auto|grace|revoked|full|deleted)." >&2
+      exit 2
+      ;;
+  esac
+
+  local ca_file="${ROTATE_CA_FILE}"
+  if [[ -z "${ca_file}" && -n "${SOLUTION_HOME}" ]]; then
+    ca_file="${SOLUTION_HOME}/hybrid-agents-root-ca.crt"
+  fi
+  if [[ -z "${ca_file}" || ! -f "${ca_file}" ]]; then
+    record_result "ROTATE-CA" "Day-2 Rotate" "FAIL" "Missing CA file '${ca_file}' (set SOLUTION_HOME or pass --ca-file)"
+    return 0
+  fi
+
+  echo "=== Running Day-2 key rotation checks (agent=${ROTATE_AGENT}, app=${app_name}, phase=${ROTATE_PHASE}) ==="
+
+  # Resolve HTTPS connectivity to Apigee ingress (direct VIP/FQDN or Connect Gateway port-forward)
+  local direct_host="${APIGEE_INGRESS_VIP:-${GATEWAY_FQDN}}"
+  local connect_host=""
+  local connect_port=443
+  if python3 - "${direct_host}" <<'PY' 2>/dev/null
+import socket, sys
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(2.0)
+try:
+    s.connect((sys.argv[1], 443))
+finally:
+    s.close()
+PY
+  then
+    connect_host="${direct_host}"
+    connect_port=443
+  else
+    local ig_svc local_port
+    ig_svc="$(kubectl_ctx "${CTX_GATEWAY}" -n apigee get svc -l app=apigee-ingressgateway,ingress_name=hybrid-agents-ig -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+    if [[ -z "${ig_svc}" ]]; then
+      ig_svc="$(kubectl_ctx "${CTX_GATEWAY}" -n apigee get svc -l app=apigee-ingressgateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+    fi
+    if [[ -z "${ig_svc}" ]]; then
+      record_result "ROTATE-CONNECT" "Day-2 Rotate" "FAIL" "Cannot reach ${direct_host}:443 directly and no apigee-ingressgateway Service found in ${CTX_GATEWAY}/apigee"
+      return 0
+    fi
+    local_port="$(python3 - <<'PY'
+import socket
+for port in range(18443, 18543):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind(("127.0.0.1", port))
+        print(port)
+        break
+    except OSError:
+        continue
+    finally:
+        sock.close()
+PY
+)"
+    trap cleanup_rotate_pf EXIT
+    kubectl_ctx "${CTX_GATEWAY}" -n apigee port-forward "svc/${ig_svc}" "${local_port}:443" >/dev/null 2>&1 &
+    ROTATE_PF_PID="$!"
+    local ready="false"
+    for _ in $(seq 1 30); do
+      if python3 - "${local_port}" <<'PY' 2>/dev/null
+import socket, sys
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(0.5)
+try:
+    s.connect(("127.0.0.1", int(sys.argv[1])))
+finally:
+    s.close()
+PY
+      then
+        ready="true"
+        break
+      fi
+      sleep 0.5
+    done
+    if [[ "${ready}" != "true" ]]; then
+      cleanup_rotate_pf
+      record_result "ROTATE-CONNECT" "Day-2 Rotate" "FAIL" "Port-forward to svc/${ig_svc}:443 in ${CTX_GATEWAY}/apigee did not become ready"
+      return 0
+    fi
+    connect_host="127.0.0.1"
+    connect_port="${local_port}"
+    echo "--- Using Connect Gateway port-forward to apigee/${ig_svc} on 127.0.0.1:${connect_port} (SNI=${GATEWAY_FQDN}) ---"
+  fi
+
+  local probe_out=""
+  if [[ "${ROTATE_PHASE}" == "full" ]]; then
+    # Phase A: verify N-1 works during grace (when grace > 0), or skip if already revoked (grace == 0)
+    probe_out="$(run_rotate_probe_json "${app_name}" "${connect_host}" "${connect_port}" "${ca_file}" "auto" "${ROTATE_GRACE_SECONDS}" 2>&1 || true)"
+    local det_phase=""
+    det_phase="$(python3 - "${probe_out}" <<'PY' 2>/dev/null || true
+import json, sys
+print(json.loads(sys.argv[1]).get("effective_phase", ""))
+PY
+)"
+    if [[ "${det_phase}" == "grace" ]]; then
+      record_rotate_phase_checks "${probe_out}" "ROTATE-NEW-KEY"
+      # Wait until grace elapses, run optional --reconcile-cmd, and poll until N-1 becomes revoked
+      local deadline now_ts elapsed_s sleep_s reconciled="false"
+      deadline=$(( $(date +%s) + ROTATE_WAIT_TIMEOUT ))
+      while true; do
+        now_ts="$(date +%s)"
+        probe_out="$(run_rotate_probe_json "${app_name}" "${connect_host}" "${connect_port}" "${ca_file}" "auto" "-1" 2>&1 || true)"
+        det_phase="$(python3 - "${probe_out}" <<'PY' 2>/dev/null || true
+import json, sys
+print(json.loads(sys.argv[1]).get("effective_phase", ""))
+PY
+)"
+        if [[ "${det_phase}" == "revoked" ]]; then
+          break
+        fi
+        elapsed_s="$(python3 - "${probe_out}" <<'PY' 2>/dev/null || echo "-1"
+import json, sys
+d = json.loads(sys.argv[1])
+print((d.get("previous_approved_key") or {}).get("elapsed_seconds", -1))
+PY
+)"
+        if [[ -n "${ROTATE_RECONCILE_CMD}" && "${reconciled}" == "false" && "${ROTATE_GRACE_SECONDS}" -ge 0 && "${elapsed_s}" -ge "${ROTATE_GRACE_SECONDS}" ]]; then
+          echo "--- Grace elapsed (${elapsed_s}s >= ${ROTATE_GRACE_SECONDS}s); running --reconcile-cmd ---"
+          if bash -c "${ROTATE_RECONCILE_CMD}"; then
+            reconciled="true"
+            continue
+          else
+            record_result "ROTATE-RECONCILE" "Day-2 Rotate" "FAIL" "--reconcile-cmd exited non-zero"
+            break
+          fi
+        fi
+        if [[ "${now_ts}" -ge "${deadline}" ]]; then
+          record_result "ROTATE-WAIT" "Day-2 Rotate" "FAIL" "Timed out after ${ROTATE_WAIT_TIMEOUT}s waiting for N-1 revocation (phase=${det_phase}, elapsed=${elapsed_s}s)"
+          break
+        fi
+        sleep_s=10
+        if [[ "${ROTATE_GRACE_SECONDS}" -gt 0 && "${elapsed_s}" -ge 0 && "${elapsed_s}" -lt "${ROTATE_GRACE_SECONDS}" ]]; then
+          local rem=$((ROTATE_GRACE_SECONDS - elapsed_s + 2))
+          if [[ "${rem}" -lt "${sleep_s}" ]]; then
+            sleep_s="${rem}"
+          fi
+        fi
+        echo "--- Waiting ${sleep_s}s for N-1 grace expiry/revocation (elapsed=${elapsed_s}s, phase=${det_phase}) ---"
+        sleep "${sleep_s}"
+      done
+    elif [[ "${det_phase}" == "revoked" ]]; then
+      record_result "ROTATE-OLD-GRACE" "Day-2 Rotate" "SKIP" "N-1 key is already revoked (grace=0 or grace already elapsed)"
+    elif [[ -n "${det_phase}" ]]; then
+      record_rotate_phase_checks "${probe_out}" "ROTATE-NEW-KEY"
+      cleanup_rotate_pf
+      return 0
+    else
+      record_result "ROTATE-PROBE" "Day-2 Rotate" "FAIL" "${probe_out:0:240}"
+      cleanup_rotate_pf
+      return 0
+    fi
+
+    # Phase B: verify revoked N-1 returns HTTP 401 and active N returns HTTP 200
+    probe_out="$(run_rotate_probe_json "${app_name}" "${connect_host}" "${connect_port}" "${ca_file}" "revoked" "-1" 2>&1 || true)"
+    record_rotate_phase_checks "${probe_out}" "ROTATE-NEW-KEY-POST"
+  else
+    probe_out="$(run_rotate_probe_json "${app_name}" "${connect_host}" "${connect_port}" "${ca_file}" "${ROTATE_PHASE}" "${ROTATE_GRACE_SECONDS}" 2>&1 || true)"
+    if python3 - "${probe_out}" <<'PY' 2>/dev/null
+import json, sys
+json.loads(sys.argv[1])
+PY
+    then
+      record_rotate_phase_checks "${probe_out}" "ROTATE-NEW-KEY"
+    else
+      record_result "ROTATE-PROBE" "Day-2 Rotate" "FAIL" "${probe_out:0:240}"
+    fi
+  fi
+
+  # Confirm Envoy SDS egress path works with 0 restarts
+  local envoy_call_out envoy_restarts
+  envoy_call_out="$(agent_call "${ROTATE_AGENT}" --method=GET gateway /gateway-catalog/status - 2>&1 || true)"
+  envoy_restarts="$(python3 - "${CTX_AGENTS}" "${KUBECTL_CACHE_DIR}" <<'PY' 2>/dev/null || echo "-1"
+import json, subprocess, sys
+ctx, kcache = sys.argv[1], sys.argv[2]
+cmd = ["kubectl"] + ([f"--cache-dir={kcache}"] if kcache else []) + [
+    f"--context={ctx}", "-n", "agent-workloads", "get", "pods",
+    "-l", "app.kubernetes.io/component=agent-egress-proxy", "-o", "json",
+]
+items = json.loads(subprocess.check_output(cmd, text=True)).get("items", [])
+print(sum(cs.get("restartCount", 0) for p in items for cs in (p.get("status", {}).get("containerStatuses") or [])))
+PY
+)"
+  local envoy_detail=""
+  if envoy_detail="$(python3 - "${envoy_call_out}" "${envoy_restarts}" <<'PY'
+import json, sys
+d = json.loads(sys.argv[1])
+restarts = int(sys.argv[2])
+ok = d.get("status") == 200 and restarts == 0
+print(f"agent_call /gateway-catalog/status -> HTTP {d.get('status')} envoy_restarts={restarts}")
+raise SystemExit(0 if ok else 1)
+PY
+)"; then
+    record_result "ROTATE-ENVOY-OK" "Day-2 Rotate" "PASS" "${envoy_detail}"
+  else
+    record_result "ROTATE-ENVOY-OK" "Day-2 Rotate" "FAIL" "${envoy_detail:-${envoy_call_out:0:200}}"
+  fi
+
+  cleanup_rotate_pf
+}
+
+# ---------------------------------------------------------------------------
 # Subcommand: status (read-only snapshot, zero traffic)
 # ---------------------------------------------------------------------------
 run_status() {
@@ -1547,6 +1911,7 @@ case "${SUBCOMMAND}" in
   step2) run_step2 ;;
   step3) run_step3 ;;
   step4) run_step4 ;;
+  rotate) run_rotate ;;
   status) run_status ;;
 esac
 
