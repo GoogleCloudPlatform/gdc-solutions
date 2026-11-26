@@ -138,8 +138,24 @@ if registry_agents_dir.is_dir():
         "volume_name": str(egress.get("volumeName") or f"{name}-apigee-key"),
     })
 
-# Sort deterministically by egress port ascending
+# Sort deterministically by egress port ascending and fail fast on conflicts
 agents.sort(key=lambda a: (a["port"], a["name"]))
+seen_ports: dict[int, str] = {}
+seen_prefixes: dict[str, str] = {}
+for a in agents:
+  if a["port"] in seen_ports:
+    raise RuntimeError(
+        f"Duplicate egressProxy.port {a['port']} assigned to both "
+        f"'{seen_ports[a['port']]}' and '{a['name']}'"
+    )
+  seen_ports[a["port"]] = a["name"]
+  norm_pref = "/" + a["path_prefix"].strip("/")
+  if norm_pref in seen_prefixes:
+    raise RuntimeError(
+        f"Duplicate ingressProxy.pathPrefix '{norm_pref}' assigned to both "
+        f"'{seen_prefixes[norm_pref]}' and '{a['name']}'"
+    )
+  seen_prefixes[norm_pref] = a["name"]
 active_names = {a["name"] for a in agents}
 
 
@@ -372,6 +388,11 @@ def _build_ingress_envoy_yaml(active_agents: list[dict]) -> str:
       key=lambda a: (-len(a["path_prefix"]), a["name"]),
   )
   root_agents = [a for a in active_agents if a["path_prefix"].strip("/") == ""]
+  if len(root_agents) > 1:
+    names = ", ".join(a["name"] for a in root_agents)
+    raise RuntimeError(
+        f"Multiple active agents declare ingressProxy.pathPrefix '/': {names}"
+    )
   route_blocks = []
   for ag in non_root:
     pref = "/" + ag["path_prefix"].strip("/")
@@ -806,7 +827,7 @@ ingress_np_patch = [
         "op": "add",
         "path": "/spec/egress/-",
         "value": {
-            "ports": [{"port": 8080, "protocol": "TCP"}],
+            "ports": [{"port": a["service_port"], "protocol": "TCP"}],
             "to": [
                 {
                     "namespaceSelector": {
@@ -820,10 +841,10 @@ ingress_np_patch = [
                         }
                     },
                 }
-                for a in agents
             ],
         },
     }
+    for a in agents
 ]
 
 # Keep keys alphabetically sorted in kustomization.yaml

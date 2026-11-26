@@ -37,7 +37,10 @@ spec:
             matchLabels:
               app.kubernetes.io/component: otel-collector
   ingress:
-    - ports:
+    - from:
+        - ipBlock:
+            cidr: YOUR_GATEWAY_NODE_CIDR
+      ports:
         - port: 8443
           protocol: TCP
     - from:

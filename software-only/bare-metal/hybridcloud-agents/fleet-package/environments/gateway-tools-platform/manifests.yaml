@@ -16,6 +16,8 @@
 apiVersion: v1
 kind: Namespace
 metadata:
+  annotations:
+    client.lifecycle.config.k8s.io/deletion: detach
   labels:
     app.kubernetes.io/part-of: hybrid-cloud-agents
     pod-security.kubernetes.io/audit: restricted
@@ -26,12 +28,24 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
+  annotations:
+    client.lifecycle.config.k8s.io/deletion: detach
   labels:
     app.kubernetes.io/part-of: hybrid-cloud-agents
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
   name: otel-system
+---
+apiVersion: v1
+automountServiceAccountToken: false
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/component: external-secrets-auth
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: eso-mcp-tools-sa
+  namespace: mcp-tools
 ---
 apiVersion: v1
 automountServiceAccountToken: false
@@ -54,74 +68,6 @@ metadata:
     app.kubernetes.io/part-of: hybrid-cloud-agents
   name: otel-collector-sa
   namespace: otel-system
----
-apiVersion: v1
-data:
-  tools.yaml: |
-    kind: source
-    name: sovereign-pgvector
-    type: postgres
-    host: YOUR_PGVECTOR_HOST
-    port: "5432"
-    database: ${PG_DATABASE}
-    user: ${PG_USER}
-    password: ${PG_PASSWORD}
-    queryParams:
-      sslmode: verify-full
-      sslrootcert: /etc/toolbox/tls/ca.crt
-    ---
-    kind: tool
-    name: search_sovereign_policies_by_category
-    type: postgres-sql
-    source: sovereign-pgvector
-    description: >-
-      Retrieve synthetic sovereign enterprise compliance policies matching a category
-      (for example: residency, network, identity, observability, or burst).
-    parameters:
-      - name: category
-        type: string
-        description: Policy category filter (e.g., residency, network, identity, observability, burst).
-    statement: >-
-      SELECT policy_id, category, data_classification, title, summary
-      FROM sovereign_compliance_policies
-      WHERE category = $1
-      ORDER BY policy_id
-      LIMIT 10;
-    ---
-    kind: tool
-    name: semantic_search_sovereign_policies
-    type: postgres-sql
-    source: sovereign-pgvector
-    description: >-
-      Perform pgvector cosine-distance semantic search over synthetic sovereign compliance
-      policies given an 8-dimensional embedding vector literal (e.g., '[0.9,0.1,0.05,0.1,0.1,0.05,0.05,0.2]').
-    parameters:
-      - name: query_embedding
-        type: string
-        description: Bracketed 8-float pgvector literal, e.g. '[0.9,0.1,0.05,0.1,0.1,0.05,0.05,0.2]'.
-      - name: top_k
-        type: integer
-        description: Maximum number of nearest-neighbor policies to return (1 to 5).
-    statement: >-
-      SELECT policy_id, category, data_classification, title, summary,
-             ROUND((1 - (embedding <=> CAST($1 AS vector)))::numeric, 4) AS cosine_similarity
-      FROM sovereign_compliance_policies
-      ORDER BY embedding <=> CAST($1 AS vector)
-      LIMIT $2;
-    ---
-    kind: toolset
-    name: sovereign_governance_tools
-    tools:
-      - search_sovereign_policies_by_category
-      - semantic_search_sovereign_policies
-kind: ConfigMap
-metadata:
-  labels:
-    app.kubernetes.io/component: mcp-toolbox
-    app.kubernetes.io/name: mcp-toolbox
-    app.kubernetes.io/part-of: hybrid-cloud-agents
-  name: mcp-toolbox-config
-  namespace: mcp-tools
 ---
 apiVersion: v1
 data:
@@ -234,10 +180,10 @@ metadata:
   namespace: mcp-tools
 spec:
   ports:
-    - name: https-mcp
-      port: 8443
-      protocol: TCP
-      targetPort: https-mcp
+  - name: https-mcp
+    port: 8443
+    protocol: TCP
+    targetPort: https-mcp
   selector:
     app.kubernetes.io/component: mcp-toolbox
     app.kubernetes.io/name: mcp-toolbox
@@ -254,14 +200,14 @@ metadata:
   namespace: otel-system
 spec:
   ports:
-    - name: otlp-grpc
-      port: 4317
-      protocol: TCP
-      targetPort: otlp-grpc
-    - name: otlp-http
-      port: 4318
-      protocol: TCP
-      targetPort: otlp-http
+  - name: otlp-grpc
+    port: 4317
+    protocol: TCP
+    targetPort: otlp-grpc
+  - name: otlp-http
+    port: 4318
+    protocol: TCP
+    targetPort: otlp-http
   selector:
     app.kubernetes.io/component: otel-collector
     app.kubernetes.io/name: otel-collector
@@ -291,76 +237,58 @@ spec:
     spec:
       automountServiceAccountToken: false
       containers:
-        - args:
-            - --address
-            - 0.0.0.0
-            - --port
-            - "8443"
-            - --config
-            - /etc/toolbox/config/tools.yaml
-            - --tls-cert
-            - /etc/toolbox/tls/tls.crt
-            - --tls-key
-            - /etc/toolbox/tls/tls.key
-            - --disable-version-check
-            - --logging-format
-            - JSON
-          env:
-            - name: PG_HOST
-              value: YOUR_PGVECTOR_HOST
-            - name: PG_DATABASE
-              valueFrom:
-                secretKeyRef:
-                  key: PG_DATABASE
-                  name: pgvector-db-creds
-            - name: PG_USER
-              valueFrom:
-                secretKeyRef:
-                  key: PG_USER
-                  name: pgvector-db-creds
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  key: PG_PASSWORD
-                  name: pgvector-db-creds
-          image: us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:1.15.0@sha256:7e4f7bfd93ccec33c066563a4ca700572e4ce95a8d45ba18577df8ee50b9481a
-          livenessProbe:
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            tcpSocket:
-              port: https-mcp
-          name: toolbox
-          ports:
-            - containerPort: 8443
-              name: https-mcp
-              protocol: TCP
-          readinessProbe:
-            initialDelaySeconds: 3
-            periodSeconds: 5
-            tcpSocket:
-              port: https-mcp
-          resources:
-            limits:
-              cpu: 500m
-              memory: 512Mi
-            requests:
-              cpu: 100m
-              memory: 128Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-            readOnlyRootFilesystem: true
-          volumeMounts:
-            - mountPath: /etc/toolbox/config
-              name: config
-              readOnly: true
-            - mountPath: /etc/toolbox/tls
-              name: tls
-              readOnly: true
-            - mountPath: /tmp
-              name: tmp
+      - args:
+        - --address
+        - 0.0.0.0
+        - --port
+        - "8443"
+        - --config
+        - /etc/toolbox/config/tools.yaml
+        - --tls-cert
+        - /etc/toolbox/tls/tls.crt
+        - --tls-key
+        - /etc/toolbox/tls/tls.key
+        - --disable-version-check
+        - --logging-format
+        - JSON
+        image: us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:1.15.0@sha256:7e4f7bfd93ccec33c066563a4ca700572e4ce95a8d45ba18577df8ee50b9481a
+        livenessProbe:
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          tcpSocket:
+            port: https-mcp
+        name: toolbox
+        ports:
+        - containerPort: 8443
+          name: https-mcp
+          protocol: TCP
+        readinessProbe:
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          tcpSocket:
+            port: https-mcp
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /etc/toolbox/config
+          name: config
+          readOnly: true
+        - mountPath: /etc/toolbox/tls
+          name: tls
+          readOnly: true
+        - mountPath: /tmp
+          name: tmp
       securityContext:
         fsGroup: 65532
         runAsGroup: 65532
@@ -370,17 +298,21 @@ spec:
           type: RuntimeDefault
       serviceAccountName: mcp-toolbox-sa
       volumes:
-        - configMap:
-            name: mcp-toolbox-config
-          name: config
-        - name: tls
-          secret:
-            defaultMode: 288
-            secretName: mcp-toolbox-tls
-        - emptyDir:
-            medium: Memory
-            sizeLimit: 16Mi
-          name: tmp
+      - name: config
+        secret:
+          defaultMode: 288
+          items:
+          - key: tools.yaml
+            path: tools.yaml
+          secretName: pgvector-db-creds
+      - name: tls
+        secret:
+          defaultMode: 288
+          secretName: mcp-toolbox-tls
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Mi
+        name: tmp
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -406,54 +338,54 @@ spec:
     spec:
       automountServiceAccountToken: false
       containers:
-        - env:
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-            - name: GOOGLE_APPLICATION_CREDENTIALS
-              value: /var/run/secrets/tokens/gcp-ksa/federated-credentials.json
-          image: us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google:0.147.0@sha256:8599e3a4101a67fff5c98ae6aea68c722d73366475a05624755a568c0e5d9278
-          livenessProbe:
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            tcpSocket:
-              port: otlp-grpc
-          name: otel-collector
-          ports:
-            - containerPort: 4317
-              name: otlp-grpc
-              protocol: TCP
-            - containerPort: 4318
-              name: otlp-http
-              protocol: TCP
-          readinessProbe:
-            initialDelaySeconds: 3
-            periodSeconds: 5
-            tcpSocket:
-              port: otlp-grpc
-          resources:
-            limits:
-              cpu: 500m
-              memory: 512Mi
-            requests:
-              cpu: 100m
-              memory: 256Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-            readOnlyRootFilesystem: true
-          volumeMounts:
-            - mountPath: /etc/otelcol-google
-              name: config
-              readOnly: true
-            - mountPath: /var/run/secrets/tokens/gcp-ksa
-              name: gcp-ksa
-              readOnly: true
-            - mountPath: /tmp
-              name: tmp
+      - env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /var/run/secrets/tokens/gcp-ksa/federated-credentials.json
+        image: us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google:0.147.0@sha256:8599e3a4101a67fff5c98ae6aea68c722d73366475a05624755a568c0e5d9278
+        livenessProbe:
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          tcpSocket:
+            port: otlp-grpc
+        name: otel-collector
+        ports:
+        - containerPort: 4317
+          name: otlp-grpc
+          protocol: TCP
+        - containerPort: 4318
+          name: otlp-http
+          protocol: TCP
+        readinessProbe:
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          tcpSocket:
+            port: otlp-grpc
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /etc/otelcol-google
+          name: config
+          readOnly: true
+        - mountPath: /var/run/secrets/tokens/gcp-ksa
+          name: gcp-ksa
+          readOnly: true
+        - mountPath: /tmp
+          name: tmp
       securityContext:
         fsGroup: 10001
         runAsGroup: 10001
@@ -463,26 +395,26 @@ spec:
           type: RuntimeDefault
       serviceAccountName: otel-collector-sa
       volumes:
-        - configMap:
-            name: otel-collector-config
-          name: config
-        - name: gcp-ksa
-          projected:
-            defaultMode: 288
-            sources:
-              - serviceAccountToken:
-                  audience: YOUR_PROJECT_ID.svc.id.goog
-                  expirationSeconds: 3600
-                  path: token
-              - configMap:
-                  items:
-                    - key: federated-credentials.json
-                      path: federated-credentials.json
-                  name: otel-fleet-wif-config
-        - emptyDir:
-            medium: Memory
-            sizeLimit: 16Mi
-          name: tmp
+      - configMap:
+          name: otel-collector-config
+        name: config
+      - name: gcp-ksa
+        projected:
+          defaultMode: 288
+          sources:
+          - serviceAccountToken:
+              audience: YOUR_PROJECT_ID.svc.id.goog
+              expirationSeconds: 3600
+              path: token
+          - configMap:
+              items:
+              - key: federated-credentials.json
+                path: federated-credentials.json
+              name: otel-fleet-wif-config
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Mi
+        name: tmp
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -508,9 +440,9 @@ metadata:
 spec:
   commonName: mcp-toolbox.mcp-tools.svc.cluster.local
   dnsNames:
-    - mcp-toolbox.mcp-tools.svc.cluster.local
-    - mcp-toolbox.mcp-tools
-    - mcp-toolbox
+  - mcp-toolbox.mcp-tools.svc.cluster.local
+  - mcp-toolbox.mcp-tools
+  - mcp-toolbox
   duration: 2160h
   issuerRef:
     group: cert-manager.io
@@ -523,9 +455,9 @@ spec:
   renewBefore: 360h
   secretName: mcp-toolbox-tls
   usages:
-    - server auth
-    - digital signature
-    - key encipherment
+  - server auth
+  - digital signature
+  - key encipherment
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -536,25 +468,104 @@ metadata:
   namespace: mcp-tools
 spec:
   data:
-    - remoteRef:
-        key: hybrid-agents-pgvector-creds
-        property: PG_DATABASE
-      secretKey: PG_DATABASE
-    - remoteRef:
-        key: hybrid-agents-pgvector-creds
-        property: PG_USER
-      secretKey: PG_USER
-    - remoteRef:
-        key: hybrid-agents-pgvector-creds
-        property: PG_PASSWORD
-      secretKey: PG_PASSWORD
+  - remoteRef:
+      key: hybrid-agents-pgvector-creds
+      property: PG_DATABASE
+    secretKey: PG_DATABASE
+  - remoteRef:
+      key: hybrid-agents-pgvector-creds
+      property: PG_USER
+    secretKey: PG_USER
+  - remoteRef:
+      key: hybrid-agents-pgvector-creds
+      property: PG_PASSWORD
+    secretKey: PG_PASSWORD
   refreshInterval: 1h
   secretStoreRef:
-    kind: ClusterSecretStore
+    kind: SecretStore
     name: gcp-secret-manager
   target:
     creationPolicy: Owner
     name: pgvector-db-creds
+    template:
+      data:
+        tools.yaml: |
+          kind: source
+          name: sovereign-pgvector
+          type: postgres
+          host: YOUR_PGVECTOR_HOST
+          port: "5432"
+          database: {{ .PG_DATABASE | toJson }}
+          user: {{ .PG_USER | toJson }}
+          password: {{ .PG_PASSWORD | toJson }}
+          queryParams:
+            sslmode: verify-full
+            sslrootcert: /etc/toolbox/tls/ca.crt
+          ---
+          kind: tool
+          name: search_sovereign_policies_by_category
+          type: postgres-sql
+          source: sovereign-pgvector
+          description: >-
+            Retrieve synthetic sovereign enterprise compliance policies matching a category
+            (for example: residency, network, identity, observability, or burst).
+          parameters:
+            - name: category
+              type: string
+              description: Policy category filter (e.g., residency, network, identity, observability, or burst).
+          statement: >-
+            SELECT policy_id, category, data_classification, title, summary
+            FROM sovereign_compliance_policies
+            WHERE category = $1
+            ORDER BY policy_id
+            LIMIT 10;
+          ---
+          kind: tool
+          name: semantic_search_sovereign_policies
+          type: postgres-sql
+          source: sovereign-pgvector
+          description: >-
+            Perform pgvector cosine-distance semantic search over synthetic sovereign compliance
+            policies given an 8-dimensional embedding vector literal (e.g., '[0.9,0.1,0.05,0.1,0.1,0.05,0.05,0.2]').
+          parameters:
+            - name: query_embedding
+              type: string
+              description: Bracketed 8-float pgvector literal, e.g. '[0.9,0.1,0.05,0.1,0.1,0.05,0.05,0.2]'.
+            - name: top_k
+              type: integer
+              description: Maximum number of nearest-neighbor policies to return (1 to 5).
+          statement: >-
+            SELECT policy_id, category, data_classification, title, summary,
+                   ROUND((1 - (embedding <=> CAST($1 AS vector)))::numeric, 4) AS cosine_similarity
+            FROM sovereign_compliance_policies
+            ORDER BY embedding <=> CAST($1 AS vector)
+            LIMIT $2;
+          ---
+          kind: toolset
+          name: sovereign_governance_tools
+          tools:
+            - search_sovereign_policies_by_category
+            - semantic_search_sovereign_policies
+      engineVersion: v2
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  labels:
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: gcp-secret-manager
+  namespace: mcp-tools
+spec:
+  provider:
+    gcpsm:
+      auth:
+        workloadIdentityFederation:
+          audience: identitynamespace:YOUR_PROJECT_ID.svc.id.goog:https://gkehub.googleapis.com/projects/YOUR_PROJECT_ID/locations/global/memberships/YOUR_GATEWAY_CLUSTER_NAME
+          serviceAccountRef:
+            audiences:
+            - YOUR_PROJECT_ID.svc.id.goog
+            name: eso-mcp-tools-sa
+      projectID: YOUR_PROJECT_ID
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -565,21 +576,21 @@ metadata:
   namespace: mcp-tools
 spec:
   egress:
-    - ports:
-        - port: 53
-          protocol: UDP
-        - port: 53
-          protocol: TCP
-      to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
+  - ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+    to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
   podSelector: {}
   policyTypes:
-    - Egress
+  - Egress
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -590,39 +601,39 @@ metadata:
   namespace: mcp-tools
 spec:
   egress:
-    - ports:
-        - port: 5432
-          protocol: TCP
-      to:
-        - ipBlock:
-            cidr: YOUR_DATA_SYSTEMS_CIDR
-    - ports:
-        - port: 4317
-          protocol: TCP
-        - port: 4318
-          protocol: TCP
-      to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: otel-system
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/component: otel-collector
+  - ports:
+    - port: 5432
+      protocol: TCP
+    to:
+    - ipBlock:
+        cidr: YOUR_DATA_SYSTEMS_CIDR
+  - ports:
+    - port: 4317
+      protocol: TCP
+    - port: 4318
+      protocol: TCP
+    to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: otel-system
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: otel-collector
   ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: apigee
-      ports:
-        - port: 8443
-          protocol: TCP
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: apigee
+    ports:
+    - port: 8443
+      protocol: TCP
   podSelector:
     matchLabels:
       app.kubernetes.io/component: mcp-toolbox
       app.kubernetes.io/name: mcp-toolbox
   policyTypes:
-    - Ingress
-    - Egress
+  - Ingress
+  - Egress
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -634,8 +645,8 @@ metadata:
 spec:
   podSelector: {}
   policyTypes:
-    - Ingress
-    - Egress
+  - Ingress
+  - Egress
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -646,21 +657,21 @@ metadata:
   namespace: otel-system
 spec:
   egress:
-    - ports:
-        - port: 53
-          protocol: UDP
-        - port: 53
-          protocol: TCP
-      to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
+  - ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+    to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
   podSelector: {}
   policyTypes:
-    - Egress
+  - Egress
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -671,32 +682,32 @@ metadata:
   namespace: otel-system
 spec:
   egress:
-    - ports:
-        - port: 443
-          protocol: TCP
+  - ports:
+    - port: 443
+      protocol: TCP
   ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: mcp-tools
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: apigee
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: otel-system
-      ports:
-        - port: 4317
-          protocol: TCP
-        - port: 4318
-          protocol: TCP
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: mcp-tools
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: apigee
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: otel-system
+    ports:
+    - port: 4317
+      protocol: TCP
+    - port: 4318
+      protocol: TCP
   podSelector:
     matchLabels:
       app.kubernetes.io/component: otel-collector
       app.kubernetes.io/name: otel-collector
   policyTypes:
-    - Ingress
-    - Egress
+  - Ingress
+  - Egress
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -708,5 +719,5 @@ metadata:
 spec:
   podSelector: {}
   policyTypes:
-    - Ingress
-    - Egress
+  - Ingress
+  - Egress

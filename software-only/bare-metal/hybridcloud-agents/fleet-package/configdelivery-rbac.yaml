@@ -13,11 +13,43 @@
 # limitations under the License.
 
 # Least-privilege RBAC for the Google Cloud Config Delivery service agent on
-# each target cluster. Config Delivery only manages RootSync objects in the
-# config-management-system namespace, so a namespace-scoped Role and
-# RoleBinding is sufficient; do not bind the service agent to cluster-admin.
-# Apply on each target cluster before creating the FleetPackage:
-#   kubectl apply -f fleet-package/configdelivery-rbac.yaml
+# each target cluster:
+#   1. A namespace-scoped Role and RoleBinding in config-management-system so
+#      Config Delivery can manage RootSync objects without cluster-admin.
+#   2. A scoped ClusterRole and ClusterRoleBinding granting connect-agent-sa
+#      (namespace: gke-connect) permission to impersonate only the project's
+#      Config Delivery service agent over Connect Gateway, per:
+#      https://docs.cloud.google.com/distributed-cloud/connected/latest/docs/fleet-packages-guide
+# Replace YOUR_PROJECT_NUMBER and apply on each target cluster before creating
+# the FleetPackage:
+#   sed "s/YOUR_PROJECT_NUMBER/${PROJECT_NUMBER}/g" fleet-package/configdelivery-rbac.yaml | kubectl apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fleet-packages-impersonator
+rules:
+  - apiGroups:
+      - ""
+    resourceNames:
+      - service-YOUR_PROJECT_NUMBER@gcp-sa-configdelivery.iam.gserviceaccount.com
+    resources:
+      - users
+    verbs:
+      - impersonate
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fleet-packages-impersonator-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fleet-packages-impersonator
+subjects:
+  - kind: ServiceAccount
+    name: connect-agent-sa
+    namespace: gke-connect
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

@@ -15,6 +15,8 @@
 apiVersion: v1
 kind: Namespace
 metadata:
+  annotations:
+    client.lifecycle.config.k8s.io/deletion: detach
   labels:
     app.kubernetes.io/part-of: hybrid-cloud-agents
     pod-security.kubernetes.io/audit: restricted
@@ -22,6 +24,35 @@ metadata:
     pod-security.kubernetes.io/warn: restricted
     tier: agents
   name: agent-workloads
+---
+apiVersion: v1
+automountServiceAccountToken: false
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/component: external-secrets-auth
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: eso-agent-workloads-sa
+  namespace: agent-workloads
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  labels:
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: gcp-secret-manager
+  namespace: agent-workloads
+spec:
+  provider:
+    gcpsm:
+      auth:
+        workloadIdentityFederation:
+          audience: "identitynamespace:YOUR_PROJECT_ID.svc.id.goog:https://gkehub.googleapis.com/projects/YOUR_PROJECT_ID/locations/global/memberships/YOUR_AGENTS_CLUSTER_NAME"
+          serviceAccountRef:
+            audiences:
+              - YOUR_PROJECT_ID.svc.id.goog
+            name: eso-agent-workloads-sa
+      projectID: YOUR_PROJECT_ID
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

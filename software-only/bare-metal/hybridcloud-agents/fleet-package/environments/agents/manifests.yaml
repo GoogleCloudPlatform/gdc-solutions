@@ -339,10 +339,10 @@ metadata:
   namespace: agent-workloads
 spec:
   ports:
-    - name: metrics
-      port: 19000
-      protocol: TCP
-      targetPort: 19000
+  - name: metrics
+    port: 19000
+    protocol: TCP
+    targetPort: 19000
   selector:
     app.kubernetes.io/component: agent-egress-proxy
     app.kubernetes.io/name: agent-egress-envoy
@@ -360,10 +360,10 @@ metadata:
 spec:
   loadBalancerIP: YOUR_AGENTS_INGRESS_VIP
   ports:
-    - name: https-mtls
-      port: 8443
-      protocol: TCP
-      targetPort: 8443
+  - name: https-mtls
+    port: 8443
+    protocol: TCP
+    targetPort: 8443
   selector:
     app.kubernetes.io/component: agent-ingress-proxy
     app.kubernetes.io/name: agent-ingress-envoy
@@ -396,61 +396,61 @@ spec:
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
-            - podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app.kubernetes.io/name: agent-egress-envoy
-                topologyKey: kubernetes.io/hostname
-              weight: 100
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: agent-egress-envoy
+              topologyKey: kubernetes.io/hostname
+            weight: 100
       automountServiceAccountToken: false
       containers:
-        - args:
-            - -c
-            - /etc/envoy/envoy.yaml
-            - --disable-hot-restart
-          image: docker.io/envoyproxy/envoy:v1.33.2@sha256:e2baf0b155d0f54881b54621fdd997e3ec81dc6454f299d4e590afe18256a176
-          livenessProbe:
-            httpGet:
-              path: /ready
-              port: 19000
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          name: envoy
-          ports:
-            - containerPort: 19000
-              name: metrics
-              protocol: TCP
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: 19000
-            initialDelaySeconds: 3
-            periodSeconds: 5
-          resources:
-            limits:
-              cpu: 500m
-              memory: 256Mi
-            requests:
-              cpu: 100m
-              memory: 128Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-            readOnlyRootFilesystem: true
-          volumeMounts:
-            - mountPath: /etc/envoy
-              name: config
-              readOnly: true
-            - mountPath: /etc/envoy/tls
-              name: tls
-              readOnly: true
-            - mountPath: /etc/envoy/root-ca
-              name: root-ca
-              readOnly: true
-            - mountPath: /tmp
-              name: tmp
+      - args:
+        - -c
+        - /etc/envoy/envoy.yaml
+        - --disable-hot-restart
+        image: docker.io/envoyproxy/envoy:v1.33.2@sha256:e2baf0b155d0f54881b54621fdd997e3ec81dc6454f299d4e590afe18256a176
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: 19000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        name: envoy
+        ports:
+        - containerPort: 19000
+          name: metrics
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 19000
+          initialDelaySeconds: 3
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /etc/envoy
+          name: config
+          readOnly: true
+        - mountPath: /etc/envoy/tls
+          name: tls
+          readOnly: true
+        - mountPath: /etc/envoy/root-ca
+          name: root-ca
+          readOnly: true
+        - mountPath: /tmp
+          name: tmp
       securityContext:
         runAsGroup: 101
         runAsNonRoot: true
@@ -459,19 +459,19 @@ spec:
           type: RuntimeDefault
       serviceAccountName: agent-egress-envoy
       volumes:
-        - configMap:
-            name: agent-egress-envoy-config
-          name: config
-        - name: tls
-          secret:
-            secretName: agent-envoy-egress-client-tls
-        - name: root-ca
-          secret:
-            secretName: hybrid-agents-root-ca-bundle
-        - emptyDir:
-            medium: Memory
-            sizeLimit: 16Mi
-          name: tmp
+      - configMap:
+          name: agent-egress-envoy-config
+        name: config
+      - name: tls
+        secret:
+          secretName: agent-envoy-egress-client-tls
+      - name: root-ca
+        secret:
+          secretName: hybrid-agents-root-ca-bundle
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Mi
+        name: tmp
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -500,64 +500,64 @@ spec:
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
-            - podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app.kubernetes.io/name: agent-ingress-envoy
-                topologyKey: kubernetes.io/hostname
-              weight: 100
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: agent-ingress-envoy
+              topologyKey: kubernetes.io/hostname
+            weight: 100
       automountServiceAccountToken: false
       containers:
-        - args:
-            - -c
-            - /etc/envoy/envoy.yaml
-            - --disable-hot-restart
-          image: docker.io/envoyproxy/envoy:v1.33.2@sha256:e2baf0b155d0f54881b54621fdd997e3ec81dc6454f299d4e590afe18256a176
-          livenessProbe:
-            httpGet:
-              path: /ready
-              port: 19000
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          name: envoy
-          ports:
-            - containerPort: 8443
-              name: https-mtls
-              protocol: TCP
-            - containerPort: 19000
-              name: metrics
-              protocol: TCP
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: 19000
-            initialDelaySeconds: 3
-            periodSeconds: 5
-          resources:
-            limits:
-              cpu: 500m
-              memory: 256Mi
-            requests:
-              cpu: 100m
-              memory: 128Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-            readOnlyRootFilesystem: true
-          volumeMounts:
-            - mountPath: /etc/envoy
-              name: config
-              readOnly: true
-            - mountPath: /etc/envoy/tls
-              name: tls
-              readOnly: true
-            - mountPath: /etc/envoy/root-ca
-              name: root-ca
-              readOnly: true
-            - mountPath: /tmp
-              name: tmp
+      - args:
+        - -c
+        - /etc/envoy/envoy.yaml
+        - --disable-hot-restart
+        image: docker.io/envoyproxy/envoy:v1.33.2@sha256:e2baf0b155d0f54881b54621fdd997e3ec81dc6454f299d4e590afe18256a176
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: 19000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        name: envoy
+        ports:
+        - containerPort: 8443
+          name: https-mtls
+          protocol: TCP
+        - containerPort: 19000
+          name: metrics
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 19000
+          initialDelaySeconds: 3
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /etc/envoy
+          name: config
+          readOnly: true
+        - mountPath: /etc/envoy/tls
+          name: tls
+          readOnly: true
+        - mountPath: /etc/envoy/root-ca
+          name: root-ca
+          readOnly: true
+        - mountPath: /tmp
+          name: tmp
       securityContext:
         runAsGroup: 101
         runAsNonRoot: true
@@ -566,19 +566,19 @@ spec:
           type: RuntimeDefault
       serviceAccountName: agent-ingress-envoy
       volumes:
-        - configMap:
-            name: agent-ingress-envoy-config
-          name: config
-        - name: tls
-          secret:
-            secretName: agent-envoy-ingress-tls
-        - name: root-ca
-          secret:
-            secretName: hybrid-agents-root-ca-bundle
-        - emptyDir:
-            medium: Memory
-            sizeLimit: 16Mi
-          name: tmp
+      - configMap:
+          name: agent-ingress-envoy-config
+        name: config
+      - name: tls
+        secret:
+          secretName: agent-envoy-ingress-tls
+      - name: root-ca
+        secret:
+          secretName: hybrid-agents-root-ca-bundle
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Mi
+        name: tmp
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -613,16 +613,16 @@ metadata:
   namespace: agent-workloads
 spec:
   endpoints:
-    - interval: 30s
-      path: /stats/prometheus
-      port: metrics
+  - interval: 30s
+    path: /stats/prometheus
+    port: metrics
   selector:
     matchExpressions:
-      - key: app.kubernetes.io/component
-        operator: In
-        values:
-          - agent-ingress-proxy
-          - agent-egress-proxy
+    - key: app.kubernetes.io/component
+      operator: In
+      values:
+      - agent-ingress-proxy
+      - agent-egress-proxy
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -633,44 +633,44 @@ metadata:
   namespace: agent-workloads
 spec:
   egress:
-    - ports:
-        - port: 443
-          protocol: TCP
-      to:
-        - ipBlock:
-            cidr: YOUR_GATEWAY_INGRESS_VIP/32
-    - ports:
-        - port: 4317
-          protocol: TCP
-        - port: 4318
-          protocol: TCP
-      to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: otel-system
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/component: otel-collector
+  - ports:
+    - port: 443
+      protocol: TCP
+    to:
+    - ipBlock:
+        cidr: YOUR_GATEWAY_INGRESS_VIP/32
+  - ports:
+    - port: 4317
+      protocol: TCP
+    - port: 4318
+      protocol: TCP
+    to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: otel-system
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: otel-collector
   ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: gmp-system
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              managed-by: stackdriver
-      ports:
-        - port: 19000
-          protocol: TCP
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: gmp-system
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          managed-by: stackdriver
+    ports:
+    - port: 19000
+      protocol: TCP
   podSelector:
     matchLabels:
       app.kubernetes.io/component: agent-egress-proxy
   policyTypes:
-    - Ingress
-    - Egress
+  - Ingress
+  - Egress
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -681,38 +681,41 @@ metadata:
   namespace: agent-workloads
 spec:
   egress:
-    - ports:
-        - port: 4317
-          protocol: TCP
-        - port: 4318
-          protocol: TCP
-      to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: otel-system
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/component: otel-collector
+  - ports:
+    - port: 4317
+      protocol: TCP
+    - port: 4318
+      protocol: TCP
+    to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: otel-system
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: otel-collector
   ingress:
-    - ports:
-        - port: 8443
-          protocol: TCP
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: gmp-system
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              managed-by: stackdriver
-      ports:
-        - port: 19000
-          protocol: TCP
+  - from:
+    - ipBlock:
+        cidr: YOUR_GATEWAY_NODE_CIDR
+    ports:
+    - port: 8443
+      protocol: TCP
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: gmp-system
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          managed-by: stackdriver
+    ports:
+    - port: 19000
+      protocol: TCP
   podSelector:
     matchLabels:
       app.kubernetes.io/component: agent-ingress-proxy
   policyTypes:
-    - Ingress
-    - Egress
+  - Ingress
+  - Egress

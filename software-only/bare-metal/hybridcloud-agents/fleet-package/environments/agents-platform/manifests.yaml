@@ -16,6 +16,8 @@
 apiVersion: v1
 kind: Namespace
 metadata:
+  annotations:
+    client.lifecycle.config.k8s.io/deletion: detach
   labels:
     app.kubernetes.io/part-of: hybrid-cloud-agents
     pod-security.kubernetes.io/audit: restricted
@@ -27,12 +29,24 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
+  annotations:
+    client.lifecycle.config.k8s.io/deletion: detach
   labels:
     app.kubernetes.io/part-of: hybrid-cloud-agents
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
   name: otel-system
+---
+apiVersion: v1
+automountServiceAccountToken: false
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/component: external-secrets-auth
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: eso-agent-workloads-sa
+  namespace: agent-workloads
 ---
 apiVersion: v1
 automountServiceAccountToken: false
@@ -156,14 +170,14 @@ metadata:
   namespace: otel-system
 spec:
   ports:
-    - name: otlp-grpc
-      port: 4317
-      protocol: TCP
-      targetPort: otlp-grpc
-    - name: otlp-http
-      port: 4318
-      protocol: TCP
-      targetPort: otlp-http
+  - name: otlp-grpc
+    port: 4317
+    protocol: TCP
+    targetPort: otlp-grpc
+  - name: otlp-http
+    port: 4318
+    protocol: TCP
+    targetPort: otlp-http
   selector:
     app.kubernetes.io/component: otel-collector
     app.kubernetes.io/name: otel-collector
@@ -193,54 +207,54 @@ spec:
     spec:
       automountServiceAccountToken: false
       containers:
-        - env:
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-            - name: GOOGLE_APPLICATION_CREDENTIALS
-              value: /var/run/secrets/tokens/gcp-ksa/federated-credentials.json
-          image: us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google:0.147.0@sha256:8599e3a4101a67fff5c98ae6aea68c722d73366475a05624755a568c0e5d9278
-          livenessProbe:
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            tcpSocket:
-              port: otlp-grpc
-          name: otel-collector
-          ports:
-            - containerPort: 4317
-              name: otlp-grpc
-              protocol: TCP
-            - containerPort: 4318
-              name: otlp-http
-              protocol: TCP
-          readinessProbe:
-            initialDelaySeconds: 3
-            periodSeconds: 5
-            tcpSocket:
-              port: otlp-grpc
-          resources:
-            limits:
-              cpu: 500m
-              memory: 512Mi
-            requests:
-              cpu: 100m
-              memory: 256Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-            readOnlyRootFilesystem: true
-          volumeMounts:
-            - mountPath: /etc/otelcol-google
-              name: config
-              readOnly: true
-            - mountPath: /var/run/secrets/tokens/gcp-ksa
-              name: gcp-ksa
-              readOnly: true
-            - mountPath: /tmp
-              name: tmp
+      - env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /var/run/secrets/tokens/gcp-ksa/federated-credentials.json
+        image: us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google:0.147.0@sha256:8599e3a4101a67fff5c98ae6aea68c722d73366475a05624755a568c0e5d9278
+        livenessProbe:
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          tcpSocket:
+            port: otlp-grpc
+        name: otel-collector
+        ports:
+        - containerPort: 4317
+          name: otlp-grpc
+          protocol: TCP
+        - containerPort: 4318
+          name: otlp-http
+          protocol: TCP
+        readinessProbe:
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          tcpSocket:
+            port: otlp-grpc
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /etc/otelcol-google
+          name: config
+          readOnly: true
+        - mountPath: /var/run/secrets/tokens/gcp-ksa
+          name: gcp-ksa
+          readOnly: true
+        - mountPath: /tmp
+          name: tmp
       securityContext:
         fsGroup: 10001
         runAsGroup: 10001
@@ -250,26 +264,45 @@ spec:
           type: RuntimeDefault
       serviceAccountName: otel-collector-sa
       volumes:
-        - configMap:
-            name: otel-collector-config
-          name: config
-        - name: gcp-ksa
-          projected:
-            defaultMode: 288
-            sources:
-              - serviceAccountToken:
-                  audience: YOUR_PROJECT_ID.svc.id.goog
-                  expirationSeconds: 3600
-                  path: token
-              - configMap:
-                  items:
-                    - key: federated-credentials.json
-                      path: federated-credentials.json
-                  name: otel-fleet-wif-config
-        - emptyDir:
-            medium: Memory
-            sizeLimit: 16Mi
-          name: tmp
+      - configMap:
+          name: otel-collector-config
+        name: config
+      - name: gcp-ksa
+        projected:
+          defaultMode: 288
+          sources:
+          - serviceAccountToken:
+              audience: YOUR_PROJECT_ID.svc.id.goog
+              expirationSeconds: 3600
+              path: token
+          - configMap:
+              items:
+              - key: federated-credentials.json
+                path: federated-credentials.json
+              name: otel-fleet-wif-config
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Mi
+        name: tmp
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  labels:
+    app.kubernetes.io/part-of: hybrid-cloud-agents
+  name: gcp-secret-manager
+  namespace: agent-workloads
+spec:
+  provider:
+    gcpsm:
+      auth:
+        workloadIdentityFederation:
+          audience: identitynamespace:YOUR_PROJECT_ID.svc.id.goog:https://gkehub.googleapis.com/projects/YOUR_PROJECT_ID/locations/global/memberships/YOUR_AGENTS_CLUSTER_NAME
+          serviceAccountRef:
+            audiences:
+            - YOUR_PROJECT_ID.svc.id.goog
+            name: eso-agent-workloads-sa
+      projectID: YOUR_PROJECT_ID
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -280,21 +313,21 @@ metadata:
   namespace: agent-workloads
 spec:
   egress:
-    - ports:
-        - port: 53
-          protocol: UDP
-        - port: 53
-          protocol: TCP
-      to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
+  - ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+    to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
   podSelector: {}
   policyTypes:
-    - Egress
+  - Egress
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -306,8 +339,8 @@ metadata:
 spec:
   podSelector: {}
   policyTypes:
-    - Ingress
-    - Egress
+  - Ingress
+  - Egress
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -318,21 +351,21 @@ metadata:
   namespace: otel-system
 spec:
   egress:
-    - ports:
-        - port: 53
-          protocol: UDP
-        - port: 53
-          protocol: TCP
-      to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
+  - ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+    to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
   podSelector: {}
   policyTypes:
-    - Egress
+  - Egress
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -343,29 +376,29 @@ metadata:
   namespace: otel-system
 spec:
   egress:
-    - ports:
-        - port: 443
-          protocol: TCP
+  - ports:
+    - port: 443
+      protocol: TCP
   ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: agent-workloads
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: otel-system
-      ports:
-        - port: 4317
-          protocol: TCP
-        - port: 4318
-          protocol: TCP
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: agent-workloads
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: otel-system
+    ports:
+    - port: 4317
+      protocol: TCP
+    - port: 4318
+      protocol: TCP
   podSelector:
     matchLabels:
       app.kubernetes.io/component: otel-collector
       app.kubernetes.io/name: otel-collector
   policyTypes:
-    - Ingress
-    - Egress
+  - Ingress
+  - Egress
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -377,5 +410,5 @@ metadata:
 spec:
   podSelector: {}
   policyTypes:
-    - Ingress
-    - Egress
+  - Ingress
+  - Egress
