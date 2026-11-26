@@ -73,6 +73,7 @@ fi
   "${PRODUCTS_FILE}" \
   "${FLEET_ENV_DIR}" \
   "${TAG_NAME}" << 'EOF'
+import ast
 import json
 import os
 from pathlib import Path
@@ -493,6 +494,53 @@ if fleet_env_dir.is_dir():
         f"gateway-tools-platform={len(variant_objects['gateway-tools-platform'])}, "
         f"agents={len(variant_objects['agents'])}, overlap={len(overlap)})"
     )
+
+# Static FastAPI route check: union returns involving Response subclasses require response_model=None
+agents_src_dir = (script_dir / ".." / "agents").resolve()
+if agents_src_dir.is_dir():
+  for app_py in sorted(agents_src_dir.glob("*/app.py")):
+    rel_app = f"agents/{app_py.parent.name}/app.py"
+    try:
+      tree = ast.parse(app_py.read_text(encoding="utf-8"), filename=str(app_py))
+    except SyntaxError as exc:
+      errors.append(f"{rel_app}: Python syntax error: {exc}")
+      continue
+    for node in ast.walk(tree):
+      if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        continue
+      if node.returns is None:
+        continue
+      ret_node = node.returns
+      is_union = (
+          isinstance(ret_node, ast.BinOp) and isinstance(ret_node.op, ast.BitOr)
+      ) or (
+          isinstance(ret_node, ast.Subscript)
+          and isinstance(ret_node.value, ast.Name)
+          and ret_node.value.id == "Union"
+      )
+      ret_names = [
+          n.id for n in ast.walk(ret_node) if isinstance(n, ast.Name)
+      ]
+      if not (is_union and any("Response" in name for name in ret_names)):
+        continue
+      for dec in node.decorator_list:
+        if (
+            isinstance(dec, ast.Call)
+            and isinstance(dec.func, ast.Attribute)
+            and isinstance(dec.func.value, ast.Name)
+            and dec.func.value.id == "app"
+            and dec.func.attr in ("get", "post", "put", "delete", "patch", "api_route")
+        ):
+          has_rm_none = any(
+              kw.arg == "response_model"
+              and isinstance(kw.value, ast.Constant)
+              and kw.value.value is None
+              for kw in dec.keywords
+          )
+          if not has_rm_none:
+            errors.append(
+                f"{rel_app}:{dec.lineno}: FastAPI route '{node.name}' returns Response union {ret_names} without response_model=None"
+            )
 
 if errors:
   print("Preflight manifest validation FAILED:", file=sys.stderr)

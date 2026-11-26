@@ -1063,8 +1063,8 @@ async def invoke(request: Request) -> JSONResponse:
         CURRENT_TURN_PROMPT.reset(tok_prompt)
 
 
-@app.post("/invoke-stream")
-@app.post("/invoke/stream")
+@app.post("/invoke-stream", response_model=None)
+@app.post("/invoke/stream", response_model=None)
 async def invoke_stream(request: Request) -> StreamingResponse | JSONResponse:
     carrier = {k.lower(): v for k, v in request.headers.items()}
     parent_ctx = PROPAGATOR.extract(carrier=carrier)
