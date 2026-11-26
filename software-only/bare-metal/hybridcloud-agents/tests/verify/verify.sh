@@ -642,6 +642,65 @@ PY
     fi
   fi
 
+  # Security negative (B3): non-chat path on llm-router-v1 -> 404
+  out="$(agent_call adk-ops-orchestrator gateway /v1/completions \
+    '{"model": "enterprise-sovereign", "prompt": "Say OK."}' \
+    "x-data-classification=sovereign" \
+    "traceparent=00-${trace_id}-1010101010101007-01" 2>&1 || true)"
+  if detail="$(python3 - "${out}" <<'PY'
+import json, sys
+d = json.loads(sys.argv[1])
+raw = json.dumps(d.get("body"))
+ok = d.get("status") == 404 and "path_or_method_not_allowed" in raw
+print(f"HTTP {d.get('status')} path_or_method_not_allowed={'path_or_method_not_allowed' in raw}")
+raise SystemExit(0 if ok else 1)
+PY
+)"; then
+    record_result "S1-B3-NON-CHAT" "Step 1 Security" "PASS" "${detail}"
+  else
+    record_result "S1-B3-NON-CHAT" "Step 1 Security" "FAIL" "${detail:-${out:0:200}}"
+  fi
+
+  # Security negative (B3): HTTP client_mode override rejected -> 400
+  out="$(agent_call adk-ops-orchestrator agent /invoke \
+    '{"prompt": "Say OK.", "client_mode": "google_genai"}' \
+    "X-Data-Classification=sovereign" \
+    "traceparent=00-${trace_id}-1010101010101008-01" 2>&1 || true)"
+  if detail="$(python3 - "${out}" <<'PY'
+import json, sys
+d = json.loads(sys.argv[1])
+b = d.get("body") or {}
+ok = d.get("status") == 400 and b.get("reason") == "client_mode_override_not_allowed"
+print(f"HTTP {d.get('status')} reason={b.get('reason')}")
+raise SystemExit(0 if ok else 1)
+PY
+)"; then
+    record_result "S1-B3-CLIENT-MODE" "Step 1 Security" "PASS" "${detail}"
+  else
+    record_result "S1-B3-CLIENT-MODE" "Step 1 Security" "FAIL" "${detail:-${out:0:200}}"
+  fi
+
+  # Security negative (B7): unauthenticated gateway-catalog-v1 -> 401 (optional outside VPC)
+  check_unauth_workstation_curl "S1-B7-CATALOG-UNAUTH" "Step 1 Security" "/gateway-catalog/status"
+
+  # Security negative (B7): forged KSA JWT on /mcp discovery -> 401
+  out="$(agent_call adk-ops-orchestrator gateway /mcp \
+    '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}' \
+    "X-Agent-KSA-Token=forged-invalid-jwt-token" \
+    "traceparent=00-${trace_id}-1010101010101009-01" 2>&1 || true)"
+  if detail="$(python3 - "${out}" <<'PY'
+import json, sys
+d = json.loads(sys.argv[1])
+ok = d.get("status") == 401
+print(f"HTTP {d.get('status')} (expected 401 on invalid KSA JWT for /mcp)")
+raise SystemExit(0 if ok else 1)
+PY
+)"; then
+    record_result "S1-B7-MCP-JWT" "Step 1 Security" "PASS" "${detail}"
+  else
+    record_result "S1-B7-MCP-JWT" "Step 1 Security" "FAIL" "${detail:-${out:0:200}}"
+  fi
+
   # Cooldown before Batch 2 Gemini calls (PromptTokenLimit-Burst 2400pm)
   wait_gemini_cooldown "Step 1 Model Armor + failover batch"
 
@@ -941,6 +1000,30 @@ PY
     record_result "S3-SOV-BURST403" "Step 3 #1" "FAIL" "${detail:-${out:0:200}}"
   fi
 
+  # 5b. Sovereign negative (B1): mixed-case Cloud-Eligible and PUBLIC headers -> 403
+  local mc_ce mc_pub
+  mc_ce="$(agent_call adk-sovereign-agent gateway /v1/chat/completions \
+    '{"model": "google/gemma-4-31B-it", "messages": [{"role": "user", "content": "Say OK."}]}' \
+    "X-Data-Classification=Cloud-Eligible" \
+    "traceparent=00-${trace_id}-1111111111111114-01" 2>&1 || true)"
+  mc_pub="$(agent_call adk-sovereign-agent gateway /v1/chat/completions \
+    '{"model": "google/gemma-4-31B-it", "messages": [{"role": "user", "content": "Say OK."}]}' \
+    "X-Data-Classification=PUBLIC" \
+    "traceparent=00-${trace_id}-1111111111111115-01" 2>&1 || true)"
+  if detail="$(python3 - "${mc_ce}" "${mc_pub}" <<'PY'
+import json, sys
+d1, d2 = (json.loads(a) for a in sys.argv[1:3])
+ok1 = d1.get("status") == 403 and "CLOUD_BURST_FORBIDDEN_FOR_PRODUCT" in json.dumps(d1.get("body"))
+ok2 = d2.get("status") == 403 and "CLOUD_BURST_FORBIDDEN_FOR_PRODUCT" in json.dumps(d2.get("body"))
+print(f"Cloud-Eligible={d1.get('status')}({ok1}) PUBLIC={d2.get('status')}({ok2})")
+raise SystemExit(0 if (ok1 and ok2) else 1)
+PY
+)"; then
+    record_result "S3-SOV-MIXED-CASE" "Step 3 Security" "PASS" "${detail}"
+  else
+    record_result "S3-SOV-MIXED-CASE" "Step 3 Security" "FAIL" "${detail:-mixed-case burst check failed}"
+  fi
+
   # 6. Sovereign negative: enterprise-flash unauthorized model (403)
   out="$(agent_call adk-sovereign-agent gateway /v1/chat/completions \
     '{"model": "enterprise-flash", "messages": [{"role": "user", "content": "Say OK."}]}' \
@@ -1027,6 +1110,42 @@ PY
     else
       record_result "S3-A2A2B" "Step 3 #4" "FAIL" "${detail:-${out:0:200}}"
     fi
+  fi
+
+  # 9b. Security negative (B5): dispatch path-suffix passthrough blocked -> 404
+  out="$(agent_call adk-ops-orchestrator gateway /a2a/sovereign/ops-orchestrator/invoke \
+    '{"prompt": "Say OK."}' \
+    "traceparent=00-${trace_id}-3434343434343433-01" 2>&1 || true)"
+  if detail="$(python3 - "${out}" <<'PY'
+import json, sys
+d = json.loads(sys.argv[1])
+raw = json.dumps(d.get("body"))
+ok = d.get("status") == 404 and "path_or_method_not_allowed" in raw
+print(f"HTTP {d.get('status')} path_or_method_not_allowed={'path_or_method_not_allowed' in raw}")
+raise SystemExit(0 if ok else 1)
+PY
+)"; then
+    record_result "S3-B5-DISPATCH-ISOLATION" "Step 3 Security" "PASS" "${detail}"
+  else
+    record_result "S3-B5-DISPATCH-ISOLATION" "Step 3 Security" "FAIL" "${detail:-${out:0:200}}"
+  fi
+
+  # 9c. Security negative (B6): sovereign agent egress key cannot invoke northbound ops dispatch -> 401
+  out="$(agent_call adk-sovereign-agent gateway /agents/ops-orchestrator/invoke \
+    '{"prompt": "Say OK."}' \
+    "traceparent=00-${trace_id}-3434343434343434-01" 2>&1 || true)"
+  if detail="$(python3 - "${out}" <<'PY'
+import json, sys
+d = json.loads(sys.argv[1])
+raw = json.dumps(d.get("body"))
+ok = d.get("status") in (401, 403) and "InvalidApiKeyForGivenResource" in raw
+print(f"HTTP {d.get('status')} InvalidApiKeyForGivenResource={'InvalidApiKeyForGivenResource' in raw}")
+raise SystemExit(0 if ok else 1)
+PY
+)"; then
+    record_result "S3-B6-DISPATCH-SCOPE" "Step 3 Security" "PASS" "${detail}"
+  else
+    record_result "S3-B6-DISPATCH-SCOPE" "Step 3 Security" "FAIL" "${detail:-${out:0:200}}"
   fi
 
   # 10. MCP positive (ops: tools/list + SQL + 8-dim pgvector)
@@ -1192,9 +1311,9 @@ PY
   # Cooldown before Batch 2 orchestrator LLM calls (PromptTokenLimit-Burst 2400pm on ops-orchestrator-app)
   wait_gemini_cooldown "Step 3 cloud-eligible A2A-1b + Model Armor + failover batch"
 
-  # 19. A2A-1b: Orchestrator cloud-eligible Gemini + sovereign A2A subcall (Batch 2)
+  # 19. A2A-1b: Orchestrator cloud-eligible start + sticky sovereign downgrade after A2A subcall (B6)
   out="$(agent_call adk-ops-orchestrator agent /invoke \
-    '{"prompt": "Run an ops triage that delegates residency policy verification for SYN-POL-001 to the sovereign specialist.", "policy_category": "residency", "include_cloud_mcp_tools": false}' \
+    '{"prompt": "Run an ops triage that delegates residency policy verification for SYN-POL-001 to the sovereign specialist.", "policy_category": "residency", "enable_cloud_mcp": false}' \
     "X-Data-Classification=cloud-eligible" \
     "traceparent=00-${trace_id}-3333333333333333-01" 2>&1 || true)"
   mark_gemini_call
@@ -1203,17 +1322,25 @@ import json, sys
 d = json.loads(sys.argv[1])
 b = d.get("body") or {}
 sub = b.get("a2a_subcall") or {}
+backends = b.get("llm_backends_used") or []
+tainted = b.get("sovereign_tainted") is True and b.get("effective_data_classification") == "sovereign"
+# When the model invokes the A2A tool (normal ADK path), Turn 2 synthesis MUST downgrade to local-vllm.
+if sub.get("triggered_by") == "adk_tool_call":
+    synthesis_ok = b.get("llm_backend") == "local-vllm" and (not backends or backends[-1] == "local-vllm")
+else:
+    synthesis_ok = True
 ok = (
     d.get("status") == 200
-    and str(b.get("llm_backend", "")).startswith("vertex-gemini")
+    and tainted
+    and synthesis_ok
     and sub.get("http_status") == 200
     and sub.get("peer_llm_backend") == "local-vllm"
     and "SYN-POL-001" in json.dumps(b)
 )
 if ok:
-    print(f"HTTP {d.get('status')} backend={b.get('llm_backend')} a2a={sub.get('http_status')} peer={sub.get('peer_llm_backend')} SYN-POL-001=True")
+    print(f"HTTP {d.get('status')} tainted={tainted} backends={backends} final={b.get('llm_backend')} a2a={sub.get('http_status')} peer={sub.get('peer_llm_backend')} SYN-POL-001=True")
 else:
-    print(f"HTTP {d.get('status')} backend={b.get('llm_backend')} a2a={sub.get('http_status')} detail={str(b)[:160]}")
+    print(f"HTTP {d.get('status')} tainted={tainted} backends={backends} final={b.get('llm_backend')} a2a={sub.get('http_status')} detail={str(b)[:160]}")
 raise SystemExit(0 if ok else 1)
 PY
 )"; then

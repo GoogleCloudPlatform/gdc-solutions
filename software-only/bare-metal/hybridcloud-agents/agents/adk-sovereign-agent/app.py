@@ -16,7 +16,7 @@
 
 Security and architectural invariants:
   1. Zero code execution or shell tools: `code_executor=None`, no subprocess/exec/skill-script tools.
-  2. Strict proxy mediation: all LLM (`ApigeeLlm` OpenAI `/v1/chat/completions` facade and native `Gemini` `/v1beta` facade) and MCP
+  2. Strict proxy mediation: all LLM (`ApigeeLlm` OpenAI `/v1/chat/completions` facade) and MCP
      (`/mcp-toolbox` and Apigee built-in `/mcp`) HTTP calls target ONLY the local Envoy egress proxy
      (`http://agent-egress-envoy.agent-workloads.svc.cluster.local:15001`), injecting the kubelet-rotated
      projected KSA JWT (`x-agent-ksa-token`) and W3C `traceparent`.
@@ -25,14 +25,13 @@ Security and architectural invariants:
      and ADK message/tool content capture (`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=false` and
      `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false`).
   4. AI Gateway capabilities: decoupled virtual model aliases (`MODEL_ALIAS=enterprise-sovereign`),
-     first-party ADK dual SDK facade (`ADK_CLIENT_MODE=apigee_openai|google_genai` with zero `litellm` dependency),
+     config-time `ADK_CLIENT_MODE=apigee_openai` (with zero `litellm` dependency and no HTTP override),
      ADK `McpToolset` discovery against Apigee `/mcp`, and real-time SSE streaming (`/invoke-stream`).
 """
 
 from __future__ import annotations
 
 import contextvars
-import functools
 import json
 import os
 import uuid
@@ -47,11 +46,9 @@ os.environ.setdefault("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "fal
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
-from google import genai
 from google.adk.agents import Agent
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.models.apigee_llm import ApigeeLlm
-from google.adk.models.google_llm import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.adk.tools.mcp_tool import McpToolset
@@ -64,7 +61,6 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import SpanKind, Status, StatusCode
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-from pydantic import PrivateAttr
 
 APP_NAME = "adk-sovereign-agent"
 AGENT_CARD_PATH = Path(os.getenv("AGENT_CARD_PATH", "/app/agent-card.json"))
@@ -81,11 +77,19 @@ OTLP_TRACES_ENDPOINT = os.getenv(
 )
 MODEL_ALIAS = os.getenv("MODEL_ALIAS", "enterprise-sovereign")
 SOVEREIGN_MODEL_NAME = os.getenv("SOVEREIGN_MODEL_NAME", "google/gemma-4-31B-it")
-ADK_CLIENT_MODE = os.getenv("ADK_CLIENT_MODE", "apigee_openai")
+ADK_CLIENT_MODE = os.getenv("ADK_CLIENT_MODE", "apigee_openai").strip().lower()
+if ADK_CLIENT_MODE != "apigee_openai":
+    raise ValueError(
+        f"Unsupported ADK_CLIENT_MODE={ADK_CLIENT_MODE!r}; only 'apigee_openai' is permitted."
+    )
 
 AGENT_CARD = json.loads(AGENT_CARD_PATH.read_text(encoding="utf-8"))
 PROPAGATOR = TraceContextTextMapPropagator()
 REQUEST_COUNTERS: Counter[tuple[str, str]] = Counter()
+
+
+class ClientModeOverrideError(ValueError):
+    """Raised when an HTTP request attempts to override config-time ADK_CLIENT_MODE."""
 
 
 @dataclass
@@ -134,45 +138,6 @@ def _record_gateway_headers(headers: dict[str, str]) -> None:
 
 async def _on_httpx_response(response: httpx.Response) -> None:
     _record_gateway_headers(dict(response.headers))
-
-
-class GatewayGemini(Gemini):
-    """ADK native `google-genai` model wrapper routed strictly through Envoy -> Apigee `/v1beta`."""
-
-    _base_url: str = PrivateAttr(default="")
-    _api_key: str = PrivateAttr(default="")
-    _headers: dict[str, str] = PrivateAttr(default_factory=dict)
-    _httpx_async_client: httpx.AsyncClient | None = PrivateAttr(default=None)
-
-    def __init__(
-        self,
-        *,
-        model: str,
-        base_url: str,
-        api_key: str,
-        headers: dict[str, str],
-        httpx_async_client: httpx.AsyncClient | None = None,
-    ):
-        super().__init__(model=model)
-        self._base_url = base_url
-        self._api_key = api_key
-        self._headers = headers
-        self._httpx_async_client = httpx_async_client
-
-    @functools.cached_property
-    def api_client(self) -> genai.Client:
-        opts_kwargs: dict[str, object] = {
-            "base_url": self._base_url,
-            "api_version": "v1beta",
-            "headers": self._headers,
-        }
-        if self._httpx_async_client is not None:
-            opts_kwargs["httpx_async_client"] = self._httpx_async_client
-        return genai.Client(
-            api_key=self._api_key,
-            vertexai=False,
-            http_options=genai_types.HttpOptions(**opts_kwargs),
-        )
 
 
 resource = Resource.create(
@@ -318,11 +283,14 @@ def _build_hardened_agent(
     data_classification: str,
     traceparent: str,
     requested_model: str,
-    client_mode: str,
-    httpx_client: httpx.AsyncClient | None,
+    client_mode: str = ADK_CLIENT_MODE,
     enable_apigee_mcp: bool = False,
     streaming: bool = False,
 ) -> tuple[Agent, list[McpToolset]]:
+    if client_mode != "apigee_openai":
+        raise ClientModeOverrideError(
+            f"Unsupported client_mode={client_mode!r}; only 'apigee_openai' is permitted."
+        )
     ksa_jwt = _read_projected_ksa_token()
     extra_headers = {
         "Authorization": f"Bearer {ksa_jwt}",
@@ -330,38 +298,29 @@ def _build_hardened_agent(
         "x-data-classification": data_classification,
         "traceparent": traceparent,
     }
-    if client_mode == "google_genai":
-        llm: object = GatewayGemini(
-            model=requested_model,
-            base_url=EGRESS_PROXY_BASE,
-            api_key=ksa_jwt,
-            headers=extra_headers,
-            httpx_async_client=httpx_client,
-        )
-    else:
-        apigee_model = (
-            requested_model
-            if requested_model.startswith("apigee/")
-            else f"apigee/openai/{requested_model}"
-        )
-        apigee_llm = ApigeeLlm(
-            model=apigee_model,
-            proxy_url=f"{EGRESS_PROXY_BASE}/v1",
-            custom_headers=extra_headers,
-        )
-        apigee_llm._completions_http_client._client.event_hooks["response"].append(
-            _on_httpx_response
-        )
-        orig_construct_payload = apigee_llm._completions_http_client._construct_payload
+    apigee_model = (
+        requested_model
+        if requested_model.startswith("apigee/")
+        else f"apigee/openai/{requested_model}"
+    )
+    apigee_llm = ApigeeLlm(
+        model=apigee_model,
+        proxy_url=f"{EGRESS_PROXY_BASE}/v1",
+        custom_headers=extra_headers,
+    )
+    apigee_llm._completions_http_client._client.event_hooks.setdefault(
+        "response", []
+    ).append(_on_httpx_response)
+    orig_construct_payload = apigee_llm._completions_http_client._construct_payload
 
-        def _construct_payload(llm_request: object, stream: bool) -> dict[str, object]:
-            payload = orig_construct_payload(llm_request, stream)
-            if stream:
-                payload["stream_options"] = {"include_usage": True}
-            return payload
+    def _construct_payload(llm_request: object, stream: bool) -> dict[str, object]:
+        payload = orig_construct_payload(llm_request, stream)
+        if stream:
+            payload["stream_options"] = {"include_usage": True}
+        return payload
 
-        apigee_llm._completions_http_client._construct_payload = _construct_payload
-        llm = apigee_llm
+    apigee_llm._completions_http_client._construct_payload = _construct_payload
+    llm: object = apigee_llm
 
     tools: list[object] = [] if streaming else [lookup_sovereign_policy_via_gateway]
     mcp_toolsets: list[McpToolset] = []
@@ -455,9 +414,6 @@ async def _execute_adk_turn(
     turn_state = _TurnTelemetry()
     tok_state = TURN_TELEMETRY.set(turn_state)
     mcp_toolsets: list[McpToolset] = []
-    httpx_client = httpx.AsyncClient(
-        timeout=45.0, event_hooks={"response": [_on_httpx_response]}
-    )
     try:
         with tracer.start_as_current_span(
             "gen_ai.agent.invoke",
@@ -490,7 +446,6 @@ async def _execute_adk_turn(
                 traceparent,
                 requested_model,
                 client_mode,
-                httpx_client,
                 enable_apigee_mcp=enable_apigee_mcp,
                 streaming=False,
             )
@@ -530,11 +485,7 @@ async def _execute_adk_turn(
 
                 routed_backend = turn_state.llm_backend
                 if routed_backend == "unknown":
-                    routed_backend = (
-                        "local-vllm-genai-facade"
-                        if client_mode == "google_genai"
-                        else "local-vllm"
-                    )
+                    routed_backend = "local-vllm"
                 resolved_model = turn_state.resolved_model or SOVEREIGN_MODEL_NAME
                 routed_tier = turn_state.routed_tier or "local-vllm"
 
@@ -632,11 +583,7 @@ async def _execute_adk_turn(
                         "model_alias": requested_model,
                         "model": SOVEREIGN_MODEL_NAME,
                         "trace_id": trace_id_hex,
-                        "mediated_via": (
-                            f"{EGRESS_PROXY_BASE}/v1beta"
-                            if client_mode == "google_genai"
-                            else f"{EGRESS_PROXY_BASE}/v1"
-                        ),
+                        "mediated_via": f"{EGRESS_PROXY_BASE}/v1",
                         "zero_bypass_enforced": True,
                         "upstream_http_status": status_code,
                         "error_type": err_type,
@@ -650,13 +597,18 @@ async def _execute_adk_turn(
                 await ts.close()
             except Exception:  # pylint: disable=broad-exception-caught
                 pass
-        await httpx_client.aclose()
         TURN_TELEMETRY.reset(tok_state)
 
 
 def _parse_common_request(
     request: Request, payload: dict
 ) -> tuple[str, str, str, str, str]:
+    if "client_mode" in payload and payload.get("client_mode") is not None:
+        raise ClientModeOverrideError(
+            "client_mode is configured at deployment time via ADK_CLIENT_MODE "
+            "and cannot be overridden per HTTP request."
+        )
+
     header_cls = request.headers.get("x-data-classification", "").strip().lower()
     body_cls = str(payload.get("data_classification", "")).strip().lower()
     classification = header_cls or body_cls or "sovereign"
@@ -682,9 +634,7 @@ def _parse_common_request(
     requested_model = str(
         payload.get("model_alias") or payload.get("model") or MODEL_ALIAS
     ).strip()
-    client_mode = str(payload.get("client_mode") or ADK_CLIENT_MODE).strip().lower()
-    if client_mode not in ("apigee_openai", "google_genai"):
-        client_mode = "apigee_openai"
+    client_mode = ADK_CLIENT_MODE
     return prompt_text, classification, user_id, requested_model, client_mode
 
 
@@ -694,9 +644,20 @@ async def invoke(request: Request) -> JSONResponse:
     carrier = {k.lower(): v for k, v in request.headers.items()}
     parent_ctx = PROPAGATOR.extract(carrier=carrier)
     payload = await request.json()
-    prompt_text, classification, user_id, requested_model, client_mode = (
-        _parse_common_request(request, payload)
-    )
+    try:
+        prompt_text, classification, user_id, requested_model, client_mode = (
+            _parse_common_request(request, payload)
+        )
+    except ClientModeOverrideError as exc:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "invalid_request",
+                "reason": "client_mode_override_not_allowed",
+                "agent": APP_NAME,
+                "detail": str(exc),
+            },
+        )
     is_a2a_rpc = payload.get("jsonrpc") == "2.0" and str(payload.get("method", "")) in (
         "message/send",
         "tasks/send",
@@ -721,21 +682,29 @@ async def invoke(request: Request) -> JSONResponse:
 
 @app.post("/invoke-stream")
 @app.post("/invoke/stream")
-async def invoke_stream(request: Request) -> StreamingResponse:
+async def invoke_stream(request: Request) -> StreamingResponse | JSONResponse:
     carrier = {k.lower(): v for k, v in request.headers.items()}
     parent_ctx = PROPAGATOR.extract(carrier=carrier)
     payload = await request.json()
-    prompt_text, classification, user_id, requested_model, client_mode = (
-        _parse_common_request(request, payload)
-    )
+    try:
+        prompt_text, classification, user_id, requested_model, client_mode = (
+            _parse_common_request(request, payload)
+        )
+    except ClientModeOverrideError as exc:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "invalid_request",
+                "reason": "client_mode_override_not_allowed",
+                "agent": APP_NAME,
+                "detail": str(exc),
+            },
+        )
     trace_seed_hex = uuid.uuid4().hex
 
     async def _sse_generator() -> AsyncIterator[str]:
         turn_state = _TurnTelemetry()
         tok_state = TURN_TELEMETRY.set(turn_state)
-        httpx_client = httpx.AsyncClient(
-            timeout=120.0, event_hooks={"response": [_on_httpx_response]}
-        )
         mcp_toolsets: list[McpToolset] = []
         agent: Agent | None = None
         try:
@@ -759,7 +728,6 @@ async def invoke_stream(request: Request) -> StreamingResponse:
                     traceparent,
                     requested_model,
                     client_mode,
-                    httpx_client,
                     enable_apigee_mcp=False,
                     streaming=True,
                 )
@@ -836,7 +804,6 @@ async def invoke_stream(request: Request) -> StreamingResponse:
                     await ts.close()
                 except Exception:  # pylint: disable=broad-exception-caught
                     pass
-            await httpx_client.aclose()
             TURN_TELEMETRY.reset(tok_state)
 
     return StreamingResponse(

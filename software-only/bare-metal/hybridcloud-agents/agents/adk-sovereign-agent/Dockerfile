@@ -42,7 +42,7 @@ COPY agent-card.json /app/agent-card.json
 COPY app.py /app/app.py
 
 RUN chown -R 10001:10001 /app && \
-    python -c "import importlib.util, app; from google.adk.models.apigee_llm import ApigeeLlm; assert importlib.util.find_spec('litellm') is None; ag, _ = app._build_hardened_agent('sovereign', '00-00', 'enterprise-sovereign', 'apigee_openai', None, streaming=True); assert isinstance(ag.model, ApigeeLlm) and ag.model.model == 'apigee/openai/enterprise-sovereign' and ag.model._api_type == ApigeeLlm.ApiType.CHAT_COMPLETIONS and ag.model._isvertexai is False and ag.model._custom_headers['Authorization'].startswith('Bearer '); ag_g, _ = app._build_hardened_agent('sovereign', '00-00', 'enterprise-sovereign', 'google_genai', None, streaming=False); assert isinstance(ag_g.model, app.GatewayGemini) and app.AGENT_CARD['name'] == 'adk-sovereign-agent' and app.AGENT_CARD['version'] == '0.2.0' and app.AGENT_CARD['capabilities']['streaming'] is True"
+    python -c "import importlib.util, app; from google.adk.models.apigee_llm import ApigeeLlm; assert importlib.util.find_spec('litellm') is None; ag, _ = app._build_hardened_agent('sovereign', '00-00', 'enterprise-sovereign', 'apigee_openai', streaming=True); assert isinstance(ag.model, ApigeeLlm) and ag.model.model == 'apigee/openai/enterprise-sovereign' and ag.model._api_type == ApigeeLlm.ApiType.CHAT_COMPLETIONS and ag.model._isvertexai is False and ag.model._custom_headers['Authorization'].startswith('Bearer ') and ag.code_executor is None and app.AGENT_CARD['name'] == 'adk-sovereign-agent' and app.AGENT_CARD['version'] == '0.2.0' and app.AGENT_CARD['capabilities']['streaming'] is True"
 
 USER 10001:10001
 EXPOSE 8080
